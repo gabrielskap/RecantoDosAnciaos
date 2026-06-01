@@ -1,0 +1,8 @@
+{
+  "name": "Copy of GeriCare Pro - ILPI System",
+  "description": "A comprehensive Long-term Care Facility management system featuring Electronic Health Records, Financial Management, Inventory, and integrated Gemini AI assistance.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": []
+}
