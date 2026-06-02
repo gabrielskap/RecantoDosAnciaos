@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { 
-  ArrowLeft, Activity, Pill, FileText, Sparkles, 
+import {
+  ArrowLeft, Activity, Pill, FileText, Sparkles,
   Thermometer, Heart, CheckCircle, PenTool, ShieldCheck,
   ClipboardList, History, Plus, User, Clock, File, Paperclip, CalendarCheck, AlertOctagon,
-  BedDouble, Home, Wrench, PaintRoller, Edit2
+  BedDouble, Home, Wrench, PaintRoller, Edit2, Printer
 } from 'lucide-react';
 import { Resident, CarePlan, AuditLog, DailyChecklist, Medication, RoomStatus } from '../types';
 import { summarizePatientHealth } from '../services/geminiService';
@@ -58,6 +58,520 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, onBack, onU
 
   const handleCancelEditChecklist = () => {
     setChecklistDraft(null);
+  };
+
+  const handlePrintFilledChecklist = () => {
+    const c = todayChecklist;
+    const dateFormatted = new Date(today + 'T12:00:00').toLocaleDateString('pt-BR', {
+      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+    });
+    const careLevelLabel = resident.careLevel === 'I' ? 'Grau I – Baixa Dependência' :
+      resident.careLevel === 'II' ? 'Grau II – Média Dependência' : 'Grau III – Alta Dependência';
+
+    const val = (v: string | undefined | boolean, fallback = 'Não informado') =>
+      v !== undefined && v !== '' && v !== false ? String(v) : fallback;
+
+    const check = (condition: boolean) => condition ? '&#10003;' : '&#9633;';
+
+    const rowHtml = (label: string, value: string, highlight = false) => `
+      <tr>
+        <td class="lbl">${label}</td>
+        <td class="vl ${highlight ? 'hl' : ''}">${value}</td>
+      </tr>`;
+
+    const alimentacaoLabel = c.alimentacao === 'boa' ? 'Boa Aceitação' :
+      c.alimentacao === 'moderada' ? 'Aceitação Moderada' :
+      c.alimentacao === 'ruim' ? `Ruim${c.alimentacaoDesc ? ': ' + c.alimentacaoDesc : ''}` : 'Não informado';
+
+    const evacuacaoLabel = c.eliminacaoEvacuacao === 'presente'
+      ? `Presente${c.eliminacaoEvacuacaoDias ? ' (há ' + c.eliminacaoEvacuacaoDias + ' dias)' : ''}`
+      : c.eliminacaoEvacuacao === 'ausente' ? `Ausente${c.eliminacaoEvacuacaoDias ? ' (há ' + c.eliminacaoEvacuacaoDias + ' dias)' : ''}` : 'Não informado';
+
+    const aspectoFecalLabel = c.aspectoEvacuacoes === 'endurecidas' ? 'Fezes Endurecidas' :
+      c.aspectoEvacuacoes === 'pastosa' ? 'Pastosa' :
+      c.aspectoEvacuacoes === 'semi-liquidas' ? 'Semi-líquidas' :
+      c.aspectoEvacuacoes === 'liquida-diarreia' ? 'Líquida / Diarreia' : 'Não informado';
+
+    const diureseLabel = c.diurese === 'ausente' ? 'Ausente' :
+      c.diurese === 'aumentada' ? 'Aumentada' :
+      c.diurese === 'diminuida' ? 'Diminuída' : 'Adequada / Normal';
+
+    const diureseAspectoLabel = c.diureseAspecto === 'clara' ? 'Urina Clara' :
+      c.diureseAspecto === 'concentrada' ? 'Concentrada' :
+      c.diureseAspecto === 'odor-sangue-ardencia' ? 'Com Odor, Sangue ou Ardência' : 'Não informado';
+
+    const mobilidadeLabel = c.mobilidadeSet === 'independente' ? 'Independente' :
+      c.mobilidadeSet === 'auxilio' ? 'Necessita de Auxílio' :
+      c.mobilidadeSet === 'acamado' ? 'Acamado' : 'Não informado';
+
+    const comportamento = [
+      c.agitado && 'Agitado',
+      c.prostrado && 'Prostrado',
+      c.sonolento && 'Sonolento',
+    ].filter(Boolean);
+    const comportamentoLabel = comportamento.length > 0 ? comportamento.join(', ') : 'Calmo / Estável';
+
+    const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <title>Boletim Diário – ${resident.name}</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#111;padding:20px 28px;background:#fff}
+    h1{font-size:17px;font-weight:700;text-align:center;letter-spacing:.5px;margin-bottom:2px}
+    .subtitle{font-size:10px;text-align:center;color:#555;margin-bottom:14px}
+    .header-box{border:1.5px solid #333;border-radius:6px;padding:10px 14px;margin-bottom:14px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px 16px}
+    .hf{display:flex;gap:4px;align-items:baseline}
+    .hf .lb{font-weight:700;font-size:10px;white-space:nowrap}
+    .hf .hv{font-size:11px;color:#111}
+    .two-col{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+    .section{page-break-inside:avoid}
+    .section-title{background:#1e293b;color:#fff;font-size:10px;font-weight:700;padding:4px 8px;text-transform:uppercase;letter-spacing:.6px;border-radius:3px 3px 0 0}
+    table{width:100%;border-collapse:collapse;border:1px solid #ccc;border-top:none;border-radius:0 0 3px 3px;overflow:hidden}
+    tr:nth-child(even){background:#f8fafc}
+    td{padding:4px 8px;vertical-align:middle;border-bottom:1px solid #e2e8f0}
+    td.lbl{font-weight:600;font-size:10px;color:#475569;width:42%;white-space:nowrap}
+    td.vl{font-size:11px;color:#0f172a}
+    td.hl{font-weight:700;color:#be123c}
+    td.ok{font-weight:700;color:#15803d}
+    td.warn{font-weight:700;color:#b45309}
+    .full-section{margin-bottom:10px;page-break-inside:avoid}
+    .text-block{border:1px solid #ccc;border-top:none;padding:6px 8px;font-size:11px;min-height:32px;white-space:pre-wrap;background:#fafafa;color:#0f172a}
+    .intercorrencia-block{background:#fff1f2;border:1px solid #fca5a5;border-top:none;padding:6px 8px;font-size:11px;font-weight:600;color:#991b1b;min-height:32px;white-space:pre-wrap}
+    .footer{margin-top:18px;border-top:1.5px solid #333;padding-top:12px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+    .ff{display:flex;flex-direction:column;gap:3px}
+    .ff .lb{font-weight:700;font-size:10px}
+    .ff .ln{border-bottom:1px solid #555;min-height:20px}
+    .sig{grid-column:1/3}
+    .badge{display:inline-block;padding:2px 8px;border-radius:99px;font-size:10px;font-weight:700}
+    .badge-ok{background:#dcfce7;color:#166534;border:1px solid #86efac}
+    .badge-warn{background:#fef3c7;color:#92400e;border:1px solid #fcd34d}
+    .badge-danger{background:#fee2e2;color:#991b1b;border:1px solid #fca5a5}
+    .badge-neutral{background:#f1f5f9;color:#334155;border:1px solid #cbd5e1}
+    .print-meta{font-size:9px;text-align:center;color:#94a3b8;margin-top:10px}
+    @media print{body{padding:12px 16px}@page{margin:10mm 12mm;size:A4}}
+  </style>
+</head>
+<body>
+  <h1>RECANTO DOS ANCIÃOS</h1>
+  <div class="subtitle">Boletim Diário de Acompanhamento — Prontuário Clínico e de Rotina</div>
+
+  <div class="header-box">
+    <div class="hf"><span class="lb">Residente:</span><span class="hv">${resident.name}</span></div>
+    <div class="hf"><span class="lb">Quarto:</span><span class="hv">${resident.room}</span></div>
+    <div class="hf"><span class="lb">Data:</span><span class="hv">${dateFormatted}</span></div>
+    <div class="hf"><span class="lb">Nível de Cuidado:</span><span class="hv">${careLevelLabel}</span></div>
+    <div class="hf"><span class="lb">Idade:</span><span class="hv">${resident.age} anos</span></div>
+    <div class="hf"><span class="lb">Status:</span><span class="badge badge-ok">&#10003; Registrado no Prontuário</span></div>
+  </div>
+
+  <div class="two-col">
+    <div class="section">
+      <div class="section-title">1. Sintomas &amp; Estado Geral</div>
+      <table>
+        ${rowHtml('Queixa de Dor',
+          c.queixaDor === 'sim'
+            ? `<span class="badge badge-danger">Sim${c.queixaDorDesc ? ': ' + c.queixaDorDesc : ''}</span>`
+            : '<span class="badge badge-ok">Não relatada</span>'
+        )}
+        ${rowHtml('Oxigenação',
+          c.arAmbiente
+            ? '<span class="badge badge-ok">Ar Ambiente (Respiração normal)</span>'
+            : '<span class="badge badge-warn">Necessitando de O₂ Suplementar</span>'
+        )}
+        ${rowHtml('Estado Neurológico', `<span>${val(c.estadoNeurologico)}</span>`)}
+        ${rowHtml('Comportamento',
+          comportamento.length > 0
+            ? `<span class="badge badge-warn">${comportamentoLabel}</span>`
+            : '<span class="badge badge-ok">Calmo / Estável</span>'
+        )}
+      </table>
+    </div>
+
+    <div class="section">
+      <div class="section-title">2. Alimentação &amp; Eliminações</div>
+      <table>
+        ${rowHtml('Alimentação',
+          c.alimentacao === 'boa' ? '<span class="badge badge-ok">Boa Aceitação</span>' :
+          c.alimentacao === 'moderada' ? '<span class="badge badge-warn">Aceitação Moderada</span>' :
+          c.alimentacao === 'ruim' ? `<span class="badge badge-danger">${alimentacaoLabel}</span>` :
+          '<span class="badge badge-neutral">Não informado</span>'
+        )}
+        ${rowHtml('Evacuação',
+          c.eliminacaoEvacuacao === 'presente' ? `<span class="badge badge-ok">${evacuacaoLabel}</span>` :
+          c.eliminacaoEvacuacao === 'ausente' ? `<span class="badge badge-danger">${evacuacaoLabel}</span>` :
+          '<span class="badge badge-neutral">Não informado</span>'
+        )}
+        ${rowHtml('Aspecto Fecal',
+          c.aspectoEvacuacoes === 'liquida-diarreia' ? `<span class="badge badge-danger">${aspectoFecalLabel}</span>` :
+          `<span class="badge badge-neutral">${aspectoFecalLabel}</span>`
+        )}
+        ${rowHtml('Diurese', `<span class="badge badge-neutral">${diureseLabel}</span>`)}
+        ${rowHtml('Aspecto Urinário',
+          c.diureseAspecto === 'odor-sangue-ardencia' ? `<span class="badge badge-danger">${diureseAspectoLabel}</span>` :
+          `<span class="badge badge-neutral">${diureseAspectoLabel}</span>`
+        )}
+      </table>
+    </div>
+
+    <div class="section">
+      <div class="section-title">3. Cuidados &amp; Mobilidade</div>
+      <table>
+        ${rowHtml('Uso de Fraldas',
+          `<span class="badge badge-neutral">${c.usoFraldas === 'sim' ? 'Sim, usa fraldas' : c.usoFraldas === 'nao' ? 'Não faz uso' : 'Não informado'}</span>`
+        )}
+        ${rowHtml('Mobilidade Geral', `<span class="badge badge-neutral">${mobilidadeLabel}</span>`)}
+        ${rowHtml('Higiene / Banho',
+          `<span class="badge badge-neutral">${c.higieneCorporal === 'independente' ? 'Independente' : c.higieneCorporal === 'auxilio' ? 'Com Auxílio' : 'Não informado'}</span>`
+        )}
+        ${rowHtml('Higiene Oral &amp; Vestir',
+          `<span class="badge badge-neutral">${c.higieneOralVestir === 'independente' ? 'Independente' : c.higieneOralVestir === 'auxilio' ? 'Com Auxílio' : 'Não informado'}</span>`
+        )}
+      </table>
+    </div>
+
+    <div class="section">
+      <div class="section-title">4. Diagnósticos, Sono &amp; Rotina</div>
+      <table>
+        ${rowHtml('Pele e Lesões',
+          c.alteracoesPele === 'sim'
+            ? `<span class="badge badge-danger">Com Alteração / Edema${c.alteracoesPeleDesc ? ': ' + c.alteracoesPeleDesc : ''}</span>`
+            : '<span class="badge badge-ok">Pele íntegra / Sem Lesões</span>'
+        )}
+        ${rowHtml('Qualidade do Sono',
+          c.sono === 'insatisfatorio'
+            ? `<span class="badge badge-warn">Insatisfatório${c.sonoDesc ? ': ' + c.sonoDesc : ''}</span>`
+            : c.sono === 'preservado' ? '<span class="badge badge-ok">Sono Preservado</span>'
+            : '<span class="badge badge-neutral">Não informado</span>'
+        )}
+        ${rowHtml('Intercorrências',
+          c.intercorrencia === 'sim'
+            ? '<span class="badge badge-danger">&#9888; Houve Intercorrência</span>'
+            : '<span class="badge badge-ok">Nenhuma registrada</span>'
+        )}
+      </table>
+    </div>
+  </div>
+
+  <div class="full-section">
+    <div class="section-title">Medicações Administradas no Plantão</div>
+    <div class="text-block">${c.medicacoesAdministradas ? c.medicacoesAdministradas.replace(/</g,'&lt;').replace(/>/g,'&gt;') : 'Nenhuma registrada.'}</div>
+  </div>
+
+  <div class="full-section">
+    <div class="section-title">Atividades &amp; Consultas Realizadas</div>
+    <div class="text-block">${c.atividadesConsulta ? c.atividadesConsulta.replace(/</g,'&lt;').replace(/>/g,'&gt;') : 'Nenhuma registrada.'}</div>
+  </div>
+
+  ${c.intercorrencia === 'sim' && c.intercorrenciaDesc ? `
+  <div class="full-section">
+    <div class="section-title" style="background:#b91c1c">&#9888; Descrição da Intercorrência</div>
+    <div class="intercorrencia-block">${c.intercorrenciaDesc.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>
+  </div>` : ''}
+
+  <div class="footer">
+    <div class="ff">
+      <span class="lb">Profissional Responsável</span>
+      <div class="ln"></div>
+    </div>
+    <div class="ff">
+      <span class="lb">Cargo / Função</span>
+      <div class="ln"></div>
+    </div>
+    <div class="ff">
+      <span class="lb">Horário de Preenchimento</span>
+      <div class="ln"></div>
+    </div>
+    <div class="ff sig">
+      <span class="lb">Assinatura</span>
+      <div class="ln" style="min-height:30px"></div>
+    </div>
+    <div class="ff">
+      <span class="lb">Carimbo</span>
+      <div class="ln" style="min-height:30px"></div>
+    </div>
+  </div>
+
+  <div class="print-meta">
+    Documento de uso interno — Recanto dos Anciãos &nbsp;•&nbsp; Impresso em ${new Date().toLocaleString('pt-BR')}
+  </div>
+
+  <script>window.onload=function(){window.print();}<\/script>
+</body>
+</html>`;
+
+    const win = window.open('', '_blank', 'width=900,height=700');
+    if (win) {
+      win.document.write(html);
+      win.document.close();
+    }
+  };
+
+  const handlePrintBlankChecklist = () => {
+    const dateFormatted = new Date(today + 'T12:00:00').toLocaleDateString('pt-BR', {
+      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+    });
+    const careLevelLabel = resident.careLevel === 'I' ? 'Grau I – Baixa Dependência' :
+      resident.careLevel === 'II' ? 'Grau II – Média Dependência' : 'Grau III – Alta Dependência';
+
+    const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <title>Boletim Diário – ${resident.name}</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#111;padding:20px 28px;background:#fff}
+    h1{font-size:16px;font-weight:700;text-align:center;letter-spacing:.5px;margin-bottom:2px}
+    .subtitle{font-size:10px;text-align:center;color:#555;margin-bottom:14px;letter-spacing:.3px}
+    .header-box{border:1.5px solid #333;border-radius:6px;padding:10px 14px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:6px 20px;align-items:flex-start}
+    .header-box .field{display:flex;gap:4px;align-items:baseline}
+    .header-box .label{font-weight:700;font-size:10px;white-space:nowrap}
+    .header-box .value{font-size:11px;border-bottom:1px solid #555;min-width:160px;padding-bottom:1px}
+    .section{margin-bottom:12px;page-break-inside:avoid}
+    .section-title{background:#222;color:#fff;font-size:10px;font-weight:700;padding:4px 8px;text-transform:uppercase;letter-spacing:.6px;border-radius:3px 3px 0 0;margin-bottom:0}
+    .section-body{border:1px solid #bbb;border-top:none;border-radius:0 0 3px 3px;padding:8px 10px;display:flex;flex-direction:column;gap:7px}
+    .row{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+    .row-label{font-weight:700;font-size:10px;white-space:nowrap;min-width:130px}
+    .opts{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    .opt{display:flex;align-items:center;gap:3px;font-size:10px}
+    .box{display:inline-block;width:11px;height:11px;border:1.2px solid #333;border-radius:2px;flex-shrink:0}
+    .line{border-bottom:1px solid #888;flex:1;min-width:80px;margin-bottom:1px}
+    .line-wide{border-bottom:1px solid #888;width:100%;margin-top:4px}
+    .textarea-line{border:1px solid #bbb;border-radius:3px;min-height:36px;width:100%;margin-top:3px;padding:3px 5px;font-size:10px}
+    .two-col{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .footer{margin-top:18px;border-top:1.5px solid #333;padding-top:10px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+    .footer-field{display:flex;flex-direction:column;gap:3px}
+    .footer-field .label{font-weight:700;font-size:10px}
+    .footer-field .line{border-bottom:1px solid #555;height:18px}
+    .alert{font-size:9px;color:#666;font-style:italic;margin-top:2px}
+    @media print{body{padding:12px 16px}@page{margin:10mm 12mm;size:A4}}
+  </style>
+</head>
+<body>
+  <h1>RECANTO DOS ANCIÃOS</h1>
+  <div class="subtitle">Boletim Diário de Acompanhamento — Prontuário Clínico e de Rotina</div>
+
+  <div class="header-box">
+    <div class="field"><span class="label">Residente:</span><span class="value">${resident.name}</span></div>
+    <div class="field"><span class="label">Quarto:</span><span class="value">${resident.room}</span></div>
+    <div class="field"><span class="label">Data:</span><span class="value">${dateFormatted}</span></div>
+    <div class="field"><span class="label">Nível de Cuidado:</span><span class="value">${careLevelLabel}</span></div>
+    <div class="field"><span class="label">Turno:</span>
+      <span class="opts">
+        <span class="opt"><span class="box"></span> Manhã</span>
+        <span class="opt"><span class="box"></span> Tarde</span>
+        <span class="opt"><span class="box"></span> Noite</span>
+      </span>
+    </div>
+  </div>
+
+  <div class="two-col">
+    <!-- SECTION 1 -->
+    <div class="section">
+      <div class="section-title">1. Sintomas &amp; Estado Geral</div>
+      <div class="section-body">
+        <div class="row">
+          <span class="row-label">Queixa de Dor:</span>
+          <span class="opts">
+            <span class="opt"><span class="box"></span> Não</span>
+            <span class="opt"><span class="box"></span> Sim</span>
+          </span>
+        </div>
+        <div class="row"><span class="row-label">Descrição da Dor:</span><span class="line"></span></div>
+        <div class="row">
+          <span class="row-label">Oxigenação:</span>
+          <span class="opts">
+            <span class="opt"><span class="box"></span> Ar ambiente</span>
+            <span class="opt"><span class="box"></span> O₂ Suplementar</span>
+          </span>
+        </div>
+        <div class="row"><span class="row-label">Estado Neurológico:</span><span class="line"></span></div>
+        <div class="row">
+          <span class="row-label">Comportamento:</span>
+          <span class="opts">
+            <span class="opt"><span class="box"></span> Calmo</span>
+            <span class="opt"><span class="box"></span> Agitado</span>
+            <span class="opt"><span class="box"></span> Prostrado</span>
+            <span class="opt"><span class="box"></span> Sonolento</span>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <!-- SECTION 2 -->
+    <div class="section">
+      <div class="section-title">2. Alimentação &amp; Eliminações</div>
+      <div class="section-body">
+        <div class="row">
+          <span class="row-label">Alimentação:</span>
+          <span class="opts">
+            <span class="opt"><span class="box"></span> Boa</span>
+            <span class="opt"><span class="box"></span> Moderada</span>
+            <span class="opt"><span class="box"></span> Ruim</span>
+          </span>
+        </div>
+        <div class="row"><span class="row-label">Obs. Alimentação:</span><span class="line"></span></div>
+        <div class="row">
+          <span class="row-label">Evacuação:</span>
+          <span class="opts">
+            <span class="opt"><span class="box"></span> Presente</span>
+            <span class="opt"><span class="box"></span> Ausente</span>
+          </span>
+          <span style="font-size:10px;white-space:nowrap">Dias s/ evacuação:</span><span class="line" style="min-width:30px;max-width:40px"></span>
+        </div>
+        <div class="row">
+          <span class="row-label">Aspecto Fecal:</span>
+          <span class="opts">
+            <span class="opt"><span class="box"></span> Endurecidas</span>
+            <span class="opt"><span class="box"></span> Pastosa</span>
+            <span class="opt"><span class="box"></span> Semi-líquidas</span>
+            <span class="opt"><span class="box"></span> Diarreia</span>
+          </span>
+        </div>
+        <div class="row">
+          <span class="row-label">Diurese:</span>
+          <span class="opts">
+            <span class="opt"><span class="box"></span> Ausente</span>
+            <span class="opt"><span class="box"></span> Aumentada</span>
+            <span class="opt"><span class="box"></span> Diminuída</span>
+            <span class="opt"><span class="box"></span> Normal</span>
+          </span>
+        </div>
+        <div class="row">
+          <span class="row-label">Aspecto Urinário:</span>
+          <span class="opts">
+            <span class="opt"><span class="box"></span> Clara</span>
+            <span class="opt"><span class="box"></span> Concentrada</span>
+            <span class="opt"><span class="box"></span> Odor/Sangue/Ardência</span>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <!-- SECTION 3 -->
+    <div class="section">
+      <div class="section-title">3. Cuidados &amp; Mobilidade</div>
+      <div class="section-body">
+        <div class="row">
+          <span class="row-label">Uso de Fraldas:</span>
+          <span class="opts">
+            <span class="opt"><span class="box"></span> Sim</span>
+            <span class="opt"><span class="box"></span> Não</span>
+          </span>
+        </div>
+        <div class="row">
+          <span class="row-label">Mobilidade Geral:</span>
+          <span class="opts">
+            <span class="opt"><span class="box"></span> Independente</span>
+            <span class="opt"><span class="box"></span> Necessita Auxílio</span>
+            <span class="opt"><span class="box"></span> Acamado</span>
+          </span>
+        </div>
+        <div class="row">
+          <span class="row-label">Higiene / Banho:</span>
+          <span class="opts">
+            <span class="opt"><span class="box"></span> Independente</span>
+            <span class="opt"><span class="box"></span> Com Auxílio</span>
+          </span>
+        </div>
+        <div class="row">
+          <span class="row-label">Higiene Oral &amp; Vestir:</span>
+          <span class="opts">
+            <span class="opt"><span class="box"></span> Independente</span>
+            <span class="opt"><span class="box"></span> Com Auxílio</span>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <!-- SECTION 4 -->
+    <div class="section">
+      <div class="section-title">4. Diagnósticos, Sono &amp; Rotina</div>
+      <div class="section-body">
+        <div class="row">
+          <span class="row-label">Alterações de Pele:</span>
+          <span class="opts">
+            <span class="opt"><span class="box"></span> Não / Íntegra</span>
+            <span class="opt"><span class="box"></span> Sim (Lesão/Edema)</span>
+          </span>
+        </div>
+        <div class="row"><span class="row-label">Descrição Pele:</span><span class="line"></span></div>
+        <div class="row">
+          <span class="row-label">Qualidade do Sono:</span>
+          <span class="opts">
+            <span class="opt"><span class="box"></span> Preservado</span>
+            <span class="opt"><span class="box"></span> Insatisfatório</span>
+          </span>
+        </div>
+        <div class="row"><span class="row-label">Obs. Sono:</span><span class="line"></span></div>
+        <div class="row">
+          <span class="row-label">Intercorrências:</span>
+          <span class="opts">
+            <span class="opt"><span class="box"></span> Nenhuma</span>
+            <span class="opt"><span class="box"></span> Sim (descrever abaixo)</span>
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Textos longos -->
+  <div class="section" style="margin-top:8px">
+    <div class="section-title">Medicações Administradas no Plantão</div>
+    <div class="section-body">
+      <div class="textarea-line"></div>
+    </div>
+  </div>
+  <div class="section">
+    <div class="section-title">Atividades &amp; Consultas Realizadas</div>
+    <div class="section-body">
+      <div class="textarea-line"></div>
+    </div>
+  </div>
+  <div class="section">
+    <div class="section-title">Descrição de Intercorrências</div>
+    <div class="section-body">
+      <div class="textarea-line" style="min-height:48px"></div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <div class="footer-field">
+      <span class="label">Profissional Responsável</span>
+      <div class="line"></div>
+    </div>
+    <div class="footer-field">
+      <span class="label">Cargo / Função</span>
+      <div class="line"></div>
+    </div>
+    <div class="footer-field">
+      <span class="label">Horário de Preenchimento</span>
+      <div class="line"></div>
+    </div>
+    <div class="footer-field" style="grid-column:1/3">
+      <span class="label">Assinatura</span>
+      <div class="line" style="height:32px"></div>
+    </div>
+    <div class="footer-field">
+      <span class="label">Carimbo</span>
+      <div class="line" style="height:32px"></div>
+    </div>
+  </div>
+  <div class="alert" style="margin-top:10px;text-align:center">
+    Documento de uso interno — Recanto dos Anciãos • Boletim gerado em ${new Date().toLocaleString('pt-BR')}
+  </div>
+
+  <script>window.onload=function(){window.print();}<\/script>
+</body>
+</html>`;
+
+    const win = window.open('', '_blank', 'width=900,height=700');
+    if (win) {
+      win.document.write(html);
+      win.document.close();
+    }
   };
 
   const handleAiSummary = async () => {
@@ -511,13 +1025,22 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, onBack, onU
                       <p className="text-sm text-slate-500 max-w-sm mb-6">
                         O prontuário diário de hoje ainda não foi iniciado para este residente. Crie o boletim para registrar a evolução de rotina.
                       </p>
-                      <button
-                        onClick={handleStartEditChecklist}
-                        className="flex items-center px-6 py-3 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 transition-all shadow-md hover:shadow-lg"
-                      >
-                        <Plus className="h-5 w-5 mr-2" />
-                        Preencher Boletim Diário
-                      </button>
+                      <div className="flex flex-col sm:flex-row items-center gap-3">
+                        <button
+                          onClick={handleStartEditChecklist}
+                          className="flex items-center px-6 py-3 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 transition-all shadow-md hover:shadow-lg"
+                        >
+                          <Plus className="h-5 w-5 mr-2" />
+                          Preencher Boletim Diário
+                        </button>
+                        <button
+                          onClick={handlePrintBlankChecklist}
+                          className="flex items-center px-5 py-3 bg-white text-slate-700 border border-slate-300 rounded-xl text-sm font-semibold hover:bg-slate-50 transition-all shadow-sm hover:shadow-md"
+                        >
+                          <Printer className="h-4 w-4 mr-2 text-slate-500" />
+                          Imprimir Formulário em Branco
+                        </button>
+                      </div>
                     </div>
                   ) : (
                     /* Completed Summary Card View */
@@ -537,6 +1060,13 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, onBack, onU
                             <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 mr-1.5 animate-pulse"></span>
                             Salvo no prontuário
                           </span>
+                          <button
+                            onClick={handlePrintFilledChecklist}
+                            className="flex items-center px-4 py-2 bg-white text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold hover:bg-slate-50 transition-all shadow-sm"
+                          >
+                            <Printer className="h-3.5 w-3.5 mr-1.5 text-slate-500" />
+                            Imprimir Boletim
+                          </button>
                           <button
                             onClick={handleStartEditChecklist}
                             className="flex items-center px-4 py-2 bg-white text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold hover:bg-slate-50 transition-all shadow-sm"
