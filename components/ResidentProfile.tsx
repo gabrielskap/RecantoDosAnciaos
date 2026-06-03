@@ -48,10 +48,20 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, onBack, onU
   const handleSaveChecklist = () => {
     if (!onUpdateResident || !checklistDraft) return;
     
+    // Mapeia automaticamente para os campos booleanos legados para manter retrocompatibilidade
+    const finalDraft: DailyChecklist = {
+      ...checklistDraft,
+      feeding: checklistDraft.alimentacao === 'boa' || checklistDraft.alimentacao === 'moderada',
+      hydration: checklistDraft.hydration === true,
+      hygiene: checklistDraft.higieneCorporal === 'independente' || checklistDraft.higieneCorporal === 'auxilio',
+      oralCare: checklistDraft.higieneOralVestir === 'independente' || checklistDraft.higieneOralVestir === 'auxilio',
+      mobility: checklistDraft.mobilidadeSet === 'independente' || checklistDraft.mobilidadeSet === 'auxilio'
+    };
+    
     const otherChecklists = resident.dailyChecklists?.filter(c => c.date !== today) || [];
     onUpdateResident({
       ...resident,
-      dailyChecklists: [checklistDraft, ...otherChecklists]
+      dailyChecklists: [finalDraft, ...otherChecklists]
     });
     setChecklistDraft(null);
   };
@@ -197,6 +207,9 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, onBack, onU
           c.alimentacao === 'moderada' ? '<span class="badge badge-warn">Aceitação Moderada</span>' :
           c.alimentacao === 'ruim' ? `<span class="badge badge-danger">${alimentacaoLabel}</span>` :
           '<span class="badge badge-neutral">Não informado</span>'
+        )}
+        ${rowHtml('Hidratação',
+          c.hydration ? '<span class="badge badge-ok">Realizada</span>' : '<span class="badge badge-danger">Pendente / Não realizada</span>'
         )}
         ${rowHtml('Evacuação',
           c.eliminacaoEvacuacao === 'presente' ? `<span class="badge badge-ok">${evacuacaoLabel}</span>` :
@@ -413,6 +426,13 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, onBack, onU
           </span>
         </div>
         <div class="row"><span class="row-label">Obs. Alimentação:</span><span class="line"></span></div>
+        <div class="row">
+          <span class="row-label">Hidratação:</span>
+          <span class="opts">
+            <span class="opt"><span class="box"></span> Realizada</span>
+            <span class="opt"><span class="box"></span> Não realizada / Pendente</span>
+          </span>
+        </div>
         <div class="row">
           <span class="row-label">Evacuação:</span>
           <span class="opts">
@@ -1136,6 +1156,14 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, onBack, onU
                               </span>
                             </div>
                             <div className="flex justify-between items-center py-1 border-b border-slate-50 border-dotted">
+                              <span className="text-slate-500 font-medium text-xs sm:text-sm">Hidratação:</span>
+                              <span className={`font-semibold px-2.5 py-0.5 rounded text-xs ${
+                                todayChecklist.hydration ? 'bg-sky-100 text-sky-805' : 'bg-rose-100 text-rose-800'
+                              }`}>
+                                {todayChecklist.hydration ? 'Realizada' : 'Pendente / Não realizada'}
+                              </span>
+                            </div>
+                            <div className="flex justify-between items-center py-1 border-b border-slate-50 border-dotted">
                               <span className="text-slate-500 font-medium text-xs sm:text-sm">Bolo Fecal (Evacuação):</span>
                               <span className={`font-semibold px-2 py-0.5 rounded text-xs ${todayChecklist.eliminacaoEvacuacao === 'presente' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-rose-100 text-rose-850'}`}>
                                 {todayChecklist.eliminacaoEvacuacao === 'presente' ? 'Presente' : 'Ausente'} 
@@ -1414,41 +1442,72 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, onBack, onU
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           {/* Alimentação */}
-                          <div className="space-y-2">
-                            <label className="block text-xs font-bold text-slate-700">Aceitação Alimentar</label>
-                            <div className="grid grid-cols-3 gap-1.5">
-                              {[
-                                { value: 'boa', label: 'Boa Aceitação' },
-                                { value: 'moderada', label: 'Moderada' },
-                                { value: 'ruim', label: 'Aceitação Ruim' }
-                              ].map((level) => (
+                          <div className="space-y-4">
+                            <div className="space-y-2">
+                              <label className="block text-xs font-bold text-slate-700">Aceitação Alimentar</label>
+                              <div className="grid grid-cols-3 gap-1.5">
+                                {[
+                                  { value: 'boa', label: 'Boa Aceitação' },
+                                  { value: 'moderada', label: 'Moderada' },
+                                  { value: 'ruim', label: 'Aceitação Ruim' }
+                                ].map((level) => (
+                                  <button
+                                    key={level.value}
+                                    type="button"
+                                    onClick={() => handleChecklistFieldChange('alimentacao', level.value as any)}
+                                    className={`py-1.5 px-2 rounded-lg border text-[11px] font-medium transition-all ${
+                                      checklistDraft.alimentacao === level.value
+                                        ? level.value === 'boa'
+                                          ? 'bg-emerald-50 border-emerald-300 text-emerald-800 font-bold'
+                                          : level.value === 'moderada'
+                                          ? 'bg-amber-50 border-amber-300 text-amber-805 font-bold'
+                                          : 'bg-rose-50 border-rose-350 text-rose-800 font-bold'
+                                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                                    }`}
+                                  >
+                                    {level.label}
+                                  </button>
+                                ))}
+                              </div>
+                              {checklistDraft.alimentacao === 'ruim' && (
+                                <input
+                                  type="text"
+                                  value={checklistDraft.alimentacaoDesc || ''}
+                                  onChange={(e) => handleChecklistFieldChange('alimentacaoDesc', e.target.value)}
+                                  placeholder="Descreva os motivos..."
+                                  className="w-full mt-2 px-3 py-1.5 border border-rose-350 rounded-lg text-xs focus:ring-1 focus:ring-rose-500 bg-rose-50/10 text-slate-800 placeholder-slate-400"
+                                />
+                              )}
+                            </div>
+
+                            {/* Hidratação */}
+                            <div className="space-y-2">
+                              <label className="block text-xs font-bold text-slate-700">Hidratação (Oferecimento de líquidos)</label>
+                              <div className="flex gap-2">
                                 <button
-                                  key={level.value}
                                   type="button"
-                                  onClick={() => handleChecklistFieldChange('alimentacao', level.value as any)}
-                                  className={`py-1.5 px-2 rounded-lg border text-[11px] font-medium transition-all ${
-                                    checklistDraft.alimentacao === level.value
-                                      ? level.value === 'boa'
-                                        ? 'bg-emerald-50 border-emerald-300 text-emerald-800 font-bold'
-                                        : level.value === 'moderada'
-                                        ? 'bg-amber-50 border-amber-300 text-amber-805 font-bold'
-                                        : 'bg-rose-50 border-rose-305 text-rose-800 font-bold'
+                                  onClick={() => handleChecklistFieldChange('hydration', true)}
+                                  className={`flex-1 py-1.5 px-3 rounded-lg border text-xs font-medium transition-all ${
+                                    checklistDraft.hydration === true
+                                      ? 'bg-sky-50 border-sky-305 text-sky-800 font-bold'
                                       : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
                                   }`}
                                 >
-                                  {level.label}
+                                  Realizada
                                 </button>
-                              ))}
+                                <button
+                                  type="button"
+                                  onClick={() => handleChecklistFieldChange('hydration', false)}
+                                  className={`flex-1 py-1.5 px-3 rounded-lg border text-xs font-medium transition-all ${
+                                    checklistDraft.hydration === false
+                                      ? 'bg-slate-100 border-slate-350 text-slate-700 font-bold'
+                                      : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                                  }`}
+                                >
+                                  Pendente
+                                </button>
+                              </div>
                             </div>
-                            {checklistDraft.alimentacao === 'ruim' && (
-                              <input
-                                type="text"
-                                value={checklistDraft.alimentacaoDesc || ''}
-                                onChange={(e) => handleChecklistFieldChange('alimentacaoDesc', e.target.value)}
-                                placeholder="Descreva os motivos..."
-                                className="w-full mt-2 px-3 py-1.5 border border-rose-350 rounded-lg text-xs focus:ring-1 focus:ring-rose-500 bg-rose-50/10 text-slate-800 placeholder-slate-400"
-                              />
-                            )}
                           </div>
 
                           {/* Eliminação / Evacuação */}

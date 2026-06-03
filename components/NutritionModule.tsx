@@ -1,14 +1,15 @@
 import React, { useState } from 'react';
-import { Utensils, AlertTriangle, CheckCircle, PieChart, FileText, Calendar, ChevronDown, ChevronUp, Droplet } from 'lucide-react';
+import { Utensils, AlertTriangle, CheckCircle, PieChart, FileText, Calendar, ChevronDown, ChevronUp, Droplet, Sparkles } from 'lucide-react';
 import { Resident, DietPlan, MealTime, NutritionalLog } from '../types';
 import { PieChart as RechartPie, Pie, Cell, ResponsiveContainer, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 
 interface NutritionModuleProps {
   residents: Resident[];
   onUpdateResident: (resident: Resident) => void;
+  onUpdateResidents?: (updatedList: Resident[]) => void;
 }
 
-const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateResident }) => {
+const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateResident, onUpdateResidents }) => {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'daily' | 'plans'>('dashboard');
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [selectedMeal, setSelectedMeal] = useState<MealTime>('Almoço');
@@ -24,8 +25,29 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
   const COLORS = ['#10b981', '#f59e0b', '#f43f5e', '#6366f1', '#8b5cf6'];
 
   const lowAcceptanceAlerts = residents.flatMap(r => {
-    const recentLogs = r.nutritionalLogs?.filter(l => l.acceptance < 50 && l.date >= new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]) || [];
-    return recentLogs.map(log => ({ resident: r.name, ...log }));
+    const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    
+    // Registros específicos de refeições com aceitação < 50%
+    const recentLogs = r.nutritionalLogs?.filter(l => l.acceptance < 50 && l.date >= threeDaysAgo) || [];
+    const mappedMealLogs = recentLogs.map(log => ({ 
+      resident: r.name, 
+      meal: log.meal, 
+      date: log.date, 
+      acceptance: log.acceptance,
+      notes: log.notes 
+    }));
+    
+    // Boletins diários com alimentação descrita como ruim
+    const recentChecklists = r.dailyChecklists?.filter(c => c.alimentacao === 'ruim' && c.date >= threeDaysAgo) || [];
+    const mappedChecklistLogs = recentChecklists.map(c => ({
+      resident: r.name,
+      meal: 'Rotina Geral' as MealTime,
+      date: c.date,
+      acceptance: 25, // Representação de "Ruim" no feed
+      notes: c.alimentacaoDesc || 'Boletim diário registrou alimentação ruim'
+    }));
+
+    return [...mappedMealLogs, ...mappedChecklistLogs];
   });
 
   // --- HANDLERS ---
@@ -64,6 +86,71 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
     };
 
     onUpdateResident({ ...resident, dietPlan: updatedPlan });
+  };
+
+  const handleImportFromDailyChecklist = (residentId: string) => {
+    const resident = residents.find(r => r.id === residentId);
+    if (!resident) return;
+
+    const dailyCheck = resident.dailyChecklists?.find(c => c.date === selectedDate);
+    if (!dailyCheck || !dailyCheck.alimentacao) return;
+
+    let acceptance = -1;
+    if (dailyCheck.alimentacao === 'boa') acceptance = 100;
+    else if (dailyCheck.alimentacao === 'moderada') acceptance = 75;
+    else if (dailyCheck.alimentacao === 'ruim') acceptance = 25;
+
+    if (acceptance !== -1) {
+      handleBatchUpdate(residentId, acceptance);
+    }
+  };
+
+  const handleImportAllFromDailyChecklist = () => {
+    const updatedResidents: Resident[] = [];
+    
+    residents.forEach(resident => {
+      const log = resident.nutritionalLogs?.find(l => l.date === selectedDate && l.meal === selectedMeal);
+      const hasLogged = log && log.acceptance !== -1;
+      
+      if (!hasLogged) {
+        const dailyCheck = resident.dailyChecklists?.find(c => c.date === selectedDate);
+        if (dailyCheck && dailyCheck.alimentacao) {
+          let acceptance = -1;
+          if (dailyCheck.alimentacao === 'boa') acceptance = 100;
+          else if (dailyCheck.alimentacao === 'moderada') acceptance = 75;
+          else if (dailyCheck.alimentacao === 'ruim') acceptance = 25;
+
+          if (acceptance !== -1) {
+            const existingLogIndex = resident.nutritionalLogs?.findIndex(l => l.date === selectedDate && l.meal === selectedMeal);
+            let updatedLogs = [...(resident.nutritionalLogs || [])];
+
+            if (existingLogIndex !== undefined && existingLogIndex > -1) {
+              updatedLogs[existingLogIndex] = { ...updatedLogs[existingLogIndex], acceptance };
+            } else {
+              updatedLogs.push({
+                id: Math.random().toString(36).substr(2, 9),
+                date: selectedDate,
+                meal: selectedMeal,
+                acceptance
+              });
+            }
+            
+            updatedResidents.push({
+              ...resident,
+              nutritionalLogs: updatedLogs
+            });
+          }
+        }
+      }
+    });
+
+    if (updatedResidents.length > 0) {
+      if (onUpdateResidents) {
+        onUpdateResidents(updatedResidents);
+      } else {
+        updatedResidents.forEach(r => onUpdateResident(r));
+      }
+    }
   };
 
   return (
@@ -176,8 +263,18 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
                  ))}
                </select>
              </div>
-             <div className="text-sm text-slate-500 flex items-center">
-                <Utensils className="h-4 w-4 mr-2 text-primary-500" /> Registro de aceitação em lote
+             <div className="text-sm text-slate-500 flex flex-wrap items-center gap-3">
+                <button
+                  onClick={handleImportAllFromDailyChecklist}
+                  className="flex items-center px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-250 rounded-lg text-xs font-semibold transition-all shadow-sm"
+                  title="Importa a aceitação geral de todos os boletins de hoje"
+                >
+                  <Sparkles className="h-3.5 w-3.5 mr-1.5 text-indigo-550" />
+                  Importar de Boletins Diários
+                </button>
+                <div className="flex items-center font-medium">
+                  <Utensils className="h-4 w-4 mr-1.5 text-primary-500" /> Registro em lote
+                </div>
              </div>
           </div>
 
@@ -220,6 +317,44 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
                     )}
                   </div>
 
+                  {/* Boletim Diário de Rotina */}
+                  {(() => {
+                    const dailyCheck = resident.dailyChecklists?.find(c => c.date === selectedDate);
+                    return (
+                      <div className="text-xs bg-slate-50 p-2.5 rounded-lg border border-slate-200">
+                        <span className="text-slate-500 font-semibold uppercase tracking-wider block mb-1 text-[9px]">Boletim Diário da Rotina</span>
+                        {dailyCheck ? (
+                          <div className="flex justify-between items-center gap-2">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                dailyCheck.alimentacao === 'boa' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' :
+                                dailyCheck.alimentacao === 'moderada' ? 'bg-amber-100 text-amber-800 border border-amber-200' : 
+                                'bg-rose-100 text-rose-805 border border-rose-200'
+                              }`}>
+                                Aceitação: {dailyCheck.alimentacao === 'boa' ? 'Boa' : dailyCheck.alimentacao === 'moderada' ? 'Média' : 'Ruim'}
+                              </span>
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                dailyCheck.hydration ? 'bg-sky-100 text-sky-800 border border-sky-200' : 'bg-rose-100 text-rose-800 border border-rose-200'
+                              }`}>
+                                {dailyCheck.hydration ? 'Hidratado 💧' : 'Não Hidratado ⚠️'}
+                              </span>
+                            </div>
+                            {acceptance === -1 && dailyCheck.alimentacao && (
+                              <button
+                                onClick={() => handleImportFromDailyChecklist(resident.id)}
+                                className="flex items-center px-2 py-1 bg-indigo-650 hover:bg-indigo-750 text-white rounded text-[10px] font-bold transition-all shadow-xs"
+                              >
+                                <Sparkles className="w-3 h-3 mr-0.5" /> Usar
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-slate-400 italic text-[10px]">Boletim de rotina pendente</span>
+                        )}
+                      </div>
+                    );
+                  })()}
+
                   <div>
                     <span className="text-xs text-slate-400 font-medium uppercase tracking-wider block mb-1.5">Nível de Aceitação</span>
                     <div className="grid grid-cols-5 gap-1.5">
@@ -250,6 +385,7 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
                 <tr>
                   <th className="px-6 py-4">Residente</th>
                   <th className="px-6 py-4">Dieta Prescrita</th>
+                  <th className="px-6 py-4">Boletim Diário</th>
                   <th className="px-6 py-4 w-64">Aceitação (%)</th>
                   <th className="px-6 py-4 text-center">Status</th>
                 </tr>
@@ -276,6 +412,37 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
                          ) : (
                            <span className="text-slate-400 italic">Não definida</span>
                          )}
+                      </td>
+                      <td className="px-6 py-4 text-sm">
+                        {(() => {
+                          const dailyCheck = resident.dailyChecklists?.find(c => c.date === selectedDate);
+                          if (!dailyCheck) return <span className="text-slate-400 italic text-xs">Pendente</span>;
+                          return (
+                            <div className="flex items-center gap-2">
+                              <span className={`px-2 py-0.5 rounded text-xs font-semibold border ${
+                                dailyCheck.alimentacao === 'boa' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' :
+                                dailyCheck.alimentacao === 'moderada' ? 'bg-amber-50 text-amber-700 border-amber-100' : 
+                                'bg-rose-50 text-rose-700 border-rose-100'
+                              }`}>
+                                Alim: {dailyCheck.alimentacao === 'boa' ? 'Boa' : dailyCheck.alimentacao === 'moderada' ? 'Mod.' : 'Ruim'}
+                              </span>
+                              <span className={`px-2 py-0.5 rounded text-xs font-semibold border ${
+                                dailyCheck.hydration ? 'bg-sky-50 text-sky-700 border-sky-100' : 'bg-rose-50 text-rose-700 border-rose-100'
+                              }`}>
+                                {dailyCheck.hydration ? 'Hidratado 💧' : 'Não Hidr. ⚠️'}
+                              </span>
+                              {acceptance === -1 && dailyCheck.alimentacao && (
+                                <button
+                                  onClick={() => handleImportFromDailyChecklist(resident.id)}
+                                  className="flex items-center px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded text-xs font-semibold transition-all shadow-sm"
+                                  title="Usar aceitação alimentar do boletim"
+                                >
+                                  <Sparkles className="w-3 h-3 mr-0.5" /> Usar
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex gap-1.5">
