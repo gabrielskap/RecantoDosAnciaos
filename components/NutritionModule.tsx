@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Utensils, AlertTriangle, CheckCircle, PieChart, FileText, Calendar, ChevronDown, ChevronUp, Droplet } from 'lucide-react';
+import { Utensils, AlertTriangle, CheckCircle2, PieChart as PieIcon, FileText, Droplets } from 'lucide-react';
 import { Resident, DietPlan, MealTime, NutritionalLog } from '../types';
-import { PieChart as RechartPie, Pie, Cell, ResponsiveContainer, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
+import { PieChart as RechartPie, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 
 interface NutritionModuleProps {
   residents: Resident[];
@@ -10,296 +10,227 @@ interface NutritionModuleProps {
 
 const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateResident }) => {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'daily' | 'plans'>('dashboard');
-  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [selectedMeal, setSelectedMeal] = useState<MealTime>('Almoço');
 
-  // --- DASHBOARD DATA ---
   const dietsCount = residents.reduce((acc, r) => {
     const type = r.dietPlan?.type || 'Não Definido';
     acc[type] = (acc[type] || 0) + 1;
     return acc;
   }, {} as Record<string, number>);
-
   const dietChartData = Object.entries(dietsCount).map(([name, value]) => ({ name, value }));
-  const COLORS = ['#10b981', '#f59e0b', '#f43f5e', '#6366f1', '#8b5cf6'];
+  const COLORS = ['#7c3aed', '#10b981', '#f59e0b', '#f43f5e', '#6366f1'];
 
   const lowAcceptanceAlerts = residents.flatMap(r => {
-    const recentLogs = r.nutritionalLogs?.filter(l => l.acceptance < 50 && l.date >= new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]) || [];
-    return recentLogs.map(log => ({ resident: r.name, ...log }));
+    const cutoff = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    return (r.nutritionalLogs?.filter(l => l.acceptance < 50 && l.date >= cutoff) || []).map(log => ({ resident: r.name, ...log }));
   });
 
-  // --- HANDLERS ---
   const handleBatchUpdate = (residentId: string, acceptance: number) => {
     const resident = residents.find(r => r.id === residentId);
     if (!resident) return;
-
-    const existingLogIndex = resident.nutritionalLogs?.findIndex(l => l.date === selectedDate && l.meal === selectedMeal);
-    let updatedLogs = [...(resident.nutritionalLogs || [])];
-
-    if (existingLogIndex !== undefined && existingLogIndex > -1) {
-      updatedLogs[existingLogIndex] = { ...updatedLogs[existingLogIndex], acceptance };
+    const idx = resident.nutritionalLogs?.findIndex(l => l.date === selectedDate && l.meal === selectedMeal);
+    let logs = [...(resident.nutritionalLogs || [])];
+    if (idx !== undefined && idx > -1) {
+      logs[idx] = { ...logs[idx], acceptance };
     } else {
-      updatedLogs.push({
-        id: Math.random().toString(36).substr(2, 9),
-        date: selectedDate,
-        meal: selectedMeal,
-        acceptance
-      });
+      logs.push({ id: Math.random().toString(36).substr(2, 9), date: selectedDate, meal: selectedMeal, acceptance });
     }
-
-    onUpdateResident({ ...resident, nutritionalLogs: updatedLogs });
+    onUpdateResident({ ...resident, nutritionalLogs: logs });
   };
 
   const handleDietUpdate = (residentId: string, newPlan: Partial<DietPlan>) => {
     const resident = residents.find(r => r.id === residentId);
     if (!resident) return;
-
-    const updatedPlan: DietPlan = {
+    const updated: DietPlan = {
       consistency: newPlan.consistency || resident.dietPlan?.consistency || 'Geral',
       type: newPlan.type || resident.dietPlan?.type || 'Livre',
       restrictions: resident.dietPlan?.restrictions || [],
       fluidRestriction: newPlan.fluidRestriction || resident.dietPlan?.fluidRestriction,
       observations: newPlan.observations || resident.dietPlan?.observations,
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
     };
-
-    onUpdateResident({ ...resident, dietPlan: updatedPlan });
+    onUpdateResident({ ...resident, dietPlan: updated });
   };
+
+  const inputClass = 'w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500';
+
+  const tabs = [
+    { id: 'dashboard', label: 'Visão Geral',    icon: PieIcon   },
+    { id: 'daily',     label: 'Registro Diário', icon: Utensils  },
+    { id: 'plans',     label: 'Planos Alimentares', icon: FileText },
+  ];
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+
+      {/* Header */}
+      <div className="bg-white rounded-2xl shadow-sm shadow-violet-100/40 p-5 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Alimentação e Nutrição</h1>
-          <p className="text-slate-500">Controle de dietas, aceitação alimentar e relatórios</p>
+          <p className="text-slate-500 text-sm mt-0.5">Dietas, aceitação alimentar e relatórios</p>
+        </div>
+        <div className="w-11 h-11 rounded-2xl bg-teal-500 flex items-center justify-center shadow-md shadow-teal-200">
+          <Utensils className="h-5 w-5 text-white" />
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-1 flex overflow-x-auto scrollbar-none items-center gap-1">
-        {[
-          { id: 'dashboard', label: 'Visão Geral', icon: PieChart },
-          { id: 'daily', label: 'Registro Diário', icon: Utensils },
-          { id: 'plans', label: 'Planos Alimentares', icon: FileText },
-        ].map((tab) => (
+      <div className="bg-white rounded-2xl shadow-sm shadow-violet-100/40 p-1.5 flex gap-1">
+        {tabs.map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id as any)}
-            className={`flex-1 flex-shrink-0 min-w-[130px] md:min-w-0 flex items-center justify-center py-3 px-3 rounded-lg text-sm font-medium transition-colors whitespace-nowrap min-h-[44px] ${
-              activeTab === tab.id
-                ? 'bg-slate-100 text-slate-900 shadow-sm'
-                : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+            className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-sm font-semibold transition-all ${
+              activeTab === tab.id ? 'bg-violet-600 text-white' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
             }`}
           >
-            <tab.icon className="h-4 w-4 mr-2 animate-pulse" />
-            {tab.label}
+            <tab.icon className="h-4 w-4" /> {tab.label}
           </button>
         ))}
       </div>
 
-      {/* DASHBOARD TAB */}
+      {/* DASHBOARD */}
       {activeTab === 'dashboard' && (
-        <div className="space-y-6">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Alerts Section */}
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-              <h3 className="font-semibold text-slate-800 mb-4 flex items-center">
-                <AlertTriangle className="h-5 w-5 mr-2 text-rose-500" /> Alertas de Baixa Aceitação (Últimos 3 dias)
-              </h3>
-              <div className="space-y-3 max-h-64 overflow-y-auto pr-2">
-                {lowAcceptanceAlerts.length > 0 ? (
-                  lowAcceptanceAlerts.map((alert, idx) => (
-                    <div key={idx} className="flex justify-between items-center p-3 bg-rose-50 border border-rose-100 rounded-lg">
-                      <div>
-                        <p className="font-medium text-slate-800 text-sm">{alert.resident}</p>
-                        <p className="text-xs text-slate-500">{new Date(alert.date).toLocaleDateString()} - {alert.meal}</p>
-                      </div>
-                      <span className="font-bold text-rose-600 bg-white px-2 py-1 rounded border border-rose-200 text-xs">
-                        {alert.acceptance}%
-                      </span>
-                    </div>
-                  ))
-                ) : (
-                   <p className="text-sm text-slate-400 text-center py-4">Nenhum alerta recente.</p>
-                )}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+
+          {/* Low acceptance alerts */}
+          <div className="bg-white rounded-2xl shadow-sm shadow-violet-100/40 overflow-hidden">
+            <div className="px-5 pt-5 pb-3 flex items-center gap-2">
+              <div className="w-8 h-8 rounded-xl bg-rose-50 flex items-center justify-center">
+                <AlertTriangle className="h-4 w-4 text-rose-500" />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-800 text-sm">Alertas de Baixa Aceitação</h3>
+                <p className="text-xs text-slate-400">Últimos 3 dias — abaixo de 50%</p>
               </div>
             </div>
+            <div className="px-5 pb-5 space-y-2.5 max-h-64 overflow-y-auto">
+              {lowAcceptanceAlerts.length > 0 ? lowAcceptanceAlerts.map((a, i) => (
+                <div key={i} className="flex justify-between items-center p-3 bg-rose-50 border border-rose-100 rounded-xl">
+                  <div>
+                    <p className="font-semibold text-slate-800 text-sm">{a.resident}</p>
+                    <p className="text-xs text-slate-500">{new Date(a.date).toLocaleDateString('pt-BR')} · {a.meal}</p>
+                  </div>
+                  <span className="font-bold text-rose-600 bg-white px-3 py-1 rounded-lg border border-rose-200 text-sm">{a.acceptance}%</span>
+                </div>
+              )) : (
+                <div className="py-8 flex flex-col items-center gap-2 text-center">
+                  <CheckCircle2 className="h-8 w-8 text-emerald-300" />
+                  <p className="text-sm text-slate-400">Nenhum alerta de baixa aceitação.</p>
+                </div>
+              )}
+            </div>
+          </div>
 
-            {/* Diet Types Chart */}
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-               <h3 className="font-semibold text-slate-800 mb-4">Distribuição de Dietas</h3>
-               <div className="h-64">
-                 <ResponsiveContainer width="100%" height="100%">
-                    <RechartPie width={400} height={400}>
-                      <Pie
-                        data={dietChartData}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={60}
-                        outerRadius={80}
-                        fill="#8884d8"
-                        paddingAngle={5}
-                        dataKey="value"
-                      >
-                        {dietChartData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip />
-                      <Legend />
-                    </RechartPie>
-                 </ResponsiveContainer>
-               </div>
+          {/* Diet distribution pie */}
+          <div className="bg-white rounded-2xl shadow-sm shadow-violet-100/40 p-6">
+            <div className="flex items-center gap-2 mb-5">
+              <div className="w-8 h-8 rounded-xl bg-violet-50 flex items-center justify-center">
+                <PieIcon className="h-4 w-4 text-violet-600" />
+              </div>
+              <h3 className="font-bold text-slate-800 text-sm">Distribuição de Dietas</h3>
+            </div>
+            <div className="h-52">
+              <ResponsiveContainer width="100%" height="100%">
+                <RechartPie>
+                  <Pie data={dietChartData} cx="50%" cy="50%" innerRadius={50} outerRadius={72} paddingAngle={4} dataKey="value">
+                    {dietChartData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                  </Pie>
+                  <Tooltip />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                </RechartPie>
+              </ResponsiveContainer>
             </div>
           </div>
         </div>
       )}
 
-      {/* DAILY RECORD TAB */}
+      {/* DAILY RECORD */}
       {activeTab === 'daily' && (
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-          <div className="p-4 sm:p-6 border-b border-slate-200 bg-slate-50 flex flex-col md:flex-row justify-between gap-4">
-             <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
-               <input 
-                 type="date" 
-                 value={selectedDate}
-                 onChange={e => setSelectedDate(e.target.value)}
-                 className="w-full sm:w-auto px-3 py-3 sm:py-2 border border-slate-300 rounded-lg text-base sm:text-sm focus:ring-2 focus:ring-primary-500 outline-none bg-white min-h-[44px]"
-               />
-               <select 
-                 value={selectedMeal}
-                 onChange={e => setSelectedMeal(e.target.value as MealTime)}
-                 className="w-full sm:w-auto px-3 py-3 sm:py-2 border border-slate-300 rounded-lg text-base sm:text-sm focus:ring-2 focus:ring-primary-500 outline-none bg-white min-h-[44px]"
-               >
-                 {['Café da Manhã', 'Colação', 'Almoço', 'Lanche da Tarde', 'Jantar', 'Ceia'].map(m => (
-                   <option key={m} value={m}>{m}</option>
-                 ))}
-               </select>
-             </div>
-             <div className="text-sm text-slate-500 flex items-center">
-                <Utensils className="h-4 w-4 mr-2 text-primary-500" /> Registro de aceitação em lote
-             </div>
+        <div className="bg-white rounded-2xl shadow-sm shadow-violet-100/40 overflow-hidden">
+          <div className="px-5 py-4 border-b border-slate-100 flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+            <div className="flex gap-3 flex-wrap">
+              <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className={inputClass + ' w-auto'} />
+              <select value={selectedMeal} onChange={e => setSelectedMeal(e.target.value as MealTime)} className={inputClass + ' w-auto'}>
+                {['Café da Manhã', 'Colação', 'Almoço', 'Lanche da Tarde', 'Jantar', 'Ceia'].map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+            <p className="text-xs text-slate-400 flex items-center gap-1.5"><Utensils className="h-3.5 w-3.5 text-violet-400" /> Registro em lote</p>
           </div>
 
-          {/* Mobile Cards View (Hidden on medium screens and larger) */}
-          <div className="block md:hidden divide-y divide-slate-100 p-4 space-y-4">
-            {residents.map(resident => {
-              const log = resident.nutritionalLogs?.find(l => l.date === selectedDate && l.meal === selectedMeal);
+          {/* Mobile cards */}
+          <div className="block md:hidden divide-y divide-slate-50 p-4 space-y-4">
+            {residents.map(r => {
+              const log = r.nutritionalLogs?.find(l => l.date === selectedDate && l.meal === selectedMeal);
               const acceptance = log ? log.acceptance : -1;
-
               return (
-                <div key={resident.id} className="pt-4 first:pt-0 pb-4 first:pb-4 space-y-3 bg-slate-50/50 p-4 rounded-xl border border-slate-100 flex flex-col">
+                <div key={r.id} className="bg-slate-50/60 rounded-2xl border border-slate-100 p-4 space-y-3">
                   <div className="flex justify-between items-start">
                     <div>
-                      <h4 className="font-bold text-slate-800 text-sm">{resident.name}</h4>
-                      <p className="text-xs text-slate-400 mt-0.5">Quarto {resident.room}</p>
+                      <h4 className="font-bold text-slate-800 text-sm">{r.name}</h4>
+                      <p className="text-xs text-slate-400">Quarto {r.room}</p>
                     </div>
-                    {acceptance !== -1 ? (
-                      <span className="flex items-center gap-1 px-2 py-0.5 bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs rounded-full font-semibold">
-                        <CheckCircle className="h-3.5 w-3.5" /> Salvo
-                      </span>
-                    ) : (
-                      <span className="text-xs text-amber-600 bg-amber-50 border border-amber-200 px-2.5 py-0.5 rounded-full font-medium">Pendente</span>
-                    )}
+                    {acceptance !== -1
+                      ? <span className="text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-100 px-2.5 py-1 rounded-full flex items-center gap-1"><CheckCircle2 className="h-3 w-3" /> Salvo</span>
+                      : <span className="text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-100 px-2.5 py-1 rounded-full">Pendente</span>}
                   </div>
-
-                  <div className="text-xs">
-                    <span className="text-slate-400 font-medium uppercase tracking-wider block mb-1">Dieta Prescrita</span>
-                    {resident.dietPlan ? (
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-semibold text-slate-700 text-sm">{resident.dietPlan.consistency}</span>
-                        <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 border border-blue-100 font-semibold">{resident.dietPlan.type}</span>
-                        {resident.dietPlan.fluidRestriction && (
-                          <div className="text-amber-600 flex items-center font-medium bg-amber-50 px-1.5 py-0.5 rounded border border-amber-100">
-                            <Droplet size={10} className="mr-0.5 text-amber-500" /> Restrição Hídrica
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <span className="text-slate-400 italic">Não definida</span>
-                    )}
-                  </div>
-
-                  <div>
-                    <span className="text-xs text-slate-400 font-medium uppercase tracking-wider block mb-1.5">Nível de Aceitação</span>
-                    <div className="grid grid-cols-5 gap-1.5">
-                      {[0, 25, 50, 75, 100].map(val => (
-                        <button
-                          key={val}
-                          onClick={() => handleBatchUpdate(resident.id, val)}
-                          className={`min-h-[44px] py-1 transition-all rounded font-bold border flex flex-col items-center justify-center ${
-                            acceptance === val 
-                            ? 'bg-primary-600 text-white border-primary-600 shadow-sm shadow-primary-200' 
-                            : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300 active:bg-slate-100'
-                          }`}
-                        >
-                          <span className="text-xs">{val}%</span>
-                        </button>
-                      ))}
+                  {r.dietPlan && (
+                    <div className="flex flex-wrap gap-1.5">
+                      <span className="text-xs font-semibold bg-violet-50 text-violet-700 px-2 py-0.5 rounded-full">{r.dietPlan.consistency}</span>
+                      <span className="text-xs font-semibold bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">{r.dietPlan.type}</span>
+                      {r.dietPlan.fluidRestriction && <span className="text-xs font-semibold bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full flex items-center gap-1"><Droplets className="h-3 w-3" /> Restrição Hídrica</span>}
                     </div>
+                  )}
+                  <div className="grid grid-cols-5 gap-1.5">
+                    {[0, 25, 50, 75, 100].map(val => (
+                      <button key={val} onClick={() => handleBatchUpdate(r.id, val)} className={`min-h-[44px] rounded-xl text-xs font-bold border transition-all ${acceptance === val ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-slate-600 border-slate-200 hover:border-violet-300'}`}>
+                        {val}%
+                      </button>
+                    ))}
                   </div>
                 </div>
               );
             })}
           </div>
 
-          {/* Desktop Table View (Hidden on mobile and smaller tablet screens) */}
+          {/* Desktop table */}
           <div className="hidden md:block overflow-x-auto">
-            <table className="w-full text-left text-sm text-slate-600">
-              <thead className="bg-slate-100 text-slate-700 font-semibold uppercase text-xs">
-                <tr>
-                  <th className="px-6 py-4">Residente</th>
-                  <th className="px-6 py-4">Dieta Prescrita</th>
-                  <th className="px-6 py-4 w-64">Aceitação (%)</th>
-                  <th className="px-6 py-4 text-center">Status</th>
-                </tr>
+            <table className="w-full text-sm">
+              <thead className="border-b border-slate-100">
+                <tr>{['Residente', 'Dieta Prescrita', 'Aceitação (%)', 'Status'].map(h => (
+                  <th key={h} className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">{h}</th>
+                ))}</tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
-                {residents.map(resident => {
-                  const log = resident.nutritionalLogs?.find(l => l.date === selectedDate && l.meal === selectedMeal);
+              <tbody className="divide-y divide-slate-50">
+                {residents.map(r => {
+                  const log = r.nutritionalLogs?.find(l => l.date === selectedDate && l.meal === selectedMeal);
                   const acceptance = log ? log.acceptance : -1;
-
                   return (
-                    <tr key={resident.id} className="hover:bg-slate-50">
-                      <td className="px-6 py-4 font-medium text-slate-800">{resident.name}</td>
-                      <td className="px-6 py-4 text-sm">
-                         {resident.dietPlan ? (
-                           <div>
-                             <span className="font-medium text-slate-700">{resident.dietPlan.consistency}</span>
-                             <span className="text-xs ml-2 px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 border border-blue-100 font-semibold">{resident.dietPlan.type}</span>
-                             {resident.dietPlan.fluidRestriction && (
-                               <div className="text-xs text-amber-600 flex items-center mt-1">
-                                 <Droplet size={10} className="mr-1 text-amber-500" /> Restrição Hídrica
-                               </div>
-                             )}
-                           </div>
-                         ) : (
-                           <span className="text-slate-400 italic">Não definida</span>
-                         )}
+                    <tr key={r.id} className="hover:bg-slate-50/60 transition-colors">
+                      <td className="px-6 py-4 font-semibold text-slate-800">{r.name}</td>
+                      <td className="px-6 py-4">
+                        {r.dietPlan ? (
+                          <div className="flex flex-wrap gap-1.5">
+                            <span className="text-xs font-semibold bg-violet-50 text-violet-700 px-2 py-0.5 rounded-full">{r.dietPlan.consistency}</span>
+                            <span className="text-xs font-semibold bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">{r.dietPlan.type}</span>
+                            {r.dietPlan.fluidRestriction && <span className="text-xs font-semibold bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full flex items-center gap-1"><Droplets className="h-3 w-3" /> Restrição</span>}
+                          </div>
+                        ) : <span className="text-slate-400 italic text-xs">Não definida</span>}
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex gap-1.5">
                           {[0, 25, 50, 75, 100].map(val => (
-                             <button
-                               key={val}
-                               onClick={() => handleBatchUpdate(resident.id, val)}
-                               className={`min-h-[36px] px-2.5 py-1 rounded text-xs font-bold border transition-colors ${
-                                 acceptance === val 
-                                 ? 'bg-primary-600 text-white border-primary-600 shadow-sm shadow-primary-250' 
-                                 : 'bg-white text-slate-600 border-slate-200 hover:border-primary-300'
-                               }`}
-                             >
-                               {val}%
-                             </button>
+                            <button key={val} onClick={() => handleBatchUpdate(r.id, val)} className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${acceptance === val ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-slate-600 border-slate-200 hover:border-violet-300'}`}>
+                              {val}%
+                            </button>
                           ))}
                         </div>
                       </td>
-                      <td className="px-6 py-4 text-center">
-                        {acceptance !== -1 ? (
-                           <CheckCircle className="h-5 w-5 text-emerald-500 mx-auto animate-bounce-short" />
-                        ) : (
-                           <span className="text-xs text-slate-400">Pendente</span>
-                        )}
+                      <td className="px-6 py-4">
+                        {acceptance !== -1
+                          ? <span className="inline-flex items-center gap-1 text-xs font-semibold bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full"><CheckCircle2 className="h-3 w-3" /> Registrado</span>
+                          : <span className="text-xs text-slate-400">Pendente</span>}
                       </td>
                     </tr>
                   );
@@ -310,80 +241,52 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
         </div>
       )}
 
-      {/* DIET PLANS TAB */}
+      {/* DIET PLANS */}
       {activeTab === 'plans' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-           {residents.map(resident => (
-             <div key={resident.id} className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-                <div className="flex justify-between items-start mb-4">
-                   <div className="flex items-center">
-                     <img src={resident.photoUrl} alt="" className="w-10 h-10 rounded-full mr-3" />
-                     <div>
-                       <h3 className="font-semibold text-slate-800">{resident.name}</h3>
-                       <p className="text-xs text-slate-500">Quarto {resident.room}</p>
-                     </div>
-                   </div>
-                   <button className="text-xs text-primary-600 hover:underline">Editar</button>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {residents.map(r => (
+            <div key={r.id} className="bg-white rounded-2xl shadow-sm shadow-violet-100/40 p-5">
+              <div className="flex items-center gap-3 mb-4">
+                <img src={r.photoUrl} alt="" className="w-10 h-10 rounded-xl object-cover border-2 border-violet-100" />
+                <div className="min-w-0">
+                  <h3 className="font-bold text-slate-800 text-sm truncate">{r.name}</h3>
+                  <p className="text-xs text-slate-400">Quarto {r.room}</p>
                 </div>
-                
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-3">
-                     <div>
-                       <label className="text-xs font-medium text-slate-500">Consistência</label>
-                       <select 
-                         value={resident.dietPlan?.consistency || 'Geral'} 
-                         onChange={e => handleDietUpdate(resident.id, { consistency: e.target.value as any })}
-                         className="w-full mt-1 text-sm border-slate-200 rounded-md focus:ring-primary-500 focus:border-primary-500"
-                       >
-                         <option>Geral</option>
-                         <option>Branda</option>
-                         <option>Pastosa</option>
-                         <option>Líquida</option>
-                       </select>
-                     </div>
-                     <div>
-                       <label className="text-xs font-medium text-slate-500">Tipo</label>
-                       <select 
-                         value={resident.dietPlan?.type || 'Livre'}
-                         onChange={e => handleDietUpdate(resident.id, { type: e.target.value as any })}
-                         className="w-full mt-1 text-sm border-slate-200 rounded-md focus:ring-primary-500 focus:border-primary-500"
-                       >
-                         <option>Livre</option>
-                         <option>Hipossódica</option>
-                         <option>Diabética</option>
-                         <option>Hipolipídica</option>
-                         <option>Hiperproteica</option>
-                       </select>
-                     </div>
-                  </div>
+              </div>
 
-                  {resident.dietPlan?.fluidRestriction && (
-                     <div className="bg-amber-50 p-2 rounded text-xs text-amber-800 border border-amber-100 flex items-center">
-                       <Droplet size={12} className="mr-1" />
-                       Restrição Hídrica: {resident.dietPlan.fluidRestriction}
-                     </div>
-                  )}
-
-                  <div>
-                     <label className="text-xs font-medium text-slate-500">Alergias e Restrições</label>
-                     <div className="flex flex-wrap gap-1 mt-1">
-                       {resident.allergies.length > 0 || (resident.dietPlan?.restrictions?.length || 0) > 0 ? (
-                         <>
-                           {resident.allergies.map(a => (
-                             <span key={a} className="bg-rose-100 text-rose-700 px-2 py-0.5 rounded text-xs">{a}</span>
-                           ))}
-                           {resident.dietPlan?.restrictions?.map(r => (
-                             <span key={r} className="bg-orange-100 text-orange-700 px-2 py-0.5 rounded text-xs">{r}</span>
-                           ))}
-                         </>
-                       ) : (
-                         <span className="text-sm text-slate-400">Nenhuma restrição conhecida.</span>
-                       )}
-                     </div>
-                  </div>
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 mb-1 block">Consistência</label>
+                  <select value={r.dietPlan?.consistency || 'Geral'} onChange={e => handleDietUpdate(r.id, { consistency: e.target.value as any })} className={inputClass}>
+                    {['Geral', 'Branda', 'Pastosa', 'Líquida'].map(o => <option key={o}>{o}</option>)}
+                  </select>
                 </div>
-             </div>
-           ))}
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 mb-1 block">Tipo</label>
+                  <select value={r.dietPlan?.type || 'Livre'} onChange={e => handleDietUpdate(r.id, { type: e.target.value as any })} className={inputClass}>
+                    {['Livre', 'Hipossódica', 'Diabética', 'Hipolipídica', 'Hiperproteica'].map(o => <option key={o}>{o}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              {r.dietPlan?.fluidRestriction && (
+                <div className="bg-amber-50 border border-amber-100 rounded-xl px-3 py-2 mb-3 flex items-center gap-2 text-xs text-amber-800 font-medium">
+                  <Droplets className="h-3.5 w-3.5 text-amber-500" /> {r.dietPlan.fluidRestriction}
+                </div>
+              )}
+
+              <div>
+                <label className="text-xs font-semibold text-slate-500 mb-2 block">Alergias e Restrições</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {[...r.allergies, ...(r.dietPlan?.restrictions || [])].length > 0
+                    ? [...r.allergies.map(a => ({ label: a, cls: 'bg-rose-50 text-rose-700' })), ...(r.dietPlan?.restrictions || []).map(x => ({ label: x, cls: 'bg-orange-50 text-orange-700' }))].map((tag, i) => (
+                      <span key={i} className={`text-xs font-semibold px-2 py-0.5 rounded-full ${tag.cls}`}>{tag.label}</span>
+                    ))
+                    : <span className="text-xs text-slate-400 italic">Nenhuma restrição.</span>}
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>

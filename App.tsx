@@ -10,6 +10,9 @@ import TeamModule from './components/TeamModule';
 import NutritionModule from './components/NutritionModule';
 import ReportsModule from './components/ReportsModule';
 import AgendaModule from './components/AgendaModule';
+import LoginScreen from './components/LoginScreen';
+import ResidentPortal from './components/ResidentPortal';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { Menu, HeartPulse } from 'lucide-react';
 import { ViewState, Resident, FinancialRecord, StockItem, Employee, TrainingRecord, SystemAccessLog, Contract, Invoice, CalendarEvent, StockTransaction } from './types';
 
@@ -254,7 +257,8 @@ const INITIAL_EVENTS: CalendarEvent[] = [
   { id: 'ev4', title: 'Reunião de Equipe', start: new Date(new Date().setDate(new Date().getDate() + 1)).toISOString(), type: 'reuniao', createdBy: 'Admin', location: 'Sala de Reuniões' },
 ];
 
-function App() {
+function AppInner() {
+  const { currentUser } = useAuth();
   const [currentView, setCurrentView] = useState<ViewState>(ViewState.DASHBOARD);
   const [selectedResident, setSelectedResident] = useState<Resident | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -459,16 +463,25 @@ function App() {
     }
   };
 
+  // Not logged in
+  if (!currentUser) return <LoginScreen />;
+
+  // Responsável: portal simplificado
+  if (currentUser.profile.type === 'Responsável') {
+    const resident = residents.find(r => r.id === currentUser.residentId);
+    return <ResidentPortal resident={resident} events={events} />;
+  }
+
   return (
-    <div className="flex min-h-screen bg-slate-50 text-slate-900">
-      <Sidebar 
-        currentView={currentView} 
-        onChangeView={setCurrentView} 
+    <div className="flex min-h-screen bg-[#F8F7FF] text-slate-900">
+      <Sidebar
+        currentView={currentView}
+        onChangeView={setCurrentView}
         isOpen={sidebarOpen}
         setIsOpen={setSidebarOpen}
         stockAlertCount={lowStockItems.length}
       />
-      
+
       <main className="flex-1 max-w-full lg:max-w-[calc(100vw-256px)] transition-all">
         {/* Mobile Header trigger - Sticky for accessibility */}
         <div className="sticky top-0 z-20 lg:hidden px-4 py-3 bg-slate-900 text-white flex justify-between items-center shadow-md select-none border-b border-slate-800">
@@ -476,8 +489,8 @@ function App() {
              <HeartPulse className="h-6 w-6 text-rose-500" />
              <span className="text-lg font-bold tracking-tight">Recanto dos Anciãos</span>
            </div>
-           <button 
-             onClick={() => setSidebarOpen(true)} 
+           <button
+             onClick={() => setSidebarOpen(true)}
              className="w-[44px] h-[44px] flex items-center justify-center rounded-lg bg-slate-800 hover:bg-slate-700 active:scale-95 transition-all text-slate-200 hover:text-white"
              aria-label="Toggle Menu"
              id="mobile-menu-trigger-button"
@@ -491,6 +504,14 @@ function App() {
         </div>
       </main>
     </div>
+  );
+}
+
+function App() {
+  return (
+    <AuthProvider>
+      <AppInner />
+    </AuthProvider>
   );
 }
 

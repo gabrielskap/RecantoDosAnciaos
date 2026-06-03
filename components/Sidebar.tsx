@@ -1,6 +1,7 @@
 import React from 'react';
-import { LayoutDashboard, Users, HeartPulse, Wallet, Package, Bot, LogOut, Menu, UserCog, Utensils, PieChart, CalendarDays, X } from 'lucide-react';
+import { LayoutDashboard, Users, HeartPulse, Wallet, Package, Bot, LogOut, Menu, UserCog, Utensils, PieChart, CalendarDays, X, UserCircle } from 'lucide-react';
 import { ViewState } from '../types';
+import { useAuth } from '../contexts/AuthContext';
 
 interface SidebarProps {
   currentView: ViewState;
@@ -11,6 +12,8 @@ interface SidebarProps {
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, isOpen, setIsOpen, stockAlertCount = 0 }) => {
+  const { currentUser, hasPermission, logout } = useAuth();
+
   const navItems = [
     { id: ViewState.DASHBOARD, label: 'Painel Geral', icon: LayoutDashboard },
     { id: ViewState.RESIDENTS, label: 'Residentes & Prontuário', icon: Users },
@@ -21,13 +24,13 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, isOpen, se
     { id: ViewState.STOCK, label: 'Estoque & Insumos', icon: Package },
     { id: ViewState.REPORTS, label: 'Relatórios & Indicadores', icon: PieChart },
     { id: ViewState.AI_ASSISTANT, label: 'Assistente IA', icon: Bot },
-  ];
+  ].filter(item => hasPermission(item.id, 'view'));
 
   return (
     <>
       {/* Mobile Overlay */}
       {isOpen && (
-        <div 
+        <div
           className="fixed inset-0 z-20 bg-black bg-opacity-50 lg:hidden"
           onClick={() => setIsOpen(false)}
         />
@@ -40,8 +43,8 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, isOpen, se
             <HeartPulse className="h-8 w-8 text-primary-500" />
             <span className="text-lg font-bold tracking-tight">Recanto dos Anciãos</span>
           </div>
-          <button 
-            onClick={() => setIsOpen(false)} 
+          <button
+            onClick={() => setIsOpen(false)}
             className="w-11 h-11 flex items-center justify-center rounded-lg hover:bg-slate-700 hover:text-white lg:hidden text-slate-400 transition-all active:scale-95 text-center"
             aria-label="Close Menu"
           >
@@ -49,7 +52,20 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, isOpen, se
           </button>
         </div>
 
-        <nav className="flex-1 px-4 py-6 space-y-2">
+        {/* User info */}
+        {currentUser && (
+          <div className="px-4 py-3 border-b border-slate-800 flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-primary-600 flex items-center justify-center shrink-0">
+              <UserCircle className="h-5 w-5 text-white" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-white truncate">{currentUser.name}</p>
+              <p className="text-xs text-slate-400 truncate">{currentUser.profile.name}</p>
+            </div>
+          </div>
+        )}
+
+        <nav className="flex-1 px-4 py-6 space-y-2 overflow-y-auto">
           {navItems.map((item) => (
             <button
               key={item.id}
@@ -75,7 +91,10 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, isOpen, se
         </nav>
 
         <div className="p-4 border-t border-slate-800">
-          <button className="flex items-center w-full px-4 py-2 text-sm text-slate-400 hover:text-white transition-colors">
+          <button
+            onClick={logout}
+            className="flex items-center w-full px-4 py-2 text-sm text-slate-400 hover:text-white transition-colors"
+          >
             <LogOut className="h-5 w-5 mr-3" />
             Sair do Sistema
           </button>

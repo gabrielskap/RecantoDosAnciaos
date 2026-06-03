@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { Users, Calendar, Award, Shield, Plus, X, Search, CheckCircle, AlertOctagon } from 'lucide-react';
 import { Employee, TrainingRecord, SystemAccessLog, UserRole } from '../types';
+import ProfileManager from './ProfileManager';
+import { useAuth } from '../contexts/AuthContext';
 
 interface TeamModuleProps {
   employees: Employee[];
@@ -11,7 +13,9 @@ interface TeamModuleProps {
 }
 
 const TeamModule: React.FC<TeamModuleProps> = ({ employees, trainings, accessLogs, onAddEmployee, onAddTraining }) => {
-  const [activeTab, setActiveTab] = useState<'employees' | 'schedule' | 'training' | 'logs'>('employees');
+  const { currentUser } = useAuth();
+  const isAdmin = currentUser?.profile.type === 'Administrador';
+  const [activeTab, setActiveTab] = useState<'employees' | 'schedule' | 'training' | 'logs' | 'profiles'>('employees');
   const [isEmpModalOpen, setIsEmpModalOpen] = useState(false);
   const [isTrainModalOpen, setIsTrainModalOpen] = useState(false);
 
@@ -94,6 +98,7 @@ const TeamModule: React.FC<TeamModuleProps> = ({ employees, trainings, accessLog
           { id: 'schedule', label: 'Escalas de Trabalho', icon: Calendar },
           { id: 'training', label: 'Treinamentos', icon: Award },
           { id: 'logs', label: 'Logs de Acesso (LGPD)', icon: Shield },
+          ...(isAdmin ? [{ id: 'profiles', label: 'Perfis & Permissões', icon: Shield }] : []),
         ].map((tab) => (
           <button
             key={tab.id}
@@ -330,6 +335,13 @@ const TeamModule: React.FC<TeamModuleProps> = ({ employees, trainings, accessLog
              </div>
            </div>
          )}
+
+        {/* PROFILES TAB */}
+        {activeTab === 'profiles' && isAdmin && (
+          <div className="p-6">
+            <ProfileManager />
+          </div>
+        )}
       </div>
 
       {/* Add Employee Modal */}

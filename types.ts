@@ -289,3 +289,31 @@ export enum ViewState {
   REPORTS = 'REPORTS',
   AGENDA = 'AGENDA'
 }
+
+// --- AUTH & RBAC TYPES ---
+
+export type ProfileType = 'Administrador' | 'Médico' | 'Cuidador' | 'Responsável';
+
+export type PermissionAction = 'view' | 'edit' | 'create' | 'delete';
+
+export interface Permission {
+  module: ViewState;
+  actions: PermissionAction[];
+}
+
+export interface Profile {
+  id: string;
+  name: string;
+  type: ProfileType;
+  permissions: Permission[];
+  isEditable: boolean;
+}
+
+export interface AuthUser {
+  id: string;
+  name: string;
+  email: string;
+  password: string;
+  profile: Profile;
+  residentId?: string; // somente para Responsável
+}
