@@ -24,10 +24,9 @@ interface DashboardProps {
   residents: Resident[];
   financials: FinancialRecord[];
   stockAlerts?: StockItem[];
-  onSelectResident?: (resident: Resident) => void;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ residents, financials, stockAlerts = [], onSelectResident }) => {
+const Dashboard: React.FC<DashboardProps> = ({ residents, financials, stockAlerts = [] }) => {
   const [isAnalysisModalOpen, setIsAnalysisModalOpen] = useState(false);
   const [optimizationRate, setOptimizationRate] = useState(15);
   const [bulkBuyChecked, setBulkBuyChecked] = useState(false);
@@ -69,17 +68,6 @@ const Dashboard: React.FC<DashboardProps> = ({ residents, financials, stockAlert
   const savingsValue = baselineCost - optimizedCost;
 
   const totalResidents = residents.length;
-  const todayDateForRoutines = new Date().toISOString().split('T')[0];
-  const completedRoutinesCount = residents.filter(r => {
-    const todayChecklist = r.dailyChecklists?.find(c => c.date === todayDateForRoutines);
-    return todayChecklist && (
-      todayChecklist.hygiene || todayChecklist.oralCare || todayChecklist.feeding || todayChecklist.hydration ||
-      todayChecklist.queixaDor || todayChecklist.estadoNeurologico || todayChecklist.alimentacao ||
-      todayChecklist.eliminacaoEvacuacao || todayChecklist.diurese || todayChecklist.usoFraldas ||
-      todayChecklist.alteracoesPele || todayChecklist.sono || todayChecklist.intercorrencia
-    );
-  }).length;
-
   const highCare = residents.filter(r => r.careLevel === 'III').length; // Corrected to match type definition 'III'
   const pendingBills = financials.filter(f => f.type === 'despesa' && f.status === 'pendente').length;
   
@@ -87,60 +75,11 @@ const Dashboard: React.FC<DashboardProps> = ({ residents, financials, stockAlert
   const capacity = 40;
   const occupancyRate = Math.round((totalResidents / capacity) * 100);
 
-  // Combine static alerts, stock alerts, and dynamic daily routine alerts
+  // Combine static alerts with dynamic stock alerts
   const staticAlerts = [
     { id: 'a1', text: "Maria Silva apresentou pressão arterial elevada (160/95)", time: "10:30", type: "critical" },
     { id: 'a2', text: "João Santos recusou medicação matinal", time: "08:45", type: "info" },
   ];
-
-  const todayDate = new Date().toISOString().split('T')[0];
-  const dailyRoutineAlerts = residents.flatMap(resident => {
-    const todayChecklist = resident.dailyChecklists?.find(c => c.date === todayDate);
-    if (!todayChecklist) return [];
-
-    const alerts = [];
-    if (todayChecklist.intercorrencia === 'sim') {
-      alerts.push({
-        id: `interc-${resident.id}`,
-        text: `Intercorrência (${resident.name}): ${todayChecklist.intercorrenciaDesc || 'Sem descrição'}`,
-        time: 'Hoje',
-        type: 'critical'
-      });
-    }
-    if (todayChecklist.queixaDor === 'sim') {
-      alerts.push({
-        id: `dor-${resident.id}`,
-        text: `Queixa de Dor (${resident.name}): ${todayChecklist.queixaDorDesc || 'Sem descrição'}`,
-        time: 'Hoje',
-        type: 'warning'
-      });
-    }
-    if (todayChecklist.alteracoesPele === 'sim') {
-      alerts.push({
-        id: `pele-${resident.id}`,
-        text: `Alteração de Pele (${resident.name}): ${todayChecklist.alteracoesPeleDesc || 'Sem descrição'}`,
-        time: 'Hoje',
-        type: 'warning'
-      });
-    }
-    if (todayChecklist.alimentacao === 'ruim') {
-      alerts.push({
-        id: `aliment-${resident.id}`,
-        text: `Alimentação Ruim (${resident.name}): ${todayChecklist.alimentacaoDesc || 'Recusa alimentar'}`,
-        time: 'Hoje',
-        type: 'warning'
-      });
-    }
-    if (todayChecklist.sono === 'insatisfatorio') {
-      alerts.push({
-        id: `sono-${resident.id}`,
-        text: `Sono Insatisfatório (${resident.name}): ${todayChecklist.sonoDesc || 'Sem descrição'}`,
-        time: 'Hoje',
-        type: 'info'
-      });
-    }
-    return alerts;
-  });
 
   const dynamicStockAlerts = stockAlerts.map((item, index) => ({
     id: `stock-${item.id}`,
@@ -149,7 +88,7 @@ const Dashboard: React.FC<DashboardProps> = ({ residents, financials, stockAlert
     type: 'warning'
   }));
 
-  const allAlerts = [...dynamicStockAlerts, ...dailyRoutineAlerts, ...staticAlerts];
+  const allAlerts = [...dynamicStockAlerts, ...staticAlerts];
 
   return (
     <div className="space-y-6">
@@ -295,118 +234,6 @@ const Dashboard: React.FC<DashboardProps> = ({ residents, financials, stockAlert
             </button>
           </div>
           <Bot className="absolute -bottom-4 -right-4 w-32 h-32 text-white opacity-10" />
-        </div>
-      </div>
-
-      {/* Acompanhamento de Rotinas Diárias de Hoje */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div>
-            <h3 className="font-semibold text-slate-800 text-lg flex items-center gap-2">
-              <ClipboardCheck className="h-5 w-5 text-primary-600" />
-              Rotina Diária (Boletim de Hoje)
-            </h3>
-            <p className="text-xs text-slate-500 mt-0.5">Mapeamento de preenchimento e estado clínico dos residentes para o plantão atual</p>
-          </div>
-          <div className="flex items-center gap-2 w-full sm:w-auto">
-            <span className="text-xs font-semibold text-slate-600 bg-slate-100 px-3 py-1.5 rounded-full shadow-sm">
-              {completedRoutinesCount} de {totalResidents} Preenchidos
-            </span>
-          </div>
-        </div>
-        <div className="p-6">
-          <div className="w-full bg-slate-100 rounded-full h-2.5 mb-6">
-            <div className="bg-primary-600 h-2.5 rounded-full transition-all duration-500" style={{ width: `${(completedRoutinesCount / Math.max(1, totalResidents)) * 100}%` }}></div>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {residents.map(resident => {
-              const todayChecklist = resident.dailyChecklists?.find(c => c.date === todayDateForRoutines);
-              const isFilled = !!(
-                todayChecklist && (
-                  todayChecklist.hygiene || todayChecklist.oralCare || todayChecklist.feeding || todayChecklist.hydration ||
-                  todayChecklist.queixaDor || todayChecklist.estadoNeurologico || todayChecklist.alimentacao ||
-                  todayChecklist.eliminacaoEvacuacao || todayChecklist.diurese || todayChecklist.usoFraldas ||
-                  todayChecklist.alteracoesPele || todayChecklist.sono || todayChecklist.intercorrencia
-                )
-              );
-
-              return (
-                <div key={resident.id} className="p-4 rounded-xl border border-slate-200 hover:border-slate-300 bg-slate-50/50 hover:bg-slate-50 transition-all flex flex-col justify-between h-48 shadow-sm">
-                  <div>
-                    <div className="flex items-center gap-3">
-                      <img src={resident.photoUrl} alt="" className="w-9 h-9 rounded-full object-cover border border-white shadow-sm" />
-                      <div className="min-w-0 flex-1">
-                        <h4 className="font-bold text-slate-800 text-sm truncate">{resident.name}</h4>
-                        <p className="text-[10px] text-slate-400 font-medium">Quarto {resident.room} • Grau {resident.careLevel}</p>
-                      </div>
-                    </div>
-
-                    <div className="mt-3.5 space-y-1.5">
-                      {isFilled && todayChecklist ? (
-                        <>
-                          <div className="flex justify-between items-center text-[10px]">
-                            <span className="text-slate-450 font-semibold uppercase tracking-wider">Alimentação</span>
-                            <span className={`px-2 py-0.5 rounded-full font-bold uppercase tracking-wide text-[9px] ${
-                              todayChecklist.alimentacao === 'boa' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' :
-                              todayChecklist.alimentacao === 'moderada' ? 'bg-amber-50 text-amber-700 border border-amber-100' :
-                              'bg-rose-50 text-rose-700 border border-rose-100'
-                            }`}>
-                              {todayChecklist.alimentacao === 'boa' ? 'Boa' : todayChecklist.alimentacao === 'moderada' ? 'Mod.' : 'Ruim'}
-                            </span>
-                          </div>
-                          <div className="flex justify-between items-center text-[10px]">
-                            <span className="text-slate-455 font-semibold uppercase tracking-wider">Intercorrência</span>
-                            <span className={`px-2 py-0.5 rounded-full font-bold uppercase tracking-wide text-[9px] ${
-                              todayChecklist.intercorrencia === 'sim' ? 'bg-rose-500 text-white animate-pulse' : 'bg-slate-100 text-slate-600 border border-slate-200'
-                            }`}>
-                              {todayChecklist.intercorrencia === 'sim' ? 'Sim' : 'Não'}
-                            </span>
-                          </div>
-                          <div className="flex justify-between items-center text-[10px]">
-                            <span className="text-slate-455 font-semibold uppercase tracking-wider">Queixa de Dor</span>
-                            <span className={`px-2 py-0.5 rounded-full font-bold uppercase tracking-wide text-[9px] ${
-                              todayChecklist.queixaDor === 'sim' ? 'bg-rose-50 text-rose-700 border border-rose-100' : 'bg-slate-100 text-slate-600 border border-slate-200'
-                            }`}>
-                              {todayChecklist.queixaDor === 'sim' ? 'Sim' : 'Não'}
-                            </span>
-                          </div>
-                        </>
-                      ) : (
-                        <div className="py-3 text-center text-xs text-slate-400 font-semibold italic">
-                          Boletim pendente
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="mt-3 flex items-center justify-between border-t border-slate-150 pt-2.5">
-                    {isFilled ? (
-                      <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1">
-                        <span className="w-1 h-1 rounded-full bg-emerald-500"></span> Preenchido
-                      </span>
-                    ) : (
-                      <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200 flex items-center gap-1">
-                        <span className="w-1 h-1 rounded-full bg-amber-500"></span> Pendente
-                      </span>
-                    )}
-                    
-                    {onSelectResident && (
-                      <button
-                        onClick={() => onSelectResident(resident)}
-                        className={`text-[10px] font-bold px-3 py-1.5 rounded-lg border transition-all ${
-                          isFilled
-                            ? 'bg-white hover:bg-slate-50 text-slate-600 border-slate-200'
-                            : 'bg-primary-600 hover:bg-primary-700 text-white border-primary-700 shadow-sm'
-                        }`}
-                      >
-                        {isFilled ? 'Visualizar' : 'Preencher'}
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
         </div>
       </div>
 

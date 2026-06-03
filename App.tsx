@@ -287,13 +287,6 @@ function App() {
     setSelectedResident(updatedResident);
   };
 
-  const handleUpdateResidents = (updatedList: Resident[]) => {
-    setResidents(prev => prev.map(r => {
-      const match = updatedList.find(u => u.id === r.id);
-      return match ? match : r;
-    }));
-  };
-
   const handleAddFinancialRecord = (newRecord: FinancialRecord) => {
     setFinancials([newRecord, ...financials]);
   };
@@ -387,7 +380,6 @@ function App() {
             residents={residents} 
             financials={financials} 
             stockAlerts={lowStockItems}
-            onSelectResident={handleSelectResident}
           />
         );
       case ViewState.RESIDENTS:
@@ -442,7 +434,6 @@ function App() {
           <NutritionModule
             residents={residents}
             onUpdateResident={handleUpdateResident}
-            onUpdateResidents={handleUpdateResidents}
           />
         );
       case ViewState.REPORTS:
