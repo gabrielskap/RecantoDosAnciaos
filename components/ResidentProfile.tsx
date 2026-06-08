@@ -5,23 +5,160 @@ import {
   ClipboardList, History, Plus, User, Clock, File, Paperclip, CalendarCheck, AlertOctagon,
   BedDouble, Home, Wrench, PaintRoller, Edit2
 } from 'lucide-react';
-import { Resident, CarePlan, AuditLog, DailyChecklist, Medication, RoomStatus } from '../types';
+import { Resident, CarePlan, AuditLog, DailyChecklist, Medication, RoomStatus, Room } from '../types';
 import { summarizePatientHealth } from '../services/geminiService';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import CustomSelect from './CustomSelect';
 
 interface ResidentProfileProps {
   resident: Resident;
+  rooms: Room[];
   onBack: () => void;
   onUpdateResident?: (resident: Resident) => void;
 }
 
-const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, onBack, onUpdateResident }) => {
+const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBack, onUpdateResident }) => {
   const [activeTab, setActiveTab] = useState<'info' | 'meds' | 'vitals' | 'care' | 'docs' | 'evolution' | 'history'>('vitals');
   const [aiAnalysis, setAiAnalysis] = useState<string>('');
   const [loadingAi, setLoadingAi] = useState(false);
   const [isSigned, setIsSigned] = useState(false);
   const [isEditingStatus, setIsEditingStatus] = useState(false);
+
+  // Edit Resident Modal States
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [modalActiveTab, setModalActiveTab] = useState<'personal' | 'contacts' | 'clinical' | 'routine'>('personal');
+  const [formData, setFormData] = useState<Partial<Resident>>({});
+  const [contactTemp, setContactTemp] = useState({ name: '', relation: '', phone: '' });
+  const [loadingCep, setLoadingCep] = useState(false);
+  const [cepError, setCepError] = useState('');
+
+  const calculateAge = (birthDateString: string): number => {
+    if (!birthDateString) return 0;
+    const parts = birthDateString.split('-');
+    if (parts.length !== 3) return 0;
+    const birthYear = parseInt(parts[0], 10);
+    const birthMonth = parseInt(parts[1], 10) - 1;
+    const birthDay = parseInt(parts[2], 10);
+    const today = new Date();
+    let age = today.getFullYear() - birthYear;
+    const m = today.getMonth() - birthMonth;
+    if (m < 0 || (m === 0 && today.getDate() < birthDay)) {
+      age--;
+    }
+    return age >= 0 ? age : 0;
+  };
+
+  const handleStartEditResident = () => {
+    setFormData({
+      name: resident.name,
+      age: resident.age,
+      room: resident.room,
+      careLevel: resident.careLevel,
+      cpf: resident.cpf || '',
+      rg: resident.rg || '',
+      birthDate: resident.birthDate || '',
+      addressCep: resident.addressCep || '',
+      addressState: resident.addressState || '',
+      addressCity: resident.addressCity || '',
+      addressNeighborhood: resident.addressNeighborhood || '',
+      addressStreet: resident.addressStreet || '',
+      addressNumber: resident.addressNumber || '',
+      addressComplement: resident.addressComplement || '',
+      emergencyContacts: resident.emergencyContacts || [],
+      legalGuardian: resident.legalGuardian || { name: '', cpf: '', phone: '', address: '' },
+      clinicalCondition: resident.clinicalCondition || '',
+      functionalCondition: resident.functionalCondition || '',
+      socialHistory: resident.socialHistory || '',
+      usoFraldas: resident.usoFraldas || 'nao',
+      mobilidadeSet: resident.mobilidadeSet || 'independente',
+      higieneCorporal: resident.higieneCorporal || 'independente',
+      higieneOralVestir: resident.higieneOralVestir || 'independente',
+      reqHygiene: resident.reqHygiene || false,
+      reqOralCare: resident.reqOralCare || false,
+      reqFeeding: resident.reqFeeding || false,
+      reqHydration: resident.reqHydration || false,
+      reqMobility: resident.reqMobility || false,
+      reqDressings: resident.reqDressings || false,
+      reqLeisure: resident.reqLeisure || false,
+    });
+    setModalActiveTab('personal');
+    setIsEditModalOpen(true);
+  };
+
+  const handleCepChange = async (value: string) => {
+    const raw = value.replace(/\D/g, '');
+    let formatted = raw;
+    if (raw.length > 5) {
+      formatted = `${raw.substring(0, 5)}-${raw.substring(5, 8)}`;
+    }
+    setFormData(prev => ({ ...prev, addressCep: formatted }));
+    setCepError('');
+
+    if (raw.length === 8) {
+      setLoadingCep(true);
+      try {
+        const response = await fetch(`https://viacep.com.br/ws/${raw}/json/`);
+        const data = await response.json();
+        if (data.erro) {
+          setCepError('CEP não encontrado.');
+        } else {
+          setFormData(prev => ({
+            ...prev,
+            addressStreet: data.logradouro || '',
+            addressNeighborhood: data.bairro || '',
+            addressCity: data.localidade || '',
+            addressState: data.uf || '',
+          }));
+        }
+      } catch (err) {
+        setCepError('Erro ao buscar o CEP.');
+      } finally {
+        setLoadingCep(false);
+      }
+    }
+  };
+
+  const handleSaveResident = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!onUpdateResident || !formData.name || !formData.room) return;
+
+    const updated: Resident = {
+      ...resident,
+      name: formData.name!,
+      age: formData.age || 0,
+      room: formData.room!,
+      careLevel: (formData.careLevel as 'I' | 'II' | 'III') || 'I',
+      cpf: formData.cpf,
+      rg: formData.rg,
+      birthDate: formData.birthDate,
+      addressCep: formData.addressCep,
+      addressState: formData.addressState,
+      addressCity: formData.addressCity,
+      addressNeighborhood: formData.addressNeighborhood,
+      addressStreet: formData.addressStreet,
+      addressNumber: formData.addressNumber,
+      addressComplement: formData.addressComplement,
+      emergencyContacts: formData.emergencyContacts || [],
+      legalGuardian: formData.legalGuardian,
+      clinicalCondition: formData.clinicalCondition || '',
+      functionalCondition: formData.functionalCondition || '',
+      socialHistory: formData.socialHistory || '',
+      usoFraldas: formData.usoFraldas || 'nao',
+      mobilidadeSet: formData.mobilidadeSet || 'independente',
+      higieneCorporal: formData.higieneCorporal || 'independente',
+      higieneOralVestir: formData.higieneOralVestir || 'independente',
+      reqHygiene: formData.reqHygiene || false,
+      reqOralCare: formData.reqOralCare || false,
+      reqFeeding: formData.reqFeeding || false,
+      reqHydration: formData.reqHydration || false,
+      reqMobility: formData.reqMobility || false,
+      reqDressings: formData.reqDressings || false,
+      reqLeisure: formData.reqLeisure || false,
+    };
+
+    onUpdateResident(updated);
+    setIsEditModalOpen(false);
+  };
 
   // Care Plan Form
   const [newPlan, setNewPlan] = useState({ title: '', description: '', frequency: '', assignedTo: 'Enfermagem' });
@@ -284,6 +421,13 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, onBack, onU
           </div>
           
           <div className="flex w-full md:w-auto gap-2 mt-2 md:mt-0">
+             <button
+               onClick={handleStartEditResident}
+               className="flex-1 md:flex-none flex justify-center items-center px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors shadow-sm"
+             >
+                <Edit2 className="h-4 w-4 mr-2 text-violet-600" />
+                <span>Editar Perfil</span>
+             </button>
              {isSigned ? (
                <div className="flex-1 md:flex-none flex justify-center items-center px-4 py-2 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-lg text-sm font-medium">
                   <ShieldCheck className="h-4 w-4 mr-2" />
@@ -346,56 +490,93 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, onBack, onU
         <div className="p-4 md:p-6 min-h-[400px]">
           
           {activeTab === 'info' && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-                <h3 className="font-semibold text-slate-800 mb-3 border-b border-slate-200 pb-2">Dados Pessoais</h3>
-                <div className="space-y-2 text-sm">
-                  <p><span className="text-slate-500">CPF:</span> {resident.cpf || '-'}</p>
-                  <p><span className="text-slate-500">RG:</span> {resident.rg || '-'}</p>
-                  <p><span className="text-slate-500">Data Nascimento:</span> {resident.birthDate || '-'}</p>
-                  <p><span className="text-slate-500">Admissão:</span> {new Date(resident.admissionDate).toLocaleDateString()}</p>
-                </div>
+            <div className="space-y-6">
+              <div className="flex justify-end">
+                <button
+                  onClick={handleStartEditResident}
+                  className="flex items-center gap-1.5 text-xs font-semibold text-violet-650 hover:text-violet-750 bg-violet-50 hover:bg-violet-100 px-4 py-2 rounded-xl border border-violet-200 transition-colors shadow-sm"
+                >
+                  <Edit2 className="h-3.5 w-3.5" /> Editar Cadastro & Plano de Rotina
+                </button>
               </div>
-              <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-                <h3 className="font-semibold text-slate-800 mb-3 border-b border-slate-200 pb-2">Responsável & Emergência</h3>
-                <div className="space-y-2 text-sm">
-                   <p className="font-medium text-slate-700">Responsável Legal:</p>
-                   <p>{resident.legalGuardian?.name || 'Não informado'}</p>
-                   <p className="text-xs text-slate-500">{resident.legalGuardian?.phone}</p>
-                   
-                   <p className="font-medium text-slate-700 mt-4">Contatos Emergência:</p>
-                   {resident.emergencyContacts?.map((c, i) => (
-                     <p key={i}>{c.name} ({c.relation}) - {c.phone}</p>
-                   ))}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
+                  <h3 className="font-semibold text-slate-800 mb-3 border-b border-slate-200 pb-2">Dados Pessoais</h3>
+                  <div className="space-y-2 text-sm">
+                    <p><span className="text-slate-500">CPF:</span> {resident.cpf || '-'}</p>
+                    <p><span className="text-slate-500">RG:</span> {resident.rg || '-'}</p>
+                    <p><span className="text-slate-500">Data Nascimento:</span> {resident.birthDate || '-'}</p>
+                    <p><span className="text-slate-500">Admissão:</span> {new Date(resident.admissionDate).toLocaleDateString()}</p>
+                  </div>
                 </div>
-              </div>
-              <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 md:col-span-2">
-                <h3 className="font-semibold text-slate-800 mb-3 border-b border-slate-200 pb-2">Endereço</h3>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
-                  <p><span className="text-slate-500">CEP:</span> {resident.addressCep || '-'}</p>
-                  <p className="md:col-span-2"><span className="text-slate-500">Logradouro / Rua:</span> {resident.addressStreet || '-'}</p>
-                  <p><span className="text-slate-500">Número:</span> {resident.addressNumber || '-'}</p>
-                  <p><span className="text-slate-500">Complemento:</span> {resident.addressComplement || '-'}</p>
-                  <p><span className="text-slate-500">Bairro:</span> {resident.addressNeighborhood || '-'}</p>
-                  <p className="md:col-span-2"><span className="text-slate-500">Cidade/UF:</span> {resident.addressCity ? `${resident.addressCity} - ${resident.addressState || ''}` : '-'}</p>
+                <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
+                  <h3 className="font-semibold text-slate-800 mb-3 border-b border-slate-200 pb-2">Responsável & Emergência</h3>
+                  <div className="space-y-2 text-sm">
+                     <p className="font-medium text-slate-700">Responsável Legal:</p>
+                     <p>{resident.legalGuardian?.name || 'Não informado'}</p>
+                     <p className="text-xs text-slate-500">{resident.legalGuardian?.phone}</p>
+                     
+                     <p className="font-medium text-slate-700 mt-4">Contatos Emergência:</p>
+                     {resident.emergencyContacts?.map((c, i) => (
+                       <p key={i}>{c.name} ({c.relation}) - {c.phone}</p>
+                     ))}
+                  </div>
                 </div>
-              </div>
-              <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 md:col-span-2">
-                 <h3 className="font-semibold text-slate-800 mb-3 border-b border-slate-200 pb-2">Condições Clínicas e Sociais</h3>
-                 <div className="grid md:grid-cols-2 gap-4 text-sm">
-                   <div>
-                      <p className="font-medium text-slate-700">Condição Clínica:</p>
-                      <p className="text-slate-600 mb-2">{resident.clinicalCondition || '-'}</p>
-                      <p className="font-medium text-slate-700">Alergias:</p>
-                      <p className="text-slate-600">{resident.allergies.join(', ') || 'Nenhuma'}</p>
+
+                <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 md:col-span-2">
+                  <h3 className="font-semibold text-slate-800 mb-3 border-b border-slate-200 pb-2">Plano de Rotina Usual</h3>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mb-4">
+                    <p><span className="text-slate-500 font-semibold">Uso de Fraldas:</span> {resident.usoFraldas === 'sim' ? 'Sim' : 'Não'}</p>
+                    <p><span className="text-slate-500 font-semibold">Mobilidade Usual:</span> {resident.mobilidadeSet === 'independente' ? 'Independente' : resident.mobilidadeSet === 'auxilio' ? 'Com auxílio' : 'Acamado'}</p>
+                    <p><span className="text-slate-500 font-semibold">Higiene Corporal:</span> {resident.higieneCorporal === 'independente' ? 'Independente' : 'Com auxílio'}</p>
+                    <p><span className="text-slate-500 font-semibold">Higiene Oral/Vestir:</span> {resident.higieneOralVestir === 'independente' ? 'Independente' : 'Com auxílio'}</p>
+                  </div>
+                  <div className="border-t border-slate-200/60 pt-3">
+                    <span className="block text-xs font-bold text-slate-750 mb-2">Cuidados Diários Programados:</span>
+                    <div className="flex flex-wrap gap-2">
+                      {resident.reqHygiene && <span className="bg-violet-50 text-violet-750 px-2.5 py-1 rounded-lg text-xs font-bold border border-violet-100">Auxílio Banho/Higiene</span>}
+                      {resident.reqOralCare && <span className="bg-violet-50 text-violet-750 px-2.5 py-1 rounded-lg text-xs font-bold border border-violet-100">Higiene Oral assistida</span>}
+                      {resident.reqFeeding && <span className="bg-violet-50 text-violet-750 px-2.5 py-1 rounded-lg text-xs font-bold border border-violet-100">Auxílio Alimentação</span>}
+                      {resident.reqHydration && <span className="bg-violet-50 text-violet-750 px-2.5 py-1 rounded-lg text-xs font-bold border border-violet-100">Hidratação assistida</span>}
+                      {resident.reqMobility && <span className="bg-violet-50 text-violet-750 px-2.5 py-1 rounded-lg text-xs font-bold border border-violet-100">Mobilização/Mudança decúbito</span>}
+                      {resident.reqDressings && <span className="bg-violet-50 text-violet-750 px-2.5 py-1 rounded-lg text-xs font-bold border border-violet-100">Realização de Curativos</span>}
+                      {resident.reqLeisure && <span className="bg-violet-50 text-violet-750 px-2.5 py-1 rounded-lg text-xs font-bold border border-violet-100">Atividade Lazer/Social</span>}
+                      {!resident.reqHygiene && !resident.reqOralCare && !resident.reqFeeding && !resident.reqHydration && !resident.reqMobility && !resident.reqDressings && !resident.reqLeisure && (
+                        <span className="text-slate-400 text-xs italic font-medium">Nenhum cuidado diário programado.</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 md:col-span-2">
+                  <h3 className="font-semibold text-slate-800 mb-3 border-b border-slate-200 pb-2">Endereço</h3>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+                    <p><span className="text-slate-500">CEP:</span> {resident.addressCep || '-'}</p>
+                    <p className="md:col-span-2"><span className="text-slate-500">Logradouro / Rua:</span> {resident.addressStreet || '-'}</p>
+                    <p><span className="text-slate-500">Número:</span> {resident.addressNumber || '-'}</p>
+                    <p><span className="text-slate-500">Complemento:</span> {resident.addressComplement || '-'}</p>
+                    <p><span className="text-slate-500">Bairro:</span> {resident.addressNeighborhood || '-'}</p>
+                    <p className="md:col-span-2"><span className="text-slate-500">Cidade/UF:</span> {resident.addressCity ? `${resident.addressCity} - ${resident.addressState || ''}` : '-'}</p>
+                  </div>
+                </div>
+                <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 md:col-span-2">
+                   <h3 className="font-semibold text-slate-800 mb-3 border-b border-slate-200 pb-2">Condições Clínicas e Sociais</h3>
+                   <div className="grid md:grid-cols-2 gap-4 text-sm">
+                     <div>
+                        <p className="font-medium text-slate-700">Condição Clínica:</p>
+                        <p className="text-slate-600 mb-2">{resident.clinicalCondition || '-'}</p>
+                        <p className="font-medium text-slate-700">Alergias:</p>
+                        <p className="text-slate-600">{resident.allergies.join(', ') || 'Nenhuma'}</p>
+                     </div>
+                     <div>
+                        <p className="font-medium text-slate-700">Histórico Social:</p>
+                        <p className="text-slate-600 mb-2">{resident.socialHistory || '-'}</p>
+                        <p className="font-medium text-slate-700">Funcionalidade:</p>
+                        <p className="text-slate-600">{resident.functionalCondition || '-'}</p>
+                     </div>
                    </div>
-                   <div>
-                      <p className="font-medium text-slate-700">Histórico Social:</p>
-                      <p className="text-slate-600 mb-2">{resident.socialHistory || '-'}</p>
-                      <p className="font-medium text-slate-700">Funcionalidade:</p>
-                      <p className="text-slate-600">{resident.functionalCondition || '-'}</p>
-                   </div>
-                 </div>
+                </div>
               </div>
             </div>
           )}
@@ -1520,7 +1701,368 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, onBack, onU
           )}
         </div>
       </div>
-    </div>
+
+      {/* Modal de Edição de Residente */}
+      {isEditModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/50 backdrop-blur-sm">
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white w-full h-full sm:h-auto sm:rounded-2xl shadow-2xl sm:max-w-2xl overflow-hidden flex flex-col max-h-[100vh] sm:max-h-[90vh]"
+          >
+            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-[#F8F7FF] shrink-0">
+              <div>
+                <h3 className="font-bold text-slate-800">Editar Residente</h3>
+                <p className="text-xs text-slate-400 mt-0.5">Altere as informações do residente</p>
+              </div>
+              <button onClick={() => setIsEditModalOpen(false)} className="w-9 h-9 rounded-xl hover:bg-slate-200 flex items-center justify-center transition-colors">
+                <X className="h-5 w-5 text-slate-500" />
+              </button>
+            </div>
+
+            <div className="flex gap-1 px-4 pt-4 pb-0 shrink-0">
+              {[
+                { id: 'personal' as const, label: 'Dados Pessoais', icon: User },
+                { id: 'contacts' as const, label: 'Contatos', icon: Phone },
+                { id: 'clinical' as const, label: 'Clínico', icon: FileHeart },
+                { id: 'routine' as const, label: 'Plano de Rotina', icon: ClipboardList },
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setModalActiveTab(tab.id)}
+                  className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-xs font-semibold transition-all ${modalActiveTab === tab.id ? 'bg-violet-600 text-white' : 'text-slate-500 hover:bg-slate-100'
+                    }`}
+                >
+                  <tab.icon className="h-3.5 w-3.5" /> {tab.label}
+                </button>
+              ))}
+            </div>
+
+            <form onSubmit={handleSaveResident} className="p-5 overflow-y-auto flex-1 space-y-4">
+              {modalActiveTab === 'personal' && (
+                <>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1.5">Nome Completo</label>
+                    <input required type="text" value={formData.name || ''} onChange={e => setFormData({ ...formData, name: e.target.value })} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">CPF</label>
+                      <input type="text" value={formData.cpf || ''} onChange={e => setFormData({ ...formData, cpf: e.target.value })} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">RG</label>
+                      <input type="text" value={formData.rg || ''} onChange={e => setFormData({ ...formData, rg: e.target.value })} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">Nascimento</label>
+                      <input
+                        type="date"
+                        value={formData.birthDate || ''}
+                        onChange={e => {
+                          const dateVal = e.target.value;
+                          setFormData({
+                            ...formData,
+                            birthDate: dateVal,
+                            age: dateVal ? calculateAge(dateVal) : (formData.age || 0)
+                          });
+                        }}
+                        className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">Idade</label>
+                      <input required type="number" value={formData.age || ''} onChange={e => setFormData({ ...formData, age: parseInt(e.target.value) })} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">Quarto</label>
+                      {rooms && rooms.length > 0 ? (
+                        <select
+                          required
+                          value={formData.room || ''}
+                          onChange={e => setFormData({ ...formData, room: e.target.value })}
+                          className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+                        >
+                          <option value="">Selecione...</option>
+                          {rooms.map(r => (
+                            <option key={r.id} value={r.number}>
+                              Quarto {r.number} ({r.type})
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          required
+                          type="text"
+                          value={formData.room || ''}
+                          onChange={e => setFormData({ ...formData, room: e.target.value })}
+                          className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+                        />
+                      )}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1.5">Grau de Dependência</label>
+                    <CustomSelect
+                      value={formData.careLevel || 'I'}
+                      onChange={v => setFormData({ ...formData, careLevel: v as any })}
+                      options={[
+                        { value: 'I', label: 'Grau I', desc: 'Independente', badge: { label: 'Grau I', bg: 'bg-emerald-50', text: 'text-emerald-700', dot: 'bg-emerald-400' } },
+                        { value: 'II', label: 'Grau II', desc: 'Dependência Parcial', badge: { label: 'Grau II', bg: 'bg-amber-50', text: 'text-amber-700', dot: 'bg-amber-400' } },
+                        { value: 'III', label: 'Grau III', desc: 'Dependência Total', badge: { label: 'Grau III', bg: 'bg-rose-50', text: 'text-rose-700', dot: 'bg-rose-400' } },
+                      ]}
+                    />
+                  </div>
+
+                  {/* Endereço do Residente */}
+                  <div className="border-t border-slate-100 pt-4 mt-4 space-y-3">
+                    <h4 className="font-bold text-slate-700 text-sm flex items-center gap-1.5">
+                      <Home className="h-4 w-4 text-violet-500" />
+                      Endereço do Residente
+                    </h4>
+
+                    <div className="grid grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1.5 flex items-center justify-between">
+                          <span>CEP</span>
+                          {loadingCep && <span className="text-[10px] text-violet-500 font-semibold animate-pulse">...</span>}
+                          {cepError && <span className="text-[10px] text-rose-500 font-semibold">{cepError}</span>}
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="00000-000"
+                          maxLength={9}
+                          value={formData.addressCep || ''}
+                          onChange={e => handleCepChange(e.target.value)}
+                          className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+                        />
+                      </div>
+                      <div className="col-span-2">
+                        <label className="block text-xs font-semibold text-slate-600 mb-1.5">Logradouro / Rua</label>
+                        <input
+                          type="text"
+                          placeholder="Ex: Av. Brasil"
+                          value={formData.addressStreet || ''}
+                          onChange={e => setFormData({ ...formData, addressStreet: e.target.value })}
+                          className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1.5">Número</label>
+                        <input
+                          type="text"
+                          placeholder="Nº"
+                          value={formData.addressNumber || ''}
+                          onChange={e => setFormData({ ...formData, addressNumber: e.target.value })}
+                          className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+                        />
+                      </div>
+                      <div className="col-span-2">
+                        <label className="block text-xs font-semibold text-slate-600 mb-1.5">Complemento</label>
+                        <input
+                          type="text"
+                          placeholder="Ex: Apto 101, Bloco B"
+                          value={formData.addressComplement || ''}
+                          onChange={e => setFormData({ ...formData, addressComplement: e.target.value })}
+                          className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1.5">Bairro</label>
+                        <input
+                          type="text"
+                          placeholder="Bairro"
+                          value={formData.addressNeighborhood || ''}
+                          onChange={e => setFormData({ ...formData, addressNeighborhood: e.target.value })}
+                          className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1.5">Cidade</label>
+                        <input
+                          type="text"
+                          placeholder="Cidade"
+                          value={formData.addressCity || ''}
+                          onChange={e => setFormData({ ...formData, addressCity: e.target.value })}
+                          className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1.5">Estado (UF)</label>
+                        <input
+                          type="text"
+                          placeholder="UF"
+                          maxLength={2}
+                          value={formData.addressState || ''}
+                          onChange={e => setFormData({ ...formData, addressState: e.target.value.toUpperCase() })}
+                          className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {modalActiveTab === 'contacts' && (
+                <div className="space-y-5">
+                  <div className="bg-violet-50 border border-violet-100 rounded-2xl p-4">
+                    <h4 className="font-bold text-slate-700 text-sm mb-3">Responsável Legal</h4>
+                    <div className="grid grid-cols-2 gap-3">
+                      {[
+                        { placeholder: 'Nome', key: 'name' },
+                        { placeholder: 'CPF', key: 'cpf' },
+                        { placeholder: 'Telefone', key: 'phone' },
+                        { placeholder: 'Endereço', key: 'address' },
+                      ].map(f => (
+                        <input
+                          key={f.key}
+                          placeholder={f.placeholder}
+                          value={(formData.legalGuardian as any)?.[f.key] || ''}
+                          onChange={e => setFormData({ ...formData, legalGuardian: { ...formData.legalGuardian!, [f.key]: e.target.value } })}
+                          className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+                        />
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-slate-700 text-sm mb-3">Contatos de Emergência</h4>
+                    <div className="mt-3 space-y-2">
+                      {formData.emergencyContacts?.map((c, i) => (
+                        <div key={i} className="flex justify-between items-center bg-slate-50 rounded-xl px-3 py-2 text-sm">
+                          <span className="font-medium text-slate-700">{c.name} <span className="text-slate-400">({c.relation})</span></span>
+                          <span className="text-slate-500 text-xs">{c.phone}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {modalActiveTab === 'clinical' && (
+                <div className="space-y-4">
+                  {[
+                    { label: 'Condições Clínicas (Diagnósticos)', key: 'clinicalCondition', placeholder: 'Ex: Hipertensão, Diabetes tipo 2...' },
+                    { label: 'Condição Funcional', key: 'functionalCondition', placeholder: 'Mobilidade, cognição...' },
+                    { label: 'Histórico Social e Familiar', key: 'socialHistory', placeholder: 'Contexto familiar, visitas...' },
+                  ].map(f => (
+                    <div key={f.key}>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">{f.label}</label>
+                      <textarea rows={3} placeholder={f.placeholder} value={(formData as any)[f.key] || ''} onChange={e => setFormData({ ...formData, [f.key]: e.target.value })} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white resize-none" />
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {modalActiveTab === 'routine' && (
+                <div className="space-y-4">
+                  <h4 className="font-bold text-slate-700 text-sm border-b border-slate-100 pb-2 flex items-center gap-1.5">
+                    <ClipboardList className="h-4 w-4 text-violet-500" />
+                    Plano de Rotina Usual & Cuidados
+                  </h4>
+                  
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">Uso de Fraldas</label>
+                      <select
+                        value={formData.usoFraldas || 'nao'}
+                        onChange={e => setFormData({ ...formData, usoFraldas: e.target.value as any })}
+                        className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+                      >
+                        <option value="nao">Não usa fraldas</option>
+                        <option value="sim">Sim, usa fraldas</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">Mobilidade Usual</label>
+                      <select
+                        value={formData.mobilidadeSet || 'independente'}
+                        onChange={e => setFormData({ ...formData, mobilidadeSet: e.target.value as any })}
+                        className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+                      >
+                        <option value="independente">Independente</option>
+                        <option value="auxilio">Necessita de Auxílio</option>
+                        <option value="acamado">Acamado</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">Higiene Corporal Usual</label>
+                      <select
+                        value={formData.higieneCorporal || 'independente'}
+                        onChange={e => setFormData({ ...formData, higieneCorporal: e.target.value as any })}
+                        className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+                      >
+                        <option value="independente">Independente</option>
+                        <option value="auxilio">Necessita de Auxílio</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">Higiene Oral & Vestir Usual</label>
+                      <select
+                        value={formData.higieneOralVestir || 'independente'}
+                        onChange={e => setFormData({ ...formData, higieneOralVestir: e.target.value as any })}
+                        className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+                      >
+                        <option value="independente">Independente</option>
+                        <option value="auxilio">Necessita de Auxílio</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="bg-[#F8F7FF] border border-violet-100 rounded-2xl p-4 mt-2">
+                    <span className="block text-xs font-bold text-slate-700 mb-3">
+                      Necessidades de Cuidado Diário Programado (Plano):
+                    </span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {[
+                        { key: 'reqHygiene', label: 'Auxílio Banho/Higiene' },
+                        { key: 'reqOralCare', label: 'Higiene Oral assistida' },
+                        { key: 'reqFeeding', label: 'Auxílio Alimentação' },
+                        { key: 'reqHydration', label: 'Hidratação assistida' },
+                        { key: 'reqMobility', label: 'Mobilização/Mudança decúbito' },
+                        { key: 'reqDressings', label: 'Realização de Curativos' },
+                        { key: 'reqLeisure', label: 'Atividade Lazer/Social' },
+                      ].map(item => (
+                        <label key={item.key} className="flex items-center gap-2.5 p-2 bg-white rounded-xl border border-slate-100 hover:bg-violet-50 cursor-pointer select-none transition-colors">
+                          <input
+                            type="checkbox"
+                            checked={!!(formData as any)[item.key]}
+                            onChange={e => setFormData({ ...formData, [item.key]: e.target.checked })}
+                            className="rounded text-violet-600 focus:ring-violet-500 h-4 w-4"
+                          />
+                          <span className="text-xs text-slate-600 font-semibold">{item.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="pt-4 border-t border-slate-100 flex gap-3">
+                <button type="button" onClick={() => setIsEditModalOpen(false)} className="flex-1 sm:flex-none px-5 py-2.5 border border-slate-200 rounded-xl text-slate-600 font-semibold text-sm hover:bg-slate-50 transition-colors">
+                  Cancelar
+                </button>
+                <button type="submit" className="flex-1 sm:flex-none px-6 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl font-semibold text-sm transition-colors">
+                  Salvar Alterações
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+   </div>
   );
 };
 

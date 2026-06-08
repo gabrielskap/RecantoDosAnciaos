@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
-import { Search, Filter, FileText, X, User, Phone, FileHeart, Plus, AlertCircle, BedDouble, Home } from 'lucide-react';
-import { Resident } from '../types';
+import { Search, Filter, FileText, X, User, Phone, FileHeart, Plus, AlertCircle, BedDouble, Home, Edit2, ClipboardList } from 'lucide-react';
+import { Resident, Room } from '../types';
 import CustomSelect from './CustomSelect';
 
 interface ResidentsListProps {
   residents: Resident[];
+  rooms: Room[];
   onSelectResident: (resident: Resident) => void;
   onAddResident: (resident: Resident) => void;
+  onUpdateResident?: (resident: Resident) => void;
 }
 
 const careLevelConfig = {
@@ -33,11 +35,14 @@ const calculateAge = (birthDateString: string): number => {
   return age >= 0 ? age : 0;
 };
 
-const ResidentsList: React.FC<ResidentsListProps> = ({ residents, onSelectResident, onAddResident }) => {
+const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelectResident, onAddResident, onUpdateResident }) => {
   const [isModalOpen, setIsModalOpen] = useState(() => {
     return sessionStorage.getItem('modal_residents_list_open') === 'true';
   });
-  const [activeTab, setActiveTab] = useState<'personal' | 'contacts' | 'clinical'>(() => {
+  const [editingResidentId, setEditingResidentId] = useState<string | null>(() => {
+    return sessionStorage.getItem('modal_residents_editing_id') || null;
+  });
+  const [activeTab, setActiveTab] = useState<'personal' | 'contacts' | 'clinical' | 'routine'>(() => {
     return (sessionStorage.getItem('modal_residents_active_tab') as any) || 'personal';
   });
   const [search, setSearch] = useState('');
@@ -51,6 +56,17 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, onSelectReside
       emergencyContacts: [],
       legalGuardian: { name: '', cpf: '', phone: '', address: '' },
       clinicalCondition: '', functionalCondition: '', socialHistory: '',
+      usoFraldas: 'nao',
+      mobilidadeSet: 'independente',
+      higieneCorporal: 'independente',
+      higieneOralVestir: 'independente',
+      reqHygiene: false,
+      reqOralCare: false,
+      reqFeeding: false,
+      reqHydration: false,
+      reqMobility: false,
+      reqDressings: false,
+      reqLeisure: false,
     };
   });
   const [contactTemp, setContactTemp] = useState(() => {
@@ -107,13 +123,19 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, onSelectReside
       sessionStorage.setItem('modal_residents_active_tab', activeTab);
       sessionStorage.setItem('modal_residents_form_data', JSON.stringify(formData));
       sessionStorage.setItem('modal_residents_contact_temp', JSON.stringify(contactTemp));
+      if (editingResidentId) {
+        sessionStorage.setItem('modal_residents_editing_id', editingResidentId);
+      } else {
+        sessionStorage.removeItem('modal_residents_editing_id');
+      }
     } else {
       sessionStorage.removeItem('modal_residents_list_open');
       sessionStorage.removeItem('modal_residents_active_tab');
       sessionStorage.removeItem('modal_residents_form_data');
       sessionStorage.removeItem('modal_residents_contact_temp');
+      sessionStorage.removeItem('modal_residents_editing_id');
     }
-  }, [isModalOpen, activeTab, formData, contactTemp]);
+  }, [isModalOpen, activeTab, formData, contactTemp, editingResidentId]);
 
   const filtered = residents.filter(r =>
     r.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -127,39 +149,144 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, onSelectReside
     }
   };
 
+  const handleStartEdit = (resident: Resident) => {
+    setEditingResidentId(resident.id);
+    setFormData({
+      name: resident.name,
+      age: resident.age,
+      room: resident.room,
+      careLevel: resident.careLevel,
+      cpf: resident.cpf || '',
+      rg: resident.rg || '',
+      birthDate: resident.birthDate || '',
+      addressCep: resident.addressCep || '',
+      addressState: resident.addressState || '',
+      addressCity: resident.addressCity || '',
+      addressNeighborhood: resident.addressNeighborhood || '',
+      addressStreet: resident.addressStreet || '',
+      addressNumber: resident.addressNumber || '',
+      addressComplement: resident.addressComplement || '',
+      emergencyContacts: resident.emergencyContacts || [],
+      legalGuardian: resident.legalGuardian || { name: '', cpf: '', phone: '', address: '' },
+      clinicalCondition: resident.clinicalCondition || '',
+      functionalCondition: resident.functionalCondition || '',
+      socialHistory: resident.socialHistory || '',
+      usoFraldas: resident.usoFraldas || 'nao',
+      mobilidadeSet: resident.mobilidadeSet || 'independente',
+      higieneCorporal: resident.higieneCorporal || 'independente',
+      higieneOralVestir: resident.higieneOralVestir || 'independente',
+      reqHygiene: resident.reqHygiene || false,
+      reqOralCare: resident.reqOralCare || false,
+      reqFeeding: resident.reqFeeding || false,
+      reqHydration: resident.reqHydration || false,
+      reqMobility: resident.reqMobility || false,
+      reqDressings: resident.reqDressings || false,
+      reqLeisure: resident.reqLeisure || false,
+    });
+    setActiveTab('personal');
+    setIsModalOpen(true);
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name || !formData.room) return;
-    const resident: Resident = {
-      id: Math.random().toString(36).substr(2, 9),
-      name: formData.name!, age: formData.age || 0, room: formData.room!,
-      careLevel: (formData.careLevel as 'I' | 'II' | 'III') || 'I',
-      cpf: formData.cpf, rg: formData.rg, birthDate: formData.birthDate,
-      photoUrl: `https://picsum.photos/200/200?random=${Math.floor(Math.random() * 1000)}`,
-      admissionDate: new Date().toISOString(),
-      addressCep: formData.addressCep,
-      addressState: formData.addressState,
-      addressCity: formData.addressCity,
-      addressNeighborhood: formData.addressNeighborhood,
-      addressStreet: formData.addressStreet,
-      addressNumber: formData.addressNumber,
-      addressComplement: formData.addressComplement,
-      emergencyContacts: formData.emergencyContacts || [],
-      legalGuardian: formData.legalGuardian,
-      clinicalCondition: formData.clinicalCondition || '',
-      functionalCondition: formData.functionalCondition || '',
-      socialHistory: formData.socialHistory || '',
-      medications: [], allergies: [], vitals: [], carePlan: [],
-      auditLogs: [], dailyChecklists: [], documents: [],
-    };
-    onAddResident(resident);
+
+    if (editingResidentId) {
+      if (onUpdateResident) {
+        const original = residents.find(r => r.id === editingResidentId);
+        if (original) {
+          const updated: Resident = {
+            ...original,
+            name: formData.name!,
+            age: formData.age || 0,
+            room: formData.room!,
+            careLevel: (formData.careLevel as 'I' | 'II' | 'III') || 'I',
+            cpf: formData.cpf,
+            rg: formData.rg,
+            birthDate: formData.birthDate,
+            addressCep: formData.addressCep,
+            addressState: formData.addressState,
+            addressCity: formData.addressCity,
+            addressNeighborhood: formData.addressNeighborhood,
+            addressStreet: formData.addressStreet,
+            addressNumber: formData.addressNumber,
+            addressComplement: formData.addressComplement,
+            emergencyContacts: formData.emergencyContacts || [],
+            legalGuardian: formData.legalGuardian,
+            clinicalCondition: formData.clinicalCondition || '',
+            functionalCondition: formData.functionalCondition || '',
+            socialHistory: formData.socialHistory || '',
+            usoFraldas: formData.usoFraldas || 'nao',
+            mobilidadeSet: formData.mobilidadeSet || 'independente',
+            higieneCorporal: formData.higieneCorporal || 'independente',
+            higieneOralVestir: formData.higieneOralVestir || 'independente',
+            reqHygiene: formData.reqHygiene || false,
+            reqOralCare: formData.reqOralCare || false,
+            reqFeeding: formData.reqFeeding || false,
+            reqHydration: formData.reqHydration || false,
+            reqMobility: formData.reqMobility || false,
+            reqDressings: formData.reqDressings || false,
+            reqLeisure: formData.reqLeisure || false,
+          };
+          onUpdateResident(updated);
+        }
+      }
+    } else {
+      const resident: Resident = {
+        id: Math.random().toString(36).substr(2, 9),
+        name: formData.name!, age: formData.age || 0, room: formData.room!,
+        careLevel: (formData.careLevel as 'I' | 'II' | 'III') || 'I',
+        cpf: formData.cpf, rg: formData.rg, birthDate: formData.birthDate,
+        photoUrl: `https://picsum.photos/200/200?random=${Math.floor(Math.random() * 1000)}`,
+        admissionDate: new Date().toISOString(),
+        addressCep: formData.addressCep,
+        addressState: formData.addressState,
+        addressCity: formData.addressCity,
+        addressNeighborhood: formData.addressNeighborhood,
+        addressStreet: formData.addressStreet,
+        addressNumber: formData.addressNumber,
+        addressComplement: formData.addressComplement,
+        emergencyContacts: formData.emergencyContacts || [],
+        legalGuardian: formData.legalGuardian,
+        clinicalCondition: formData.clinicalCondition || '',
+        functionalCondition: formData.functionalCondition || '',
+        socialHistory: formData.socialHistory || '',
+        medications: [], allergies: [], vitals: [], carePlan: [],
+        auditLogs: [], dailyChecklists: [], documents: [],
+        usoFraldas: formData.usoFraldas || 'nao',
+        mobilidadeSet: formData.mobilidadeSet || 'independente',
+        higieneCorporal: formData.higieneCorporal || 'independente',
+        higieneOralVestir: formData.higieneOralVestir || 'independente',
+        reqHygiene: formData.reqHygiene || false,
+        reqOralCare: formData.reqOralCare || false,
+        reqFeeding: formData.reqFeeding || false,
+        reqHydration: formData.reqHydration || false,
+        reqMobility: formData.reqMobility || false,
+        reqDressings: formData.reqDressings || false,
+        reqLeisure: formData.reqLeisure || false,
+      };
+      onAddResident(resident);
+    }
     setIsModalOpen(false);
+    setEditingResidentId(null);
     setFormData({
       name: '', age: 0, room: '', careLevel: 'I',
       addressCep: '', addressState: '', addressCity: '', addressNeighborhood: '',
       addressStreet: '', addressNumber: '', addressComplement: '',
       emergencyContacts: [],
-      legalGuardian: { name: '', cpf: '', phone: '', address: '' }
+      legalGuardian: { name: '', cpf: '', phone: '', address: '' },
+      clinicalCondition: '', functionalCondition: '', socialHistory: '',
+      usoFraldas: 'nao',
+      mobilidadeSet: 'independente',
+      higieneCorporal: 'independente',
+      higieneOralVestir: 'independente',
+      reqHygiene: false,
+      reqOralCare: false,
+      reqFeeding: false,
+      reqHydration: false,
+      reqMobility: false,
+      reqDressings: false,
+      reqLeisure: false,
     });
     setActiveTab('personal');
   };
@@ -170,6 +297,7 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, onSelectReside
     { id: 'personal' as const, label: 'Dados Pessoais', icon: User },
     { id: 'contacts' as const, label: 'Contatos', icon: Phone },
     { id: 'clinical' as const, label: 'Clínico', icon: FileHeart },
+    { id: 'routine' as const, label: 'Plano de Rotina', icon: ClipboardList },
   ];
 
   return (
@@ -182,7 +310,30 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, onSelectReside
           <p className="text-slate-500 text-sm mt-0.5">{residents.length} residente{residents.length !== 1 ? 's' : ''} cadastrado{residents.length !== 1 ? 's' : ''}</p>
         </div>
         <button
-          onClick={() => setIsModalOpen(true)}
+          onClick={() => {
+            setEditingResidentId(null);
+            setFormData({
+              name: '', age: 0, room: '', careLevel: 'I', cpf: '', rg: '', birthDate: '',
+              addressCep: '', addressState: '', addressCity: '', addressNeighborhood: '',
+              addressStreet: '', addressNumber: '', addressComplement: '',
+              emergencyContacts: [],
+              legalGuardian: { name: '', cpf: '', phone: '', address: '' },
+              clinicalCondition: '', functionalCondition: '', socialHistory: '',
+              usoFraldas: 'nao',
+              mobilidadeSet: 'independente',
+              higieneCorporal: 'independente',
+              higieneOralVestir: 'independente',
+              reqHygiene: false,
+              reqOralCare: false,
+              reqFeeding: false,
+              reqHydration: false,
+              reqMobility: false,
+              reqDressings: false,
+              reqLeisure: false,
+            });
+            setActiveTab('personal');
+            setIsModalOpen(true);
+          }}
           className="flex items-center gap-2 bg-violet-600 hover:bg-violet-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors shadow-sm shadow-violet-200 w-full sm:w-auto justify-center"
         >
           <Plus className="h-4 w-4" /> Novo Residente
@@ -242,12 +393,21 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, onSelectReside
 
                 <div className="pt-3 border-t border-slate-50 flex items-center justify-between">
                   <span className="text-xs text-slate-400">Última aferição: Hoje 08:00</span>
-                  <button
-                    onClick={() => onSelectResident(resident)}
-                    className="flex items-center gap-1.5 text-xs font-semibold text-violet-600 hover:text-violet-700 bg-violet-50 hover:bg-violet-100 px-3 py-1.5 rounded-full transition-colors"
-                  >
-                    <FileText className="h-3.5 w-3.5" /> Prontuário
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleStartEdit(resident)}
+                      className="flex items-center gap-1 text-xs font-semibold text-slate-600 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-full transition-colors"
+                      title="Editar Residente"
+                    >
+                      <Edit2 className="h-3 w-3" /> Editar
+                    </button>
+                    <button
+                      onClick={() => onSelectResident(resident)}
+                      className="flex items-center gap-1.5 text-xs font-semibold text-violet-600 hover:text-violet-700 bg-violet-50 hover:bg-violet-100 px-3 py-1.5 rounded-full transition-colors"
+                    >
+                      <FileText className="h-3.5 w-3.5" /> Prontuário
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -275,10 +435,10 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, onSelectReside
 
             <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-[#F8F7FF] shrink-0">
               <div>
-                <h3 className="font-bold text-slate-800">Cadastro de Residente</h3>
-                <p className="text-xs text-slate-400 mt-0.5">Preencha os dados do novo residente</p>
+                <h3 className="font-bold text-slate-800">{editingResidentId ? 'Editar Residente' : 'Cadastro de Residente'}</h3>
+                <p className="text-xs text-slate-400 mt-0.5">{editingResidentId ? 'Altere as informações do residente' : 'Preencha os dados do novo residente'}</p>
               </div>
-              <button onClick={() => setIsModalOpen(false)} className="w-9 h-9 rounded-xl hover:bg-slate-200 flex items-center justify-center transition-colors">
+              <button onClick={() => { setIsModalOpen(false); setEditingResidentId(null); }} className="w-9 h-9 rounded-xl hover:bg-slate-200 flex items-center justify-center transition-colors">
                 <X className="h-5 w-5 text-slate-500" />
               </button>
             </div>
@@ -336,7 +496,30 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, onSelectReside
                     </div>
                     <div>
                       <label className="block text-xs font-semibold text-slate-600 mb-1.5">Quarto</label>
-                      <input required type="text" value={formData.room} onChange={e => setFormData({ ...formData, room: e.target.value })} className={inputClass} />
+                      {rooms && rooms.length > 0 ? (
+                        <select
+                          required
+                          value={formData.room || ''}
+                          onChange={e => setFormData({ ...formData, room: e.target.value })}
+                          className={inputClass}
+                        >
+                          <option value="">Selecione...</option>
+                          {rooms.map(r => (
+                            <option key={r.id} value={r.number}>
+                              Quarto {r.number} ({r.type})
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          required
+                          type="text"
+                          placeholder="Digite o número"
+                          value={formData.room || ''}
+                          onChange={e => setFormData({ ...formData, room: e.target.value })}
+                          className={inputClass}
+                        />
+                      )}
                     </div>
                   </div>
                   <div>
@@ -504,12 +687,101 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, onSelectReside
                 </div>
               )}
 
+              {activeTab === 'routine' && (
+                <div className="space-y-4">
+                  <h4 className="font-bold text-slate-700 text-sm border-b border-slate-100 pb-2 flex items-center gap-1.5">
+                    <ClipboardList className="h-4 w-4 text-violet-500" />
+                    Plano de Rotina Usual & Cuidados
+                  </h4>
+                  
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">Uso de Fraldas</label>
+                      <select
+                        value={formData.usoFraldas || 'nao'}
+                        onChange={e => setFormData({ ...formData, usoFraldas: e.target.value as any })}
+                        className={inputClass}
+                      >
+                        <option value="nao">Não usa fraldas</option>
+                        <option value="sim">Sim, usa fraldas</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">Mobilidade Usual</label>
+                      <select
+                        value={formData.mobilidadeSet || 'independente'}
+                        onChange={e => setFormData({ ...formData, mobilidadeSet: e.target.value as any })}
+                        className={inputClass}
+                      >
+                        <option value="independente">Independente</option>
+                        <option value="auxilio">Necessita de Auxílio</option>
+                        <option value="acamado">Acamado</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">Higiene Corporal Usual</label>
+                      <select
+                        value={formData.higieneCorporal || 'independente'}
+                        onChange={e => setFormData({ ...formData, higieneCorporal: e.target.value as any })}
+                        className={inputClass}
+                      >
+                        <option value="independente">Independente</option>
+                        <option value="auxilio">Necessita de Auxílio</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">Higiene Oral & Vestir Usual</label>
+                      <select
+                        value={formData.higieneOralVestir || 'independente'}
+                        onChange={e => setFormData({ ...formData, higieneOralVestir: e.target.value as any })}
+                        className={inputClass}
+                      >
+                        <option value="independente">Independente</option>
+                        <option value="auxilio">Necessita de Auxílio</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="bg-[#F8F7FF] border border-violet-100 rounded-2xl p-4 mt-2">
+                    <span className="block text-xs font-bold text-slate-700 mb-3">
+                      Necessidades de Cuidado Diário Programado (Plano):
+                    </span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {[
+                        { key: 'reqHygiene', label: 'Auxílio Banho/Higiene' },
+                        { key: 'reqOralCare', label: 'Higiene Oral assistida' },
+                        { key: 'reqFeeding', label: 'Auxílio Alimentação' },
+                        { key: 'reqHydration', label: 'Hidratação assistida' },
+                        { key: 'reqMobility', label: 'Mobilização/Mudança decúbito' },
+                        { key: 'reqDressings', label: 'Realização de Curativos' },
+                        { key: 'reqLeisure', label: 'Atividade Lazer/Social' },
+                      ].map(item => (
+                        <label key={item.key} className="flex items-center gap-2.5 p-2 bg-white rounded-xl border border-slate-100 hover:bg-violet-50 cursor-pointer select-none transition-colors">
+                          <input
+                            type="checkbox"
+                            checked={!!(formData as any)[item.key]}
+                            onChange={e => setFormData({ ...formData, [item.key]: e.target.checked })}
+                            className="rounded text-violet-600 focus:ring-violet-500 h-4 w-4"
+                          />
+                          <span className="text-xs text-slate-600 font-semibold">{item.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="pt-4 border-t border-slate-100 flex gap-3">
-                <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 sm:flex-none px-5 py-2.5 border border-slate-200 rounded-xl text-slate-600 font-semibold text-sm hover:bg-slate-50 transition-colors">
+                <button type="button" onClick={() => { setIsModalOpen(false); setEditingResidentId(null); }} className="flex-1 sm:flex-none px-5 py-2.5 border border-slate-200 rounded-xl text-slate-600 font-semibold text-sm hover:bg-slate-50 transition-colors">
                   Cancelar
                 </button>
                 <button type="submit" className="flex-1 sm:flex-none px-6 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl font-semibold text-sm transition-colors">
-                  Salvar Cadastro
+                  {editingResidentId ? 'Salvar Alterações' : 'Salvar Cadastro'}
                 </button>
               </div>
             </form>
