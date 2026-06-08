@@ -9,12 +9,12 @@ interface TeamModuleProps {
   employees: Employee[];
   trainings: TrainingRecord[];
   accessLogs: SystemAccessLog[];
-  onAddEmployee: (emp: Employee) => void;
+  onAddEmployee: (emp: Omit<Employee, 'id'>) => Promise<Employee>;
   onAddTraining: (training: TrainingRecord) => void;
 }
 
 const TeamModule: React.FC<TeamModuleProps> = ({ employees, trainings, accessLogs, onAddEmployee, onAddTraining }) => {
-  const { currentUser } = useAuth();
+  const { currentUser, profiles, addUser } = useAuth();
   const isAdmin = currentUser?.profile.type === 'Administrador';
   const [activeTab, setActiveTab] = useState<'employees' | 'schedule' | 'training' | 'logs' | 'profiles'>('employees');
   const [isEmpModalOpen, setIsEmpModalOpen] = useState(() => {
@@ -38,6 +38,12 @@ const TeamModule: React.FC<TeamModuleProps> = ({ employees, trainings, accessLog
       status: 'Ativo'
     };
   });
+
+  const [createAccessUser, setCreateAccessUser] = useState(false);
+  const [accessPassword, setAccessPassword] = useState('');
+  const [accessProfileId, setAccessProfileId] = useState('');
+
+  const employeeProfiles = profiles.filter(p => p.type !== 'Responsável');
 
   // New Training Form State
   const [newTrain, setNewTrain] = useState<Partial<TrainingRecord>>(() => {
@@ -71,27 +77,63 @@ const TeamModule: React.FC<TeamModuleProps> = ({ employees, trainings, accessLog
     }
   }, [isTrainModalOpen, newTrain]);
 
-  const handleEmpSubmit = (e: React.FormEvent) => {
+  const handleEmpSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newEmp.name || !newEmp.cpf) return;
-    
-    const employee: Employee = {
-      id: Math.random().toString(36).substr(2, 9),
-      name: newEmp.name!,
-      role: newEmp.role as UserRole,
-      cpf: newEmp.cpf!,
-      email: newEmp.email || '',
-      phone: newEmp.phone || '',
-      registrationNumber: newEmp.registrationNumber,
-      isTechnicalLead: newEmp.isTechnicalLead || false,
-      shift: newEmp.shift as any,
-      status: 'Ativo',
-      admissionDate: new Date().toISOString()
-    };
 
-    onAddEmployee(employee);
-    setIsEmpModalOpen(false);
-    setNewEmp({ name: '', role: 'Cuidador', cpf: '', email: '', phone: '', shift: 'Matutino', isTechnicalLead: false });
+    if (createAccessUser) {
+      if (!newEmp.email || !newEmp.email.trim()) {
+        alert('O e-mail é obrigatório para criar um usuário de acesso.');
+        return;
+      }
+      if (!accessPassword || accessPassword.length < 4) {
+        alert('A senha deve conter pelo menos 4 caracteres.');
+        return;
+      }
+      if (!accessProfileId) {
+        alert('Selecione um perfil de acesso válido.');
+        return;
+      }
+    }
+    
+    try {
+      const employee: Omit<Employee, 'id'> = {
+        name: newEmp.name!,
+        role: newEmp.role as UserRole,
+        cpf: newEmp.cpf!,
+        email: newEmp.email || '',
+        phone: newEmp.phone || '',
+        registrationNumber: newEmp.registrationNumber,
+        isTechnicalLead: newEmp.isTechnicalLead || false,
+        shift: newEmp.shift as any,
+        status: 'Ativo',
+        admissionDate: new Date().toISOString().split('T')[0]
+      };
+
+      const createdEmp = await onAddEmployee(employee);
+
+      if (createAccessUser && createdEmp && createdEmp.id) {
+        const profile = profiles.find(p => p.id === accessProfileId);
+        if (profile) {
+          await addUser({
+            name: newEmp.name!,
+            email: newEmp.email!.trim().toLowerCase(),
+            password: accessPassword,
+            profile,
+            employeeId: createdEmp.id
+          } as any);
+        }
+      }
+
+      setIsEmpModalOpen(false);
+      setNewEmp({ name: '', role: 'Cuidador', cpf: '', email: '', phone: '', shift: 'Matutino', isTechnicalLead: false });
+      setCreateAccessUser(false);
+      setAccessPassword('');
+      setAccessProfileId('');
+    } catch (err: any) {
+      console.error(err);
+      alert(err.message || 'Erro ao adicionar colaborador.');
+    }
   };
 
   const handleTrainSubmit = (e: React.FormEvent) => {
@@ -393,59 +435,105 @@ const TeamModule: React.FC<TeamModuleProps> = ({ employees, trainings, accessLog
                </button>
              </div>
              <form onSubmit={handleEmpSubmit} className="p-6 space-y-4 flex-1">
-                <div>
-                   <label className="block text-sm font-medium text-slate-700 mb-1">Nome Completo</label>
-                   <input required type="text" value={newEmp.name} onChange={e => setNewEmp({...newEmp, name: e.target.value})} className="w-full px-3 py-2.5 sm:py-2 border rounded-lg text-base sm:text-sm bg-white" />
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Função (Perfil)</label>
-                    <CustomSelect
-                      value={newEmp.role || 'Cuidador'}
-                      onChange={v => setNewEmp({ ...newEmp, role: v as any })}
-                      options={[
-                        { value: 'Admin', label: 'Admin' },
-                        { value: 'Enfermeiro', label: 'Enfermeiro' },
-                        { value: 'Cuidador', label: 'Cuidador' },
-                        { value: 'Médico', label: 'Médico' },
-                        { value: 'Nutricionista', label: 'Nutricionista' },
-                      ]}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">CPF</label>
-                    <input required type="text" value={newEmp.cpf} onChange={e => setNewEmp({...newEmp, cpf: e.target.value})} className="w-full px-3 py-2.5 sm:py-2 border rounded-lg text-base sm:text-sm bg-white" />
-                  </div>
-                </div>
-                <div>
-                   <label className="block text-sm font-medium text-slate-700 mb-1">Nº Registro (CRM/COREN)</label>
-                   <input type="text" value={newEmp.registrationNumber} onChange={e => setNewEmp({...newEmp, registrationNumber: e.target.value})} className="w-full px-3 py-2.5 sm:py-2 border rounded-lg text-base sm:text-sm bg-white" />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
+                 <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Nome Completo</label>
+                    <input required type="text" value={newEmp.name} onChange={e => setNewEmp({...newEmp, name: e.target.value})} className="w-full px-3 py-2.5 sm:py-2 border rounded-lg text-base sm:text-sm bg-white" />
+                 </div>
+                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                    <div>
-                     <label className="block text-sm font-medium text-slate-700 mb-1">Turno</label>
+                     <label className="block text-sm font-medium text-slate-700 mb-1">Função (Perfil)</label>
                      <CustomSelect
-                       value={newEmp.shift || 'Matutino'}
-                       onChange={v => setNewEmp({ ...newEmp, shift: v as any })}
+                       value={newEmp.role || 'Cuidador'}
+                       onChange={v => setNewEmp({ ...newEmp, role: v as any })}
                        options={[
-                         { value: 'Matutino', label: 'Matutino', desc: '07h – 13h' },
-                         { value: 'Vespertino', label: 'Vespertino', desc: '13h – 19h' },
-                         { value: 'Noturno', label: 'Noturno', desc: '19h – 07h' },
-                         { value: '12x36', label: '12x36', desc: 'Regime 12 horas' },
+                         { value: 'Admin', label: 'Admin' },
+                         { value: 'Enfermeiro', label: 'Enfermeiro' },
+                         { value: 'Cuidador', label: 'Cuidador' },
+                         { value: 'Médico', label: 'Médico' },
+                         { value: 'Nutricionista', label: 'Nutricionista' },
                        ]}
                      />
                    </div>
-                   <div className="flex items-center pt-6">
-                     <label className="flex items-center space-x-2 cursor-pointer w-full min-h-[44px]">
-                       <input type="checkbox" checked={newEmp.isTechnicalLead} onChange={e => setNewEmp({...newEmp, isTechnicalLead: e.target.checked})} className="rounded text-primary-600 focus:ring-primary-500 h-5 w-5 sm:h-4 sm:w-4" />
-                       <span className="text-sm font-medium text-slate-700">Resp. Técnico</span>
-                     </label>
+                   <div>
+                     <label className="block text-sm font-medium text-slate-700 mb-1">CPF</label>
+                     <input required type="text" value={newEmp.cpf} onChange={e => setNewEmp({...newEmp, cpf: e.target.value})} className="w-full px-3 py-2.5 sm:py-2 border rounded-lg text-base sm:text-sm bg-white" />
                    </div>
-                </div>
-                <div className="pt-4 pb-8 sm:pb-0">
-                  <button type="submit" className="w-full bg-primary-600 hover:bg-primary-700 active:scale-95 text-white font-medium py-3 sm:py-2 rounded-lg transition-colors">Salvar Colaborador</button>
-                </div>
-             </form>
+                 </div>
+                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                   <div>
+                     <label className="block text-sm font-medium text-slate-700 mb-1">E-mail</label>
+                     <input type="email" value={newEmp.email} onChange={e => setNewEmp({...newEmp, email: e.target.value})} className="w-full px-3 py-2.5 sm:py-2 border rounded-lg text-base sm:text-sm bg-white" placeholder="exemplo@recanto.com" />
+                   </div>
+                   <div>
+                     <label className="block text-sm font-medium text-slate-700 mb-1">Telefone</label>
+                     <input type="text" value={newEmp.phone} onChange={e => setNewEmp({...newEmp, phone: e.target.value})} className="w-full px-3 py-2.5 sm:py-2 border rounded-lg text-base sm:text-sm bg-white" placeholder="(00) 00000-0000" />
+                   </div>
+                 </div>
+                 <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Nº Registro (CRM/COREN)</label>
+                    <input type="text" value={newEmp.registrationNumber} onChange={e => setNewEmp({...newEmp, registrationNumber: e.target.value})} className="w-full px-3 py-2.5 sm:py-2 border rounded-lg text-base sm:text-sm bg-white" />
+                 </div>
+                 <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Turno</label>
+                      <CustomSelect
+                        value={newEmp.shift || 'Matutino'}
+                        onChange={v => setNewEmp({ ...newEmp, shift: v as any })}
+                        options={[
+                          { value: 'Matutino', label: 'Matutino', desc: '07h – 13h' },
+                          { value: 'Vespertino', label: 'Vespertino', desc: '13h – 19h' },
+                          { value: 'Noturno', label: 'Noturno', desc: '19h – 07h' },
+                          { value: '12x36', label: '12x36', desc: 'Regime 12 horas' },
+                        ]}
+                      />
+                    </div>
+                    <div className="flex items-center pt-6">
+                      <label className="flex items-center space-x-2 cursor-pointer w-full min-h-[44px]">
+                        <input type="checkbox" checked={newEmp.isTechnicalLead} onChange={e => setNewEmp({...newEmp, isTechnicalLead: e.target.checked})} className="rounded text-primary-600 focus:ring-primary-500 h-5 w-5 sm:h-4 sm:w-4" />
+                        <span className="text-sm font-medium text-slate-700">Resp. Técnico</span>
+                      </label>
+                    </div>
+                 </div>
+                 <div className="pt-4 border-t border-slate-100 space-y-4">
+                    <label className="flex items-center space-x-2 cursor-pointer select-none">
+                      <input type="checkbox" checked={createAccessUser} onChange={e => {
+                        setCreateAccessUser(e.target.checked);
+                        if (e.target.checked && employeeProfiles.length > 0 && !accessProfileId) {
+                          setAccessProfileId(employeeProfiles[0].id);
+                        }
+                      }} className="rounded text-primary-600 focus:ring-primary-500 h-5 w-5 sm:h-4 sm:w-4" />
+                      <span className="text-sm font-semibold text-slate-800">Criar Usuário de Acesso ao Sistema</span>
+                    </label>
+                    
+                    {createAccessUser && (
+                      <div className="bg-primary-50/20 p-4 border border-primary-100 rounded-lg space-y-3 animate-fadeIn">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Perfil de Acesso</label>
+                          <CustomSelect
+                            value={accessProfileId}
+                            onChange={setAccessProfileId}
+                            options={employeeProfiles.map(p => ({ value: p.id, label: p.name, desc: p.type }))}
+                            placeholder="Selecione um perfil..."
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Senha Inicial</label>
+                          <input
+                            required={createAccessUser}
+                            type="password"
+                            placeholder="Mínimo 4 caracteres"
+                            value={accessPassword}
+                            onChange={e => setAccessPassword(e.target.value)}
+                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                          />
+                        </div>
+                      </div>
+                    )}
+                 </div>
+                 <div className="pt-4 pb-8 sm:pb-0">
+                   <button type="submit" className="w-full bg-primary-600 hover:bg-primary-700 active:scale-95 text-white font-medium py-3 sm:py-2 rounded-lg transition-colors">Salvar Colaborador</button>
+                 </div>
+              </form>
           </div>
         </div>
       )}

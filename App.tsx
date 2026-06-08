@@ -396,6 +396,7 @@ function AppInner() {
 
       const mapped: Employee[] = (data || []).map((e: any) => ({
         id: e.id,
+        auth_user_id: e.auth_user_id || undefined,
         name: e.name,
         role: e.role,
         cpf: e.cpf,
@@ -1135,9 +1136,9 @@ function AppInner() {
     }
   };
 
-  const handleAddEmployee = async (newEmployee: Employee) => {
+  const handleAddEmployee = async (newEmployee: Omit<Employee, 'id'>): Promise<Employee> => {
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('Recanto_Funcionarios')
         .insert({
           name: newEmployee.name,
@@ -1149,12 +1150,32 @@ function AppInner() {
           is_technical_lead: newEmployee.isTechnicalLead,
           shift: newEmployee.shift,
           status: newEmployee.status,
-          admission_date: newEmployee.admissionDate
-        });
+          admission_date: newEmployee.admissionDate,
+          auth_user_id: newEmployee.auth_user_id || null
+        })
+        .select()
+        .single();
       if (error) throw error;
       await fetchEmployees();
+      
+      const mapped: Employee = {
+        id: data.id,
+        auth_user_id: data.auth_user_id || undefined,
+        name: data.name,
+        role: data.role,
+        cpf: data.cpf,
+        email: data.email,
+        phone: data.phone || '',
+        registrationNumber: data.registration_number || undefined,
+        isTechnicalLead: data.is_technical_lead,
+        shift: data.shift,
+        status: data.status,
+        admissionDate: data.admission_date
+      };
+      return mapped;
     } catch (err) {
       console.error('Error adding employee:', err);
+      throw err;
     }
   };
 
@@ -1313,6 +1334,8 @@ function AppInner() {
         return (
           <UsersModule
             residents={residents}
+            employees={employees}
+            onAddEmployee={handleAddEmployee}
             onAddAccessLog={handleAddAccessLog}
           />
         );

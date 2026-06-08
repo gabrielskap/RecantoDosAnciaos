@@ -247,6 +247,7 @@ export type UserRole = 'Admin' | 'Enfermeiro' | 'Cuidador' | 'Médico' | 'Nutric
 
 export interface Employee {
   id: string;
+  auth_user_id?: string; // Link to auth user
   name: string;
   role: UserRole;
   cpf: string;

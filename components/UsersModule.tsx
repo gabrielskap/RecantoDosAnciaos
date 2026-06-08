@@ -1,15 +1,17 @@
 import React, { useState } from 'react';
 import { Plus, X, Search, Trash2, Mail, Lock, User, UserPlus, AlertCircle, Check, ShieldAlert } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { AuthUser, Resident, SystemAccessLog, Profile } from '../types';
+import { AuthUser, Resident, SystemAccessLog, Profile, Employee } from '../types';
 import CustomSelect from './CustomSelect';
 
 interface UsersModuleProps {
   residents: Resident[];
+  employees: Employee[];
+  onAddEmployee: (emp: Omit<Employee, 'id'>) => Promise<Employee>;
   onAddAccessLog: (log: SystemAccessLog) => void;
 }
 
-const UsersModule: React.FC<UsersModuleProps> = ({ residents, onAddAccessLog }) => {
+const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEmployee, onAddAccessLog }) => {
   const { users, profiles, addUser, deleteUser, currentUser } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(() => {
@@ -39,6 +41,14 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, onAddAccessLog }) 
   const [formError, setFormError] = useState(() => {
     return sessionStorage.getItem('modal_users_form_error') || '';
   });
+
+  // Employee Linkage Form States
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
+  const [empCpf, setEmpCpf] = useState('');
+  const [empPhone, setEmpPhone] = useState('');
+  const [empRegistration, setEmpRegistration] = useState('');
+  const [empIsTechnicalLead, setEmpIsTechnicalLead] = useState(false);
+  const [empShift, setEmpShift] = useState<'Matutino' | 'Vespertino' | 'Noturno' | '12x36'>('Matutino');
 
   React.useEffect(() => {
     if (isModalOpen) {
@@ -83,11 +93,17 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, onAddAccessLog }) 
     setEmail('');
     setPassword('');
     setSelectedResidentId(residents[0]?.id || '');
+    setSelectedEmployeeId('');
+    setEmpCpf('');
+    setEmpPhone('');
+    setEmpRegistration('');
+    setEmpIsTechnicalLead(false);
+    setEmpShift('Matutino');
     setFormError('');
     setIsModalOpen(true);
   };
 
-  const handleCreateUser = (e: React.FormEvent) => {
+  const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError('');
 
@@ -108,32 +124,72 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, onAddAccessLog }) 
       return setFormError('Você deve selecionar o residente vinculado para este responsável.');
     }
 
-    const userData: Omit<AuthUser, 'id'> = {
-      name: name.trim(),
-      email: email.trim().toLowerCase(),
-      password,
-      profile,
-      ...(profile.type === 'Responsável' ? { residentId: selectedResidentId } : {})
-    };
-
-    addUser(userData);
-
-    // Create system access audit log
-    if (currentUser) {
-      const logEntry: SystemAccessLog = {
-        id: Math.random().toString(36).substr(2, 9),
-        timestamp: new Date().toISOString(),
-        userId: currentUser.id,
-        userName: currentUser.name,
-        role: currentUser.profile.type as any || 'Admin',
-        action: 'Cadastro de Usuário',
-        resource: `Usuário: ${userData.name} (${userData.email}) - Perfil: ${profile.name}`,
-        ipAddress: '192.168.1.50' // mock client IP
-      };
-      onAddAccessLog(logEntry);
+    // Validação de vínculo de colaborador obrigatório para equipe
+    if (profile.type !== 'Responsável' && !selectedEmployeeId) {
+      return setFormError('Você deve selecionar um colaborador para vincular a este usuário ou cadastrar um novo.');
     }
 
-    setIsModalOpen(false);
+    if (profile.type !== 'Responsável' && selectedEmployeeId === 'NEW_EMPLOYEE') {
+      if (!empCpf.trim()) {
+        return setFormError('O CPF do colaborador é obrigatório.');
+      }
+    }
+
+    try {
+      let finalEmployeeId = selectedEmployeeId;
+
+      // Se for cadastrar novo colaborador, criamos primeiro!
+      if (profile.type !== 'Responsável' && selectedEmployeeId === 'NEW_EMPLOYEE') {
+        const empData = {
+          name: name.trim(),
+          role: profile.type as any, // Mapeia o tipo de perfil para o cargo correspondente
+          cpf: empCpf.trim(),
+          email: email.trim().toLowerCase(),
+          phone: empPhone.trim(),
+          registrationNumber: empRegistration.trim() || undefined,
+          isTechnicalLead: empIsTechnicalLead,
+          shift: empShift,
+          status: 'Ativo' as const,
+          admissionDate: new Date().toISOString().split('T')[0]
+        };
+
+        const createdEmp = await onAddEmployee(empData);
+        if (!createdEmp || !createdEmp.id) {
+          return setFormError('Erro ao criar registro do colaborador. Operação abortada.');
+        }
+        finalEmployeeId = createdEmp.id;
+      }
+
+      const userData: Omit<AuthUser, 'id'> & { employeeId?: string } = {
+        name: name.trim(),
+        email: email.trim().toLowerCase(),
+        password,
+        profile,
+        ...(profile.type === 'Responsável' ? { residentId: selectedResidentId } : { employeeId: finalEmployeeId })
+      };
+
+      await addUser(userData);
+
+      // Create system access audit log
+      if (currentUser) {
+        const logEntry: SystemAccessLog = {
+          id: Math.random().toString(36).substr(2, 9),
+          timestamp: new Date().toISOString(),
+          userId: currentUser.id,
+          userName: currentUser.name,
+          role: currentUser.profile.type as any || 'Admin',
+          action: 'Cadastro de Usuário',
+          resource: `Usuário: ${userData.name} (${userData.email}) - Perfil: ${profile.name}`,
+          ipAddress: '192.168.1.50' // mock client IP
+        };
+        onAddAccessLog(logEntry);
+      }
+
+      setIsModalOpen(false);
+    } catch (err: any) {
+      console.error(err);
+      setFormError(err.message || 'Erro ao cadastrar usuário.');
+    }
   };
 
   const handleDeleteUser = () => {
@@ -186,6 +242,20 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, onAddAccessLog }) 
     const res = residents.find(r => r.id === residentId);
     return res ? res.name : 'Residente não encontrado';
   };
+
+  const getLinkedEmployeeInfo = (userEmail: string, userId: string) => {
+    const emp = employees.find(e => e.auth_user_id === userId || e.email.toLowerCase() === userEmail.toLowerCase());
+    if (emp) {
+      return `${emp.name} (${emp.role})`;
+    }
+    return null;
+  };
+
+  const unlinkedEmployees = employees.filter(emp => {
+    const hasAuthUserId = !!emp.auth_user_id;
+    const emailExistsInUsers = users.some(u => u.email.toLowerCase() === emp.email.toLowerCase());
+    return !hasAuthUserId && !emailExistsInUsers;
+  });
 
   const selectedProfile = profiles.find(p => p.id === selectedProfileId);
 
@@ -278,11 +348,25 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, onAddAccessLog }) 
                     </td>
                     <td className="px-4 py-3">
                       {user.profile.type === 'Responsável' ? (
-                        <span className="text-xs bg-slate-100 text-slate-600 px-2 py-1 rounded border border-slate-200 font-medium">
-                          {getResidentName(user.residentId)}
-                        </span>
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[10px] uppercase text-slate-400 font-semibold tracking-wider">Responsável por</span>
+                          <span className="text-xs bg-purple-50 text-purple-700 px-2 py-1 rounded border border-purple-200 font-medium">
+                            {getResidentName(user.residentId)}
+                          </span>
+                        </div>
                       ) : (
-                        <span className="text-slate-400 text-xs italic">Não aplicável</span>
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[10px] uppercase text-slate-400 font-semibold tracking-wider">Colaborador Vinculado</span>
+                          {getLinkedEmployeeInfo(user.email, user.id) ? (
+                            <span className="text-xs bg-emerald-50 text-emerald-700 px-2 py-1 rounded border border-emerald-200 font-medium truncate max-w-[200px] inline-block">
+                              {getLinkedEmployeeInfo(user.email, user.id)}
+                            </span>
+                          ) : (
+                            <span className="text-xs bg-amber-50 text-amber-700 px-2 py-1 rounded border border-amber-200 font-medium inline-flex items-center gap-1">
+                              <AlertCircle className="h-3 w-3 inline shrink-0" /> Sem vínculo
+                            </span>
+                          )}
+                        </div>
                       )}
                     </td>
                     <td className="px-4 py-3 text-center">
@@ -327,10 +411,21 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, onAddAccessLog }) 
                   </span>
                 </div>
 
-                {user.profile.type === 'Responsável' && (
+                {user.profile.type === 'Responsável' ? (
                   <div className="text-xs bg-white p-2.5 rounded-lg border border-slate-100 shadow-sm flex items-center justify-between">
                     <span className="text-slate-400">Residente vinculado:</span>
                     <span className="font-semibold text-slate-700">{getResidentName(user.residentId)}</span>
+                  </div>
+                ) : (
+                  <div className="text-xs bg-white p-2.5 rounded-lg border border-slate-100 shadow-sm flex items-center justify-between">
+                    <span className="text-slate-400">Colaborador:</span>
+                    {getLinkedEmployeeInfo(user.email, user.id) ? (
+                      <span className="font-semibold text-slate-700">{getLinkedEmployeeInfo(user.email, user.id)}</span>
+                    ) : (
+                      <span className="font-semibold text-amber-700 flex items-center gap-1">
+                        <AlertCircle className="h-3.5 w-3.5 inline shrink-0" /> Sem colaborador vinculado
+                      </span>
+                    )}
                   </div>
                 )}
 
@@ -385,17 +480,140 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, onAddAccessLog }) 
                 </div>
               )}
 
+              <div className="grid grid-cols-1 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Perfil de Acesso / Hierarquia</label>
+                  <CustomSelect
+                    value={selectedProfileId}
+                    onChange={(val) => {
+                      setSelectedProfileId(val);
+                      setSelectedEmployeeId('');
+                      // Don't wipe name/email unless we are linking
+                      const prof = profiles.find(p => p.id === val);
+                      if (prof && prof.type === 'Responsável') {
+                        setName('');
+                        setEmail('');
+                      }
+                    }}
+                    options={profiles.map(p => ({ value: p.id, label: p.name, desc: p.type }))}
+                    placeholder="Selecione um perfil..."
+                  />
+                </div>
+              </div>
+
+              {selectedProfile && selectedProfile.type !== 'Responsável' && (
+                <div className="bg-primary-50/20 p-4 border border-primary-100 rounded-lg space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-primary-900 mb-1">Vincular a Colaborador da Equipe</label>
+                    <CustomSelect
+                      value={selectedEmployeeId}
+                      onChange={(val) => {
+                        setSelectedEmployeeId(val);
+                        if (val && val !== 'NEW_EMPLOYEE') {
+                          const emp = employees.find(e => e.id === val);
+                          if (emp) {
+                            setName(emp.name);
+                            setEmail(emp.email);
+                          }
+                        } else {
+                          setName('');
+                          setEmail('');
+                        }
+                      }}
+                      options={[
+                        { value: '', label: 'Selecione um colaborador existente...' },
+                        ...unlinkedEmployees.map(emp => ({
+                          value: emp.id,
+                          label: `${emp.name} (${emp.role})`,
+                          desc: `E-mail: ${emp.email || 'Não informado'} | CPF: ${emp.cpf}`
+                        })),
+                        { value: 'NEW_EMPLOYEE', label: '➕ Cadastrar Novo Colaborador...', desc: 'Criar cadastro na equipe simultaneamente' }
+                      ]}
+                      placeholder="Selecione..."
+                    />
+                  </div>
+
+                  {selectedEmployeeId === 'NEW_EMPLOYEE' && (
+                    <div className="pt-3 border-t border-primary-100 space-y-3">
+                      <p className="text-xs text-primary-700 font-semibold uppercase tracking-wider">Informações da Equipe</p>
+                      
+                      <div>
+                        <label className="block text-xs font-medium text-slate-600 mb-0.5">CPF do Colaborador</label>
+                        <input
+                          required
+                          type="text"
+                          placeholder="000.000.000-00"
+                          value={empCpf}
+                          onChange={e => setEmpCpf(e.target.value)}
+                          className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-medium text-slate-600 mb-0.5">Telefone</label>
+                          <input
+                            type="text"
+                            placeholder="(00) 00000-0000"
+                            value={empPhone}
+                            onChange={e => setEmpPhone(e.target.value)}
+                            className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-600 mb-0.5">Turno</label>
+                          <CustomSelect
+                            value={empShift}
+                            onChange={val => setEmpShift(val as any)}
+                            options={[
+                              { value: 'Matutino', label: 'Matutino' },
+                              { value: 'Vespertino', label: 'Vespertino' },
+                              { value: 'Noturno', label: 'Noturno' },
+                              { value: '12x36', label: '12x36' },
+                            ]}
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-slate-600 mb-0.5">Nº Registro (CRM/COREN)</label>
+                        <input
+                          type="text"
+                          placeholder="Ex: COREN 12345"
+                          value={empRegistration}
+                          onChange={e => setEmpRegistration(e.target.value)}
+                          className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                        />
+                      </div>
+
+                      <div className="flex items-center pt-1">
+                        <label className="flex items-center space-x-2 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={empIsTechnicalLead}
+                            onChange={e => setEmpIsTechnicalLead(e.target.checked)}
+                            className="rounded text-primary-600 focus:ring-primary-500 h-4 w-4"
+                          />
+                          <span className="text-xs font-medium text-slate-700">Responsável Técnico</span>
+                        </label>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Nome Completo</label>
                 <div className="relative">
                   <User className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
                   <input
                     required
+                    disabled={!!selectedEmployeeId && selectedEmployeeId !== 'NEW_EMPLOYEE'}
                     type="text"
                     placeholder="Nome Completo do Usuário"
                     value={name}
                     onChange={e => setName(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                   />
                 </div>
               </div>
@@ -406,11 +624,12 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, onAddAccessLog }) 
                   <Mail className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
                   <input
                     required
+                    disabled={!!selectedEmployeeId && selectedEmployeeId !== 'NEW_EMPLOYEE' && !!employees.find(e => e.id === selectedEmployeeId)?.email}
                     type="email"
                     placeholder="exemplo@recanto.com"
                     value={email}
                     onChange={e => setEmail(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                   />
                 </div>
               </div>
@@ -426,18 +645,6 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, onAddAccessLog }) 
                     value={password}
                     onChange={e => setPassword(e.target.value)}
                     className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Perfil de Acesso / Hierarquia</label>
-                  <CustomSelect
-                    value={selectedProfileId}
-                    onChange={setSelectedProfileId}
-                    options={profiles.map(p => ({ value: p.id, label: p.name, desc: p.type }))}
-                    placeholder="Selecione um perfil..."
                   />
                 </div>
               </div>

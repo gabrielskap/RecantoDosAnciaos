@@ -14,7 +14,7 @@ interface AuthContextValue {
   hasPermission: (module: ViewState, action: PermissionAction) => boolean;
   updateProfile: (profile: Profile) => Promise<void>;
   addProfile: (profile: Profile) => Promise<void>;
-  addUser: (user: Omit<AuthUser, 'id'>) => Promise<void>;
+  addUser: (user: Omit<AuthUser, 'id'> & { employeeId?: string }) => Promise<string | undefined>;
   deleteUser: (id: string) => Promise<void>;
   updateUser: (user: AuthUser) => Promise<void>;
 }
@@ -352,7 +352,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const addUser = async (userData: Omit<AuthUser, 'id'>) => {
+  const addUser = async (userData: Omit<AuthUser, 'id'> & { employeeId?: string }): Promise<string | undefined> => {
     try {
       // 1. Criar o usuário no Supabase Auth com metadados para que a trigger possa ler
       const { data, error } = await supabase.auth.signUp({
@@ -362,7 +362,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           data: {
             name: userData.name,
             profile_id: userData.profile.id,
-            resident_id: userData.residentId || null
+            resident_id: userData.residentId || null,
+            employee_id: userData.employeeId || null
           }
         }
       });
@@ -383,15 +384,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (dbError) throw dbError;
 
+      // 3. Vincular o funcionário se informado (backup do trigger)
+      if (userData.employeeId) {
+        await supabase
+          .from('Recanto_Funcionarios')
+          .update({ auth_user_id: data.user.id })
+          .eq('id', userData.employeeId);
+      }
+
       await fetchAllUsers();
+      return data.user.id;
     } catch (err: any) {
       console.error(err);
       alert(err.message || 'Erro ao adicionar o usuário.');
+      return undefined;
     }
   };
 
   const deleteUser = async (id: string) => {
     try {
+      // Desvincula primeiro de Recanto_Funcionarios
+      await supabase
+        .from('Recanto_Funcionarios')
+        .update({ auth_user_id: null })
+        .eq('auth_user_id', id);
+
       // Remove da tabela Recanto_Usuarios (a FK com auth.users é cascade no delete, mas
       // como não temos permissão de service_role para apagar de auth.users, removemos da nossa tabela de negócio).
       const { error } = await supabase
