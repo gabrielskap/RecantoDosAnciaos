@@ -24,7 +24,6 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, isOpen, se
     { id: ViewState.FINANCE, label: 'Financeiro & Contratos', icon: Wallet },
     { id: ViewState.STOCK, label: 'Estoque & Insumos', icon: Package },
     { id: ViewState.REPORTS, label: 'Relatórios & Indicadores', icon: PieChart },
-    { id: ViewState.AI_ASSISTANT, label: 'Assistente IA', icon: Bot },
   ].filter(item => hasPermission(item.id, 'view'));
 
   return (

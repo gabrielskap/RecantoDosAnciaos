@@ -5,7 +5,6 @@ import ResidentsList from './components/ResidentsList';
 import ResidentProfile from './components/ResidentProfile';
 import FinanceModule from './components/FinanceModule';
 import StockModule from './components/StockModule';
-import AIAssistant from './components/AIAssistant';
 import TeamModule from './components/TeamModule';
 import UsersModule from './components/UsersModule';
 import NutritionModule from './components/NutritionModule';
@@ -286,8 +285,6 @@ const pathToView = (path: string): { view: ViewState; residentId?: string } => {
       return { view: ViewState.STOCK };
     case 'reports':
       return { view: ViewState.REPORTS };
-    case 'assistant':
-      return { view: ViewState.AI_ASSISTANT };
     case 'users':
       return { view: ViewState.USERS };
     default:
@@ -315,8 +312,6 @@ const viewToPath = (view: ViewState, residentId?: string): string => {
       return '/stock';
     case ViewState.REPORTS:
       return '/reports';
-    case ViewState.AI_ASSISTANT:
-      return '/assistant';
     case ViewState.USERS:
       return '/users';
     default:
@@ -325,7 +320,7 @@ const viewToPath = (view: ViewState, residentId?: string): string => {
 };
 
 function AppInner() {
-  const { currentUser } = useAuth();
+  const { currentUser, loading } = useAuth();
   const [currentView, setCurrentView] = useState<ViewState>(ViewState.DASHBOARD);
   const [selectedResident, setSelectedResident] = useState<Resident | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -381,6 +376,10 @@ function AppInner() {
       }
 
       const { view, residentId } = pathToView(path);
+      const expectedPath = viewToPath(view, residentId);
+      if (path !== expectedPath && view !== ViewState.RESIDENT_DETAIL) {
+        window.history.replaceState(null, '', expectedPath);
+      }
       setCurrentView(view);
       if (view === ViewState.RESIDENT_DETAIL && residentId) {
         const found = residents.find(r => r.id === residentId);
@@ -600,8 +599,6 @@ function AppInner() {
              invoices={invoices}
            />
         );
-      case ViewState.AI_ASSISTANT:
-        return <AIAssistant />;
       case ViewState.USERS:
         return (
           <UsersModule
@@ -623,6 +620,22 @@ function AppInner() {
   };
 
   // Not logged in
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-4">
+        <div className="animate-pulse flex flex-col items-center">
+          <div className="w-16 h-16 bg-rose-500 rounded-2xl flex items-center justify-center shadow-lg mb-4">
+            <svg className="animate-spin h-8 w-8 text-white" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+            </svg>
+          </div>
+          <p className="text-white text-lg font-semibold">Carregando...</p>
+        </div>
+      </div>
+    );
+  }
+
   if (!currentUser) return <LoginScreen />;
 
   // Responsável: portal simplificado

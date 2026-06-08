@@ -14,6 +14,7 @@ const MODULE_LABELS: Record<ViewState, string> = {
   [ViewState.STOCK]: 'Estoque',
   [ViewState.REPORTS]: 'Relatórios',
   [ViewState.AI_ASSISTANT]: 'Assistente IA',
+  [ViewState.USERS]: 'Gestão de Usuários',
 };
 
 const EDITABLE_MODULES = [
@@ -26,7 +27,7 @@ const EDITABLE_MODULES = [
   ViewState.FINANCE,
   ViewState.STOCK,
   ViewState.REPORTS,
-  ViewState.AI_ASSISTANT,
+  ViewState.USERS,
 ];
 
 const ALL_ACTIONS: PermissionAction[] = ['view', 'edit', 'create', 'delete'];

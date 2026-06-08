@@ -16,7 +16,13 @@ const LoginScreen: React.FC = () => {
     try {
       await login(email, password);
     } catch (err: any) {
-      setError(err.message || 'Erro ao fazer login.');
+      let msg = err.message || 'Erro ao fazer login.';
+      if (msg.includes('Invalid login credentials') || msg.toLowerCase().includes('invalid')) {
+        msg = 'E-mail ou senha incorretos.';
+      } else if (msg.includes('Email not confirmed')) {
+        msg = 'Por favor, confirme seu e-mail antes de acessar.';
+      }
+      setError(msg);
     } finally {
       setLoading(false);
     }
