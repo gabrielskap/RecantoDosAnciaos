@@ -3,7 +3,7 @@ import {
   ArrowLeft, Activity, Pill, FileText, Sparkles,
   Thermometer, Heart, CheckCircle, PenTool, ShieldCheck,
   ClipboardList, History, Plus, User, Clock, File, Paperclip, CalendarCheck, AlertOctagon,
-  BedDouble, Home, Wrench, PaintRoller, Edit2
+  BedDouble, Home, Wrench, PaintRoller, Edit2, X, Phone, FileHeart
 } from 'lucide-react';
 import { Resident, CarePlan, AuditLog, DailyChecklist, Medication, RoomStatus, Room } from '../types';
 import { summarizePatientHealth } from '../services/geminiService';
@@ -1243,133 +1243,10 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                         </div>
                       </div>
 
-                      {/* SECTION 3: CUIDADOS BÁSICOS & MOBILIDADE */}
+                      {/* SECTION 3: PELE, SONO, MEDICAÇÃO & INTERCORRÊNCIAS */}
                       <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
                         <h4 className="font-semibold text-slate-800 border-b border-slate-100 pb-2 text-sm uppercase tracking-wider text-primary-700">
-                          3. Cuidados & Mobilidade
-                        </h4>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          {/* Uso de Fraldas */}
-                          <div className="space-y-2">
-                            <label className="block text-xs font-bold text-slate-700">Fralda</label>
-                            <div className="flex gap-2">
-                              <button
-                                type="button"
-                                onClick={() => handleChecklistFieldChange('usoFraldas', 'sim')}
-                                className={`flex-1 py-1.5 px-3 rounded-lg border text-xs font-medium transition-all ${
-                                  checklistDraft.usoFraldas === 'sim'
-                                    ? 'bg-primary-50 border-primary-300 text-primary-800 font-bold'
-                                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                                }`}
-                              >
-                                Usa Fraldas
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleChecklistFieldChange('usoFraldas', 'nao')}
-                                className={`flex-1 py-1.5 px-3 rounded-lg border text-xs font-medium transition-all ${
-                                  checklistDraft.usoFraldas === 'nao'
-                                    ? 'bg-slate-100 border-slate-355 text-slate-700 font-bold'
-                                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                                }`}
-                              >
-                                Não Usa
-                              </button>
-                            </div>
-                          </div>
-
-                          {/* Mobilidade */}
-                          <div className="space-y-2">
-                            <label className="block text-xs font-bold text-slate-700">Mobilidade</label>
-                            <div className="grid grid-cols-3 gap-1.5 font-bold">
-                              {[
-                                { value: 'independente', label: 'Independente' },
-                                { value: 'auxilio', label: 'Com auxílio' },
-                                { value: 'acamado', label: 'Acamado' }
-                              ].map((mob) => (
-                                <button
-                                  key={mob.value}
-                                  type="button"
-                                  onClick={() => handleChecklistFieldChange('mobilidadeSet', mob.value as any)}
-                                  className={`py-1.5 px-2 rounded-lg border text-[11px] text-center transition-all ${
-                                    checklistDraft.mobilidadeSet === mob.value
-                                      ? 'bg-primary-50 border-primary-300 text-primary-800 font-bold'
-                                      : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                                  }`}
-                                >
-                                  {mob.label}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-                          {/* Higiene Corporal / Banho */}
-                          <div className="space-y-2">
-                            <label className="block text-xs font-bold text-slate-700">Higiene Corporal / Banho</label>
-                            <div className="flex gap-2">
-                              <button
-                                type="button"
-                                onClick={() => handleChecklistFieldChange('higieneCorporal', 'independente')}
-                                className={`flex-1 py-1 px-3 rounded-lg border text-xs font-medium transition-all ${
-                                  checklistDraft.higieneCorporal === 'independente'
-                                    ? 'bg-emerald-50 border-emerald-305 text-emerald-800 font-bold'
-                                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                                }`}
-                              >
-                                Independente
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleChecklistFieldChange('higieneCorporal', 'auxilio')}
-                                className={`flex-1 py-1 px-3 rounded-lg border text-xs font-medium transition-all ${
-                                  checklistDraft.higieneCorporal === 'auxilio'
-                                    ? 'bg-amber-50 border-amber-300 text-amber-850 font-bold'
-                                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                                }`}
-                              >
-                                Com auxílio
-                              </button>
-                            </div>
-                          </div>
-
-                          {/* Higiene Oral / Vestir */}
-                          <div className="space-y-2">
-                            <label className="block text-xs font-bold text-slate-700">Higiene Oral / Vestir</label>
-                            <div className="flex gap-2">
-                              <button
-                                type="button"
-                                onClick={() => handleChecklistFieldChange('higieneOralVestir', 'independente')}
-                                className={`flex-1 py-1 px-3 rounded-lg border text-xs font-medium transition-all ${
-                                  checklistDraft.higieneOralVestir === 'independente'
-                                    ? 'bg-emerald-50 border-emerald-305 text-emerald-800 font-bold'
-                                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                                }`}
-                              >
-                                Independente
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleChecklistFieldChange('higieneOralVestir', 'auxilio')}
-                                className={`flex-1 py-1 px-3 rounded-lg border text-xs font-medium transition-all ${
-                                  checklistDraft.higieneOralVestir === 'auxilio'
-                                    ? 'bg-amber-50 border-amber-300 text-amber-850 font-bold'
-                                    : 'bg-white border-slate-205 text-slate-600 hover:bg-slate-50'
-                                }`}
-                              >
-                                Com auxílio
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* SECTION 4: PELE, SONO, MEDICAÇÃO & INTERCORRÊNCIAS */}
-                      <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
-                        <h4 className="font-semibold text-slate-800 border-b border-slate-100 pb-2 text-sm uppercase tracking-wider text-primary-700">
-                          4. Dermatologia, Sono & Rotina de Cuidados
+                          3. Dermatologia, Sono & Rotina de Cuidados
                         </h4>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

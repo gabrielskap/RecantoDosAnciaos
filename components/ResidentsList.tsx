@@ -386,9 +386,7 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
                       <AlertCircle className="h-3 w-3" /> Alergias
                     </span>
                   )}
-                  <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-50 text-slate-500">
-                    <BedDouble className="h-3 w-3" /> {resident.roomStatus ?? 'Ocupado'}
-                  </span>
+
                 </div>
 
                 <div className="pt-3 border-t border-slate-50 flex items-center justify-between">
