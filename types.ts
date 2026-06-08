@@ -132,6 +132,16 @@ export interface NutritionalLog {
 
 export type RoomStatus = 'Ocupado' | 'Vago' | 'Em Limpeza' | 'Manutenção' | 'Reservado';
 
+export interface Room {
+  id: string;
+  number: string;
+  type: 'Individual' | 'Compartilhado';
+  capacity: number;
+  assets: string[];
+  status?: RoomStatus;
+}
+
+
 export interface Resident {
   id: string;
   name: string;
@@ -144,6 +154,15 @@ export interface Resident {
   careLevel: 'I' | 'II' | 'III'; // Grau de dependência atualizado
   photoUrl: string;
   admissionDate: string;
+  
+  // Address
+  addressCep?: string;
+  addressState?: string;
+  addressCity?: string;
+  addressNeighborhood?: string;
+  addressStreet?: string;
+  addressNumber?: string;
+  addressComplement?: string;
   
   // Contacts
   emergencyContacts: EmergencyContact[];
@@ -288,7 +307,8 @@ export enum ViewState {
   NUTRITION = 'NUTRITION',
   REPORTS = 'REPORTS',
   AGENDA = 'AGENDA',
-  USERS = 'USERS'
+  USERS = 'USERS',
+  ROOMS = 'ROOMS'
 }
 
 // --- AUTH & RBAC TYPES ---

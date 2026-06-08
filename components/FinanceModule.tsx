@@ -3,6 +3,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { FinancialRecord, Contract, Invoice, Resident } from '../types';
 import { DollarSign, TrendingUp, TrendingDown, Sparkles, Plus, X, FileText, Calendar, CheckCircle2, AlertCircle, FileCheck, Wallet } from 'lucide-react';
 import { analyzeFinancialData } from '../services/geminiService';
+import CustomSelect from './CustomSelect';
 
 interface FinanceModuleProps {
   records: FinancialRecord[];
@@ -21,10 +22,40 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
   const [activeTab, setActiveTab] = useState<'overview' | 'contracts' | 'invoices' | 'expenses'>('overview');
   const [aiInsight, setAiInsight] = useState('');
   const [analyzing, setAnalyzing] = useState(false);
-  const [isRecordModalOpen, setIsRecordModalOpen] = useState(false);
-  const [isContractModalOpen, setIsContractModalOpen] = useState(false);
-  const [newRecord, setNewRecord] = useState({ type: 'despesa', description: '', category: '', amount: '', date: new Date().toISOString().split('T')[0] });
-  const [newContract, setNewContract] = useState({ residentId: '', monthlyValue: '', dueDay: '5', startDate: new Date().toISOString().split('T')[0] });
+  const [isRecordModalOpen, setIsRecordModalOpen] = useState(() => {
+    return sessionStorage.getItem('modal_finance_record_open') === 'true';
+  });
+  const [isContractModalOpen, setIsContractModalOpen] = useState(() => {
+    return sessionStorage.getItem('modal_finance_contract_open') === 'true';
+  });
+  const [newRecord, setNewRecord] = useState(() => {
+    const saved = sessionStorage.getItem('modal_finance_new_record');
+    return saved ? JSON.parse(saved) : { type: 'despesa', description: '', category: '', amount: '', date: new Date().toISOString().split('T')[0] };
+  });
+  const [newContract, setNewContract] = useState(() => {
+    const saved = sessionStorage.getItem('modal_finance_new_contract');
+    return saved ? JSON.parse(saved) : { residentId: '', monthlyValue: '', dueDay: '5', startDate: new Date().toISOString().split('T')[0] };
+  });
+
+  React.useEffect(() => {
+    if (isRecordModalOpen) {
+      sessionStorage.setItem('modal_finance_record_open', 'true');
+      sessionStorage.setItem('modal_finance_new_record', JSON.stringify(newRecord));
+    } else {
+      sessionStorage.removeItem('modal_finance_record_open');
+      sessionStorage.removeItem('modal_finance_new_record');
+    }
+  }, [isRecordModalOpen, newRecord]);
+
+  React.useEffect(() => {
+    if (isContractModalOpen) {
+      sessionStorage.setItem('modal_finance_contract_open', 'true');
+      sessionStorage.setItem('modal_finance_new_contract', JSON.stringify(newContract));
+    } else {
+      sessionStorage.removeItem('modal_finance_contract_open');
+      sessionStorage.removeItem('modal_finance_new_contract');
+    }
+  }, [isContractModalOpen, newContract]);
 
   const totalIncome = records.filter(r => r.type === 'receita').reduce((acc, cur) => acc + cur.amount, 0);
   const totalExpense = records.filter(r => r.type === 'despesa').reduce((acc, cur) => acc + cur.amount, 0);
@@ -278,10 +309,13 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
         </div>
       )}
 
-      {/* Record Modal */}
+      {/* Record Modal - Sempre ativo (não fecha ao clicar no fundo/backdrop) */}
       {isRecordModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden">
+          <div 
+            onClick={(e) => e.stopPropagation()} 
+            className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden"
+          >
             <div className="px-6 py-4 border-b border-slate-100 bg-[#F8F7FF] flex justify-between items-center">
               <h3 className="font-bold text-slate-800">Nova Despesa Operacional</h3>
               <button onClick={() => setIsRecordModalOpen(false)} className="w-9 h-9 rounded-xl hover:bg-slate-200 flex items-center justify-center transition-colors"><X className="h-5 w-5 text-slate-400" /></button>
@@ -303,10 +337,19 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1.5">Categoria</label>
-                <select required value={newRecord.category} onChange={e => setNewRecord({ ...newRecord, category: e.target.value })} className={inputClass}>
-                  <option value="">Selecione...</option>
-                  {['Alimentação', 'Farmácia', 'Manutenção', 'Salários'].map(c => <option key={c}>{c}</option>)}
-                </select>
+                <CustomSelect
+                  required
+                  value={newRecord.category}
+                  onChange={v => setNewRecord({ ...newRecord, category: v })}
+                  options={[
+                    { value: '', label: 'Selecione...' },
+                    { value: 'Alimentação', label: 'Alimentação' },
+                    { value: 'Farmácia', label: 'Farmácia' },
+                    { value: 'Manutenção', label: 'Manutenção' },
+                    { value: 'Salários', label: 'Salários' },
+                  ]}
+                  placeholder="Selecione uma categoria..."
+                />
               </div>
               <div className="flex gap-3 pt-2">
                 <button type="button" onClick={() => setIsRecordModalOpen(false)} className="flex-1 py-2.5 border border-slate-200 rounded-xl text-slate-600 font-semibold text-sm hover:bg-slate-50 transition-colors">Cancelar</button>
@@ -317,10 +360,13 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
         </div>
       )}
 
-      {/* Contract Modal */}
+      {/* Contract Modal - Sempre ativo (não fecha ao clicar no fundo/backdrop) */}
       {isContractModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden">
+          <div 
+            onClick={(e) => e.stopPropagation()} 
+            className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden"
+          >
             <div className="px-6 py-4 border-b border-slate-100 bg-[#F8F7FF] flex justify-between items-center">
               <h3 className="font-bold text-slate-800">Novo Contrato</h3>
               <button onClick={() => setIsContractModalOpen(false)} className="w-9 h-9 rounded-xl hover:bg-slate-200 flex items-center justify-center transition-colors"><X className="h-5 w-5 text-slate-400" /></button>
@@ -328,10 +374,16 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
             <form onSubmit={handleContractSubmit} className="p-5 space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1.5">Residente</label>
-                <select required value={newContract.residentId} onChange={e => setNewContract({ ...newContract, residentId: e.target.value })} className={inputClass}>
-                  <option value="">Selecione o residente...</option>
-                  {residents.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-                </select>
+                <CustomSelect
+                  required
+                  value={newContract.residentId}
+                  onChange={v => setNewContract({ ...newContract, residentId: v })}
+                  options={[
+                    { value: '', label: 'Selecione o residente...' },
+                    ...residents.map(r => ({ value: r.id, label: r.name, desc: `Quarto ${r.room}` }))
+                  ]}
+                  placeholder="Selecione o residente..."
+                />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>

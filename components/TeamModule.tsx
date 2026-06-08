@@ -3,6 +3,7 @@ import { Users, Calendar, Award, Shield, Plus, X, Search, CheckCircle, AlertOcta
 import { Employee, TrainingRecord, SystemAccessLog, UserRole } from '../types';
 import ProfileManager from './ProfileManager';
 import { useAuth } from '../contexts/AuthContext';
+import CustomSelect from './CustomSelect';
 
 interface TeamModuleProps {
   employees: Employee[];
@@ -16,29 +17,59 @@ const TeamModule: React.FC<TeamModuleProps> = ({ employees, trainings, accessLog
   const { currentUser } = useAuth();
   const isAdmin = currentUser?.profile.type === 'Administrador';
   const [activeTab, setActiveTab] = useState<'employees' | 'schedule' | 'training' | 'logs' | 'profiles'>('employees');
-  const [isEmpModalOpen, setIsEmpModalOpen] = useState(false);
-  const [isTrainModalOpen, setIsTrainModalOpen] = useState(false);
+  const [isEmpModalOpen, setIsEmpModalOpen] = useState(() => {
+    return sessionStorage.getItem('modal_team_emp_open') === 'true';
+  });
+  const [isTrainModalOpen, setIsTrainModalOpen] = useState(() => {
+    return sessionStorage.getItem('modal_team_train_open') === 'true';
+  });
 
   // New Employee Form State
-  const [newEmp, setNewEmp] = useState<Partial<Employee>>({
-    name: '',
-    role: 'Cuidador',
-    cpf: '',
-    email: '',
-    phone: '',
-    shift: 'Matutino',
-    isTechnicalLead: false,
-    status: 'Ativo'
+  const [newEmp, setNewEmp] = useState<Partial<Employee>>(() => {
+    const saved = sessionStorage.getItem('modal_team_new_emp');
+    return saved ? JSON.parse(saved) : {
+      name: '',
+      role: 'Cuidador',
+      cpf: '',
+      email: '',
+      phone: '',
+      shift: 'Matutino',
+      isTechnicalLead: false,
+      status: 'Ativo'
+    };
   });
 
   // New Training Form State
-  const [newTrain, setNewTrain] = useState<Partial<TrainingRecord>>({
-    title: '',
-    instructor: '',
-    date: '',
-    description: '',
-    validUntil: ''
+  const [newTrain, setNewTrain] = useState<Partial<TrainingRecord>>(() => {
+    const saved = sessionStorage.getItem('modal_team_new_train');
+    return saved ? JSON.parse(saved) : {
+      title: '',
+      instructor: '',
+      date: '',
+      description: '',
+      validUntil: ''
+    };
   });
+
+  React.useEffect(() => {
+    if (isEmpModalOpen) {
+      sessionStorage.setItem('modal_team_emp_open', 'true');
+      sessionStorage.setItem('modal_team_new_emp', JSON.stringify(newEmp));
+    } else {
+      sessionStorage.removeItem('modal_team_emp_open');
+      sessionStorage.removeItem('modal_team_new_emp');
+    }
+  }, [isEmpModalOpen, newEmp]);
+
+  React.useEffect(() => {
+    if (isTrainModalOpen) {
+      sessionStorage.setItem('modal_team_train_open', 'true');
+      sessionStorage.setItem('modal_team_new_train', JSON.stringify(newTrain));
+    } else {
+      sessionStorage.removeItem('modal_team_train_open');
+      sessionStorage.removeItem('modal_team_new_train');
+    }
+  }, [isTrainModalOpen, newTrain]);
 
   const handleEmpSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -344,10 +375,13 @@ const TeamModule: React.FC<TeamModuleProps> = ({ employees, trainings, accessLog
         )}
       </div>
 
-      {/* Add Employee Modal */}
+      {/* Add Employee Modal - Sempre ativo (não fecha ao clicar no fundo/backdrop) */}
       {isEmpModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 bg-black bg-opacity-65">
-          <div className="bg-white rounded-none sm:rounded-xl shadow-lg max-w-lg w-full h-full sm:h-auto overflow-y-auto sm:overflow-hidden flex flex-col">
+          <div 
+            onClick={(e) => e.stopPropagation()} 
+            className="bg-white rounded-none sm:rounded-xl shadow-lg max-w-lg w-full h-full sm:h-auto overflow-y-auto sm:overflow-hidden flex flex-col"
+          >
              <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50 sticky top-0 z-10">
                <h3 className="font-semibold text-slate-800">Novo Colaborador</h3>
                <button 
@@ -366,13 +400,17 @@ const TeamModule: React.FC<TeamModuleProps> = ({ employees, trainings, accessLog
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Função (Perfil)</label>
-                    <select value={newEmp.role} onChange={e => setNewEmp({...newEmp, role: e.target.value as any})} className="w-full px-3 py-2.5 sm:py-2 border rounded-lg text-base sm:text-sm bg-white">
-                       <option value="Admin">Admin</option>
-                       <option value="Enfermeiro">Enfermeiro</option>
-                       <option value="Cuidador">Cuidador</option>
-                       <option value="Médico">Médico</option>
-                       <option value="Nutricionista">Nutricionista</option>
-                    </select>
+                    <CustomSelect
+                      value={newEmp.role || 'Cuidador'}
+                      onChange={v => setNewEmp({ ...newEmp, role: v as any })}
+                      options={[
+                        { value: 'Admin', label: 'Admin' },
+                        { value: 'Enfermeiro', label: 'Enfermeiro' },
+                        { value: 'Cuidador', label: 'Cuidador' },
+                        { value: 'Médico', label: 'Médico' },
+                        { value: 'Nutricionista', label: 'Nutricionista' },
+                      ]}
+                    />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">CPF</label>
@@ -386,12 +424,16 @@ const TeamModule: React.FC<TeamModuleProps> = ({ employees, trainings, accessLog
                 <div className="grid grid-cols-2 gap-4">
                    <div>
                      <label className="block text-sm font-medium text-slate-700 mb-1">Turno</label>
-                     <select value={newEmp.shift} onChange={e => setNewEmp({...newEmp, shift: e.target.value as any})} className="w-full px-3 py-2.5 sm:py-2 border rounded-lg text-base sm:text-sm bg-white">
-                       <option value="Matutino">Matutino</option>
-                       <option value="Vespertino">Vespertino</option>
-                       <option value="Noturno">Noturno</option>
-                       <option value="12x36">12x36</option>
-                     </select>
+                     <CustomSelect
+                       value={newEmp.shift || 'Matutino'}
+                       onChange={v => setNewEmp({ ...newEmp, shift: v as any })}
+                       options={[
+                         { value: 'Matutino', label: 'Matutino', desc: '07h – 13h' },
+                         { value: 'Vespertino', label: 'Vespertino', desc: '13h – 19h' },
+                         { value: 'Noturno', label: 'Noturno', desc: '19h – 07h' },
+                         { value: '12x36', label: '12x36', desc: 'Regime 12 horas' },
+                       ]}
+                     />
                    </div>
                    <div className="flex items-center pt-6">
                      <label className="flex items-center space-x-2 cursor-pointer w-full min-h-[44px]">
@@ -408,10 +450,13 @@ const TeamModule: React.FC<TeamModuleProps> = ({ employees, trainings, accessLog
         </div>
       )}
 
-      {/* Add Training Modal */}
+      {/* Add Training Modal - Sempre ativo (não fecha ao clicar no fundo/backdrop) */}
       {isTrainModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 bg-black bg-opacity-65">
-          <div className="bg-white rounded-none sm:rounded-xl shadow-lg max-w-lg w-full h-full sm:h-auto overflow-y-auto sm:overflow-hidden flex flex-col">
+          <div 
+            onClick={(e) => e.stopPropagation()} 
+            className="bg-white rounded-none sm:rounded-xl shadow-lg max-w-lg w-full h-full sm:h-auto overflow-y-auto sm:overflow-hidden flex flex-col"
+          >
              <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50 sticky top-0 z-10">
                <h3 className="font-semibold text-slate-800">Registrar Treinamento</h3>
                <button 

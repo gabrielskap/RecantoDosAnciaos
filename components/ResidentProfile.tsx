@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { 
-  ArrowLeft, Activity, Pill, FileText, Sparkles, 
+import {
+  ArrowLeft, Activity, Pill, FileText, Sparkles,
   Thermometer, Heart, CheckCircle, PenTool, ShieldCheck,
   ClipboardList, History, Plus, User, Clock, File, Paperclip, CalendarCheck, AlertOctagon,
   BedDouble, Home, Wrench, PaintRoller, Edit2
@@ -8,6 +8,7 @@ import {
 import { Resident, CarePlan, AuditLog, DailyChecklist, Medication, RoomStatus } from '../types';
 import { summarizePatientHealth } from '../services/geminiService';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import CustomSelect from './CustomSelect';
 
 interface ResidentProfileProps {
   resident: Resident;
@@ -366,6 +367,17 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, onBack, onU
                    {resident.emergencyContacts?.map((c, i) => (
                      <p key={i}>{c.name} ({c.relation}) - {c.phone}</p>
                    ))}
+                </div>
+              </div>
+              <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 md:col-span-2">
+                <h3 className="font-semibold text-slate-800 mb-3 border-b border-slate-200 pb-2">Endereço</h3>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+                  <p><span className="text-slate-500">CEP:</span> {resident.addressCep || '-'}</p>
+                  <p className="md:col-span-2"><span className="text-slate-500">Logradouro / Rua:</span> {resident.addressStreet || '-'}</p>
+                  <p><span className="text-slate-500">Número:</span> {resident.addressNumber || '-'}</p>
+                  <p><span className="text-slate-500">Complemento:</span> {resident.addressComplement || '-'}</p>
+                  <p><span className="text-slate-500">Bairro:</span> {resident.addressNeighborhood || '-'}</p>
+                  <p className="md:col-span-2"><span className="text-slate-500">Cidade/UF:</span> {resident.addressCity ? `${resident.addressCity} - ${resident.addressState || ''}` : '-'}</p>
                 </div>
               </div>
               <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 md:col-span-2">
@@ -1368,13 +1380,17 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, onBack, onU
                      </div>
                      <div>
                        <label className="block text-xs font-medium text-slate-700 mb-1">Responsável</label>
-                       <select className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm" value={newPlan.assignedTo} onChange={e => setNewPlan({...newPlan, assignedTo: e.target.value})}>
-                         <option>Enfermagem</option>
-                         <option>Fisioterapia</option>
-                         <option>Nutrição</option>
-                         <option>Médico</option>
-                         <option>Cuidadores</option>
-                       </select>
+                       <CustomSelect
+                         value={newPlan.assignedTo}
+                         onChange={v => setNewPlan({ ...newPlan, assignedTo: v })}
+                         options={[
+                           { value: 'Enfermagem', label: 'Enfermagem' },
+                           { value: 'Fisioterapia', label: 'Fisioterapia' },
+                           { value: 'Nutrição', label: 'Nutrição' },
+                           { value: 'Médico', label: 'Médico' },
+                           { value: 'Cuidadores', label: 'Cuidadores' },
+                         ]}
+                       />
                      </div>
                    </div>
                    <div className="mb-4">

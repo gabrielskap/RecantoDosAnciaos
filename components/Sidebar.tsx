@@ -1,5 +1,5 @@
 import React from 'react';
-import { LayoutDashboard, Users, HeartPulse, Wallet, Package, Bot, LogOut, Menu, UserCog, Utensils, PieChart, CalendarDays, X, UserCircle, UserCheck } from 'lucide-react';
+import { LayoutDashboard, Users, HeartPulse, Wallet, Package, Bot, LogOut, Menu, UserCog, Utensils, PieChart, CalendarDays, X, UserCircle, UserCheck, BedDouble } from 'lucide-react';
 import { ViewState } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -17,6 +17,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, isOpen, se
   const navItems = [
     { id: ViewState.DASHBOARD, label: 'Painel Geral', icon: LayoutDashboard },
     { id: ViewState.RESIDENTS, label: 'Residentes & Prontuário', icon: Users },
+    { id: ViewState.ROOMS, label: 'Gerenciamento de Quartos', icon: BedDouble },
     { id: ViewState.AGENDA, label: 'Agenda & Atividades', icon: CalendarDays },
     { id: ViewState.NUTRITION, label: 'Alimentação & Nutrição', icon: Utensils },
     { id: ViewState.TEAM, label: 'Gestão de Equipe', icon: UserCog },

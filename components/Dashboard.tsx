@@ -13,9 +13,28 @@ interface DashboardProps {
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ residents, financials, stockAlerts = [] }) => {
-  const [isAnalysisModalOpen, setIsAnalysisModalOpen] = useState(false);
-  const [optimizationRate, setOptimizationRate] = useState(15);
-  const [bulkBuyChecked, setBulkBuyChecked] = useState(false);
+  const [isAnalysisModalOpen, setIsAnalysisModalOpen] = useState(() => {
+    return sessionStorage.getItem('modal_dashboard_analysis_open') === 'true';
+  });
+  const [optimizationRate, setOptimizationRate] = useState(() => {
+    const saved = sessionStorage.getItem('modal_dashboard_optimization_rate');
+    return saved ? parseInt(saved) : 15;
+  });
+  const [bulkBuyChecked, setBulkBuyChecked] = useState(() => {
+    return sessionStorage.getItem('modal_dashboard_bulk_buy') === 'true';
+  });
+
+  React.useEffect(() => {
+    if (isAnalysisModalOpen) {
+      sessionStorage.setItem('modal_dashboard_analysis_open', 'true');
+      sessionStorage.setItem('modal_dashboard_optimization_rate', String(optimizationRate));
+      sessionStorage.setItem('modal_dashboard_bulk_buy', String(bulkBuyChecked));
+    } else {
+      sessionStorage.removeItem('modal_dashboard_analysis_open');
+      sessionStorage.removeItem('modal_dashboard_optimization_rate');
+      sessionStorage.removeItem('modal_dashboard_bulk_buy');
+    }
+  }, [isAnalysisModalOpen, optimizationRate, bulkBuyChecked]);
   const [adjustingStock, setAdjustingStock] = useState(false);
   const [stockAdjusted, setStockAdjusted] = useState(false);
   const [requestingQuote, setRequestingQuote] = useState(false);
@@ -226,10 +245,13 @@ const Dashboard: React.FC<DashboardProps> = ({ residents, financials, stockAlert
         </div>
       </div>
 
-      {/* AI Analysis Modal */}
+      {/* AI Analysis Modal - Sempre ativo (não fecha ao clicar no fundo/backdrop) */}
       {isAnalysisModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm">
-          <div className="bg-white rounded-none sm:rounded-2xl shadow-2xl max-w-2xl w-full h-full sm:h-auto sm:max-h-[90vh] flex flex-col overflow-hidden">
+          <div 
+            onClick={(e) => e.stopPropagation()} 
+            className="bg-white rounded-none sm:rounded-2xl shadow-2xl max-w-2xl w-full h-full sm:h-auto sm:max-h-[90vh] flex flex-col overflow-hidden"
+          >
 
             <div className="px-6 py-4 bg-gradient-to-r from-violet-700 to-indigo-800 text-white flex justify-between items-center shrink-0">
               <div className="flex items-center gap-3">

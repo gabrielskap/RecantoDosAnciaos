@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Search, Filter, FileText, X, User, Phone, FileHeart, Plus, AlertCircle, BedDouble } from 'lucide-react';
+import { Search, Filter, FileText, X, User, Phone, FileHeart, Plus, AlertCircle, BedDouble, Home } from 'lucide-react';
 import { Resident } from '../types';
+import CustomSelect from './CustomSelect';
 
 interface ResidentsListProps {
   residents: Resident[];
@@ -9,23 +10,110 @@ interface ResidentsListProps {
 }
 
 const careLevelConfig = {
-  I:   { label: 'Grau I',   bg: 'bg-emerald-50', text: 'text-emerald-700', dot: 'bg-emerald-400' },
-  II:  { label: 'Grau II',  bg: 'bg-amber-50',   text: 'text-amber-700',   dot: 'bg-amber-400' },
-  III: { label: 'Grau III', bg: 'bg-rose-50',     text: 'text-rose-700',    dot: 'bg-rose-400' },
+  I: { label: 'Grau I', bg: 'bg-emerald-50', text: 'text-emerald-700', dot: 'bg-emerald-400' },
+  II: { label: 'Grau II', bg: 'bg-amber-50', text: 'text-amber-700', dot: 'bg-amber-400' },
+  III: { label: 'Grau III', bg: 'bg-rose-50', text: 'text-rose-700', dot: 'bg-rose-400' },
+};
+
+const calculateAge = (birthDateString: string): number => {
+  if (!birthDateString) return 0;
+  const parts = birthDateString.split('-');
+  if (parts.length !== 3) return 0;
+
+  const birthYear = parseInt(parts[0], 10);
+  const birthMonth = parseInt(parts[1], 10) - 1; // 0-indexed month
+  const birthDay = parseInt(parts[2], 10);
+
+  const today = new Date();
+  let age = today.getFullYear() - birthYear;
+  const m = today.getMonth() - birthMonth;
+  if (m < 0 || (m === 0 && today.getDate() < birthDay)) {
+    age--;
+  }
+  return age >= 0 ? age : 0;
 };
 
 const ResidentsList: React.FC<ResidentsListProps> = ({ residents, onSelectResident, onAddResident }) => {
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'personal' | 'contacts' | 'clinical'>('personal');
+  const [isModalOpen, setIsModalOpen] = useState(() => {
+    return sessionStorage.getItem('modal_residents_list_open') === 'true';
+  });
+  const [activeTab, setActiveTab] = useState<'personal' | 'contacts' | 'clinical'>(() => {
+    return (sessionStorage.getItem('modal_residents_active_tab') as any) || 'personal';
+  });
   const [search, setSearch] = useState('');
 
-  const [formData, setFormData] = useState<Partial<Resident>>({
-    name: '', age: 0, room: '', careLevel: 'I', cpf: '', rg: '', birthDate: '',
-    emergencyContacts: [],
-    legalGuardian: { name: '', cpf: '', phone: '', address: '' },
-    clinicalCondition: '', functionalCondition: '', socialHistory: '',
+  const [formData, setFormData] = useState<Partial<Resident>>(() => {
+    const saved = sessionStorage.getItem('modal_residents_form_data');
+    return saved ? JSON.parse(saved) : {
+      name: '', age: 0, room: '', careLevel: 'I', cpf: '', rg: '', birthDate: '',
+      addressCep: '', addressState: '', addressCity: '', addressNeighborhood: '',
+      addressStreet: '', addressNumber: '', addressComplement: '',
+      emergencyContacts: [],
+      legalGuardian: { name: '', cpf: '', phone: '', address: '' },
+      clinicalCondition: '', functionalCondition: '', socialHistory: '',
+    };
   });
-  const [contactTemp, setContactTemp] = useState({ name: '', relation: '', phone: '' });
+  const [contactTemp, setContactTemp] = useState(() => {
+    const saved = sessionStorage.getItem('modal_residents_contact_temp');
+    return saved ? JSON.parse(saved) : { name: '', relation: '', phone: '' };
+  });
+  const [loadingCep, setLoadingCep] = useState(false);
+  const [cepError, setCepError] = useState('');
+
+  const handleCepChange = async (value: string) => {
+    const raw = value.replace(/\D/g, '');
+    let formatted = raw;
+    if (raw.length > 5) {
+      formatted = `${raw.substring(0, 5)}-${raw.substring(5, 8)}`;
+    }
+
+    setFormData(prev => ({ ...prev, addressCep: formatted }));
+    setCepError('');
+
+    if (raw.length === 8) {
+      setLoadingCep(true);
+      try {
+        const response = await fetch(`https://viacep.com.br/ws/${raw}/json/`);
+        const data = await response.json();
+        if (data.erro) {
+          setCepError('CEP não encontrado.');
+        } else {
+          setFormData(prev => ({
+            ...prev,
+            addressStreet: data.logradouro || '',
+            addressNeighborhood: data.bairro || '',
+            addressCity: data.localidade || '',
+            addressState: data.uf || '',
+          }));
+          setTimeout(() => {
+            const numberInput = document.getElementById('addressNumber');
+            if (numberInput) {
+              (numberInput as HTMLInputElement).focus();
+            }
+          }, 100);
+        }
+      } catch (err) {
+        setCepError('Erro ao buscar o CEP.');
+        console.error(err);
+      } finally {
+        setLoadingCep(false);
+      }
+    }
+  };
+
+  React.useEffect(() => {
+    if (isModalOpen) {
+      sessionStorage.setItem('modal_residents_list_open', 'true');
+      sessionStorage.setItem('modal_residents_active_tab', activeTab);
+      sessionStorage.setItem('modal_residents_form_data', JSON.stringify(formData));
+      sessionStorage.setItem('modal_residents_contact_temp', JSON.stringify(contactTemp));
+    } else {
+      sessionStorage.removeItem('modal_residents_list_open');
+      sessionStorage.removeItem('modal_residents_active_tab');
+      sessionStorage.removeItem('modal_residents_form_data');
+      sessionStorage.removeItem('modal_residents_contact_temp');
+    }
+  }, [isModalOpen, activeTab, formData, contactTemp]);
 
   const filtered = residents.filter(r =>
     r.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -49,6 +137,13 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, onSelectReside
       cpf: formData.cpf, rg: formData.rg, birthDate: formData.birthDate,
       photoUrl: `https://picsum.photos/200/200?random=${Math.floor(Math.random() * 1000)}`,
       admissionDate: new Date().toISOString(),
+      addressCep: formData.addressCep,
+      addressState: formData.addressState,
+      addressCity: formData.addressCity,
+      addressNeighborhood: formData.addressNeighborhood,
+      addressStreet: formData.addressStreet,
+      addressNumber: formData.addressNumber,
+      addressComplement: formData.addressComplement,
       emergencyContacts: formData.emergencyContacts || [],
       legalGuardian: formData.legalGuardian,
       clinicalCondition: formData.clinicalCondition || '',
@@ -59,7 +154,13 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, onSelectReside
     };
     onAddResident(resident);
     setIsModalOpen(false);
-    setFormData({ name: '', age: 0, room: '', careLevel: 'I', emergencyContacts: [], legalGuardian: { name: '', cpf: '', phone: '', address: '' } });
+    setFormData({
+      name: '', age: 0, room: '', careLevel: 'I',
+      addressCep: '', addressState: '', addressCity: '', addressNeighborhood: '',
+      addressStreet: '', addressNumber: '', addressComplement: '',
+      emergencyContacts: [],
+      legalGuardian: { name: '', cpf: '', phone: '', address: '' }
+    });
     setActiveTab('personal');
   };
 
@@ -164,10 +265,13 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, onSelectReside
         )}
       </div>
 
-      {/* Modal */}
+      {/* Modal - Sempre ativo (não fecha ao clicar no fundo/backdrop) */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/50 backdrop-blur-sm">
-          <div className="bg-white w-full h-full sm:h-auto sm:rounded-2xl shadow-2xl sm:max-w-2xl overflow-hidden flex flex-col max-h-[100vh] sm:max-h-[90vh]">
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white w-full h-full sm:h-auto sm:rounded-2xl shadow-2xl sm:max-w-2xl overflow-hidden flex flex-col max-h-[100vh] sm:max-h-[90vh]"
+          >
 
             <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-[#F8F7FF] shrink-0">
               <div>
@@ -184,9 +288,8 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, onSelectReside
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-xs font-semibold transition-all ${
-                    activeTab === tab.id ? 'bg-violet-600 text-white' : 'text-slate-500 hover:bg-slate-100'
-                  }`}
+                  className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-xs font-semibold transition-all ${activeTab === tab.id ? 'bg-violet-600 text-white' : 'text-slate-500 hover:bg-slate-100'
+                    }`}
                 >
                   <tab.icon className="h-3.5 w-3.5" /> {tab.label}
                 </button>
@@ -213,7 +316,19 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, onSelectReside
                   <div className="grid grid-cols-3 gap-3">
                     <div>
                       <label className="block text-xs font-semibold text-slate-600 mb-1.5">Nascimento</label>
-                      <input type="date" value={formData.birthDate} onChange={e => setFormData({ ...formData, birthDate: e.target.value })} className={inputClass} />
+                      <input
+                        type="date"
+                        value={formData.birthDate}
+                        onChange={e => {
+                          const dateVal = e.target.value;
+                          setFormData({
+                            ...formData,
+                            birthDate: dateVal,
+                            age: dateVal ? calculateAge(dateVal) : formData.age
+                          });
+                        }}
+                        className={inputClass}
+                      />
                     </div>
                     <div>
                       <label className="block text-xs font-semibold text-slate-600 mb-1.5">Idade</label>
@@ -226,11 +341,109 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, onSelectReside
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-slate-600 mb-1.5">Grau de Dependência</label>
-                    <select value={formData.careLevel} onChange={e => setFormData({ ...formData, careLevel: e.target.value as any })} className={inputClass}>
-                      <option value="I">Grau I — Independente</option>
-                      <option value="II">Grau II — Dependência Parcial</option>
-                      <option value="III">Grau III — Dependência Total</option>
-                    </select>
+                    <CustomSelect
+                      value={formData.careLevel || 'I'}
+                      onChange={v => setFormData({ ...formData, careLevel: v as any })}
+                      options={[
+                        { value: 'I', label: 'Grau I', desc: 'Independente', badge: { label: 'Grau I', bg: 'bg-emerald-50', text: 'text-emerald-700', dot: 'bg-emerald-400' } },
+                        { value: 'II', label: 'Grau II', desc: 'Dependência Parcial', badge: { label: 'Grau II', bg: 'bg-amber-50', text: 'text-amber-700', dot: 'bg-amber-400' } },
+                        { value: 'III', label: 'Grau III', desc: 'Dependência Total', badge: { label: 'Grau III', bg: 'bg-rose-50', text: 'text-rose-700', dot: 'bg-rose-400' } },
+                      ]}
+                    />
+                  </div>
+
+                  {/* Endereço do Residente */}
+                  <div className="border-t border-slate-100 pt-4 mt-4 space-y-3">
+                    <h4 className="font-bold text-slate-700 text-sm flex items-center gap-1.5">
+                      <Home className="h-4 w-4 text-violet-500" />
+                      Endereço do Residente
+                    </h4>
+
+                    <div className="grid grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1.5 flex items-center justify-between">
+                          <span>CEP</span>
+                          {loadingCep && <span className="text-[10px] text-violet-500 font-semibold animate-pulse">...</span>}
+                          {cepError && <span className="text-[10px] text-rose-500 font-semibold">{cepError}</span>}
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="00000-000"
+                          maxLength={9}
+                          value={formData.addressCep || ''}
+                          onChange={e => handleCepChange(e.target.value)}
+                          className={inputClass}
+                        />
+                      </div>
+                      <div className="col-span-2">
+                        <label className="block text-xs font-semibold text-slate-600 mb-1.5">Logradouro / Rua</label>
+                        <input
+                          type="text"
+                          placeholder="Ex: Av. Brasil"
+                          value={formData.addressStreet || ''}
+                          onChange={e => setFormData({ ...formData, addressStreet: e.target.value })}
+                          className={inputClass}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1.5">Número</label>
+                        <input
+                          id="addressNumber"
+                          type="text"
+                          placeholder="Nº"
+                          value={formData.addressNumber || ''}
+                          onChange={e => setFormData({ ...formData, addressNumber: e.target.value })}
+                          className={inputClass}
+                        />
+                      </div>
+                      <div className="col-span-2">
+                        <label className="block text-xs font-semibold text-slate-600 mb-1.5">Complemento</label>
+                        <input
+                          type="text"
+                          placeholder="Ex: Apto 101, Bloco B"
+                          value={formData.addressComplement || ''}
+                          onChange={e => setFormData({ ...formData, addressComplement: e.target.value })}
+                          className={inputClass}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1.5">Bairro</label>
+                        <input
+                          type="text"
+                          placeholder="Bairro"
+                          value={formData.addressNeighborhood || ''}
+                          onChange={e => setFormData({ ...formData, addressNeighborhood: e.target.value })}
+                          className={inputClass}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1.5">Cidade</label>
+                        <input
+                          type="text"
+                          placeholder="Cidade"
+                          value={formData.addressCity || ''}
+                          onChange={e => setFormData({ ...formData, addressCity: e.target.value })}
+                          className={inputClass}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1.5">Estado (UF)</label>
+                        <input
+                          type="text"
+                          placeholder="UF"
+                          maxLength={2}
+                          value={formData.addressState || ''}
+                          onChange={e => setFormData({ ...formData, addressState: e.target.value.toUpperCase() })}
+                          className={inputClass}
+                        />
+                      </div>
+                    </div>
                   </div>
                 </>
               )}

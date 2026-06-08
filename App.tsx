@@ -12,9 +12,10 @@ import ReportsModule from './components/ReportsModule';
 import AgendaModule from './components/AgendaModule';
 import LoginScreen from './components/LoginScreen';
 import ResidentPortal from './components/ResidentPortal';
+import RoomsModule from './components/RoomsModule';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { Menu, HeartPulse } from 'lucide-react';
-import { ViewState, Resident, FinancialRecord, StockItem, Employee, TrainingRecord, SystemAccessLog, Contract, Invoice, CalendarEvent, StockTransaction } from './types';
+import { ViewState, Resident, FinancialRecord, StockItem, Employee, TrainingRecord, SystemAccessLog, Contract, Invoice, CalendarEvent, StockTransaction, Room } from './types';
 import { supabase } from './services/supabaseClient';
 
 // Path name to ViewState conversion
@@ -23,7 +24,7 @@ const pathToView = (path: string): { view: ViewState; residentId?: string } => {
   if (parts.length === 0) {
     return { view: ViewState.DASHBOARD };
   }
-  
+
   const primary = parts[0];
   switch (primary) {
     case 'dashboard':
@@ -47,6 +48,8 @@ const pathToView = (path: string): { view: ViewState; residentId?: string } => {
       return { view: ViewState.REPORTS };
     case 'users':
       return { view: ViewState.USERS };
+    case 'rooms':
+      return { view: ViewState.ROOMS };
     default:
       return { view: ViewState.DASHBOARD };
   }
@@ -74,6 +77,8 @@ const viewToPath = (view: ViewState, residentId?: string): string => {
       return '/reports';
     case ViewState.USERS:
       return '/users';
+    case ViewState.ROOMS:
+      return '/rooms';
     default:
       return '/';
   }
@@ -95,6 +100,7 @@ function AppInner() {
   const [trainingRecords, setTrainingRecords] = useState<TrainingRecord[]>([]);
   const [accessLogs, setAccessLogs] = useState<SystemAccessLog[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [rooms, setRooms] = useState<Room[]>([]);
 
   // --- Supabase Data Fetchers ---
 
@@ -130,6 +136,13 @@ function AppInner() {
         careLevel: r.care_level,
         photoUrl: r.photo_url || `https://picsum.photos/200/200?random=${r.id}`,
         admissionDate: r.admission_date,
+        addressCep: r.address_cep || undefined,
+        addressState: r.address_state || undefined,
+        addressCity: r.address_city || undefined,
+        addressNeighborhood: r.address_neighborhood || undefined,
+        addressStreet: r.address_street || undefined,
+        addressNumber: r.address_number || undefined,
+        addressComplement: r.address_complement || undefined,
         emergencyContacts: (r.emergencyContacts || []).map((c: any) => ({
           name: c.name,
           relation: c.relation,
@@ -249,7 +262,7 @@ function AppInner() {
       }));
 
       setResidents(mapped);
-      
+
       // Update selected resident context if it is active
       if (selectedResident) {
         const found = mapped.find(res => res.id === selectedResident.id);
@@ -476,6 +489,108 @@ function AppInner() {
     }
   };
 
+  const fetchRooms = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('Recanto_Quartos')
+        .select('*')
+        .order('number', { ascending: true });
+
+      if (error) throw error;
+
+      if (data) {
+        const mapped: Room[] = data.map((q: any) => ({
+          id: q.id,
+          number: q.number,
+          type: q.type,
+          capacity: q.capacity,
+          assets: q.assets || [],
+          status: q.status || undefined
+        }));
+        setRooms(mapped);
+        localStorage.setItem('recanto_rooms', JSON.stringify(mapped));
+      }
+    } catch (err) {
+      console.warn('Erro ao buscar quartos do Supabase, usando localStorage:', err);
+      const saved = localStorage.getItem('recanto_rooms');
+      if (saved) {
+        setRooms(JSON.parse(saved));
+      } else {
+        const defaultRooms: Room[] = [
+          { id: 'q101', number: '101', type: 'Individual', capacity: 1, assets: ['Televisão', 'Guarda-roupa', 'Banheiro Adaptado'] },
+          { id: 'q102', number: '102', type: 'Individual', capacity: 1, assets: ['Guarda-roupa', 'Ventilador'] },
+          { id: 'q103', number: '103', type: 'Compartilhado', capacity: 2, assets: ['Televisão', 'Guarda-roupa', 'Banheiro Adaptado', 'Ar Condicionado'] },
+          { id: 'q201', number: '201', type: 'Compartilhado', capacity: 2, assets: ['Guarda-roupa', 'Ventilador'] },
+          { id: 'q202', number: '202', type: 'Compartilhado', capacity: 3, assets: ['Televisão', 'Guarda-roupa', 'Banheiro Adaptado', 'Ar Condicionado', 'Frigobar'] }
+        ];
+        setRooms(defaultRooms);
+        localStorage.setItem('recanto_rooms', JSON.stringify(defaultRooms));
+      }
+    }
+  };
+
+  const handleAddRoom = async (newRoom: Room) => {
+    try {
+      const { error } = await supabase
+        .from('Recanto_Quartos')
+        .insert({
+          number: newRoom.number,
+          type: newRoom.type,
+          capacity: newRoom.capacity,
+          assets: newRoom.assets,
+          status: newRoom.status || null
+        });
+
+      if (error) throw error;
+      await fetchRooms();
+    } catch (err) {
+      console.warn('Erro ao inserir quarto no Supabase, atualizando localStorage localmente:', err);
+      const updatedRooms = [...rooms, newRoom];
+      setRooms(updatedRooms);
+      localStorage.setItem('recanto_rooms', JSON.stringify(updatedRooms));
+    }
+  };
+
+  const handleUpdateRoom = async (updatedRoom: Room) => {
+    try {
+      const { error } = await supabase
+        .from('Recanto_Quartos')
+        .update({
+          number: updatedRoom.number,
+          type: updatedRoom.type,
+          capacity: updatedRoom.capacity,
+          assets: updatedRoom.assets,
+          status: updatedRoom.status || null
+        })
+        .eq('id', updatedRoom.id);
+
+      if (error) throw error;
+      await fetchRooms();
+    } catch (err) {
+      console.warn('Erro ao atualizar quarto no Supabase, atualizando localStorage localmente:', err);
+      const updatedRooms = rooms.map(r => r.id === updatedRoom.id ? updatedRoom : r);
+      setRooms(updatedRooms);
+      localStorage.setItem('recanto_rooms', JSON.stringify(updatedRooms));
+    }
+  };
+
+  const handleDeleteRoom = async (roomId: string) => {
+    try {
+      const { error } = await supabase
+        .from('Recanto_Quartos')
+        .delete()
+        .eq('id', roomId);
+
+      if (error) throw error;
+      await fetchRooms();
+    } catch (err) {
+      console.warn('Erro ao excluir quarto no Supabase, atualizando localStorage localmente:', err);
+      const updatedRooms = rooms.filter(r => r.id !== roomId);
+      setRooms(updatedRooms);
+      localStorage.setItem('recanto_rooms', JSON.stringify(updatedRooms));
+    }
+  };
+
   // Sync state with Database on user login
   useEffect(() => {
     if (currentUser) {
@@ -488,6 +603,7 @@ function AppInner() {
       fetchAccessLogs();
       fetchTrainingRecords();
       fetchEvents();
+      fetchRooms();
     } else {
       setResidents([]);
       setFinancials([]);
@@ -498,6 +614,7 @@ function AppInner() {
       setTrainingRecords([]);
       setAccessLogs([]);
       setEvents([]);
+      setRooms([]);
     }
   }, [currentUser]);
 
@@ -523,7 +640,7 @@ function AppInner() {
       if (!currentUser) return;
 
       const path = window.location.pathname;
-      
+
       // Portal handles its own view internally or we use /portal
       if (currentUser.profile.type === 'Responsável') {
         if (path !== '/portal') {
@@ -611,7 +728,14 @@ function AppInner() {
           admission_date: new Date().toISOString().split('T')[0],
           clinical_condition: newResident.clinicalCondition || null,
           functional_condition: newResident.functionalCondition || null,
-          social_history: newResident.socialHistory || null
+          social_history: newResident.socialHistory || null,
+          address_cep: newResident.addressCep || null,
+          address_state: newResident.addressState || null,
+          address_city: newResident.addressCity || null,
+          address_neighborhood: newResident.addressNeighborhood || null,
+          address_street: newResident.addressStreet || null,
+          address_number: newResident.addressNumber || null,
+          address_complement: newResident.addressComplement || null
         })
         .select()
         .single();
@@ -663,10 +787,17 @@ function AppInner() {
           photo_url: updated.photoUrl,
           clinical_condition: updated.clinicalCondition,
           functional_condition: updated.functionalCondition,
-          social_history: updated.socialHistory
+          social_history: updated.socialHistory,
+          address_cep: updated.addressCep || null,
+          address_state: updated.addressState || null,
+          address_city: updated.addressCity || null,
+          address_neighborhood: updated.addressNeighborhood || null,
+          address_street: updated.addressStreet || null,
+          address_number: updated.addressNumber || null,
+          address_complement: updated.addressComplement || null
         })
         .eq('id', updated.id);
-      
+
       if (resError) throw resError;
 
       // 1. Alergias
@@ -720,7 +851,7 @@ function AppInner() {
             })
             .select()
             .single();
-          
+
           if (!medErr && medData && med.logs && med.logs.length > 0) {
             for (const log of med.logs) {
               const isLogMock = log.id.length < 15;
@@ -983,7 +1114,7 @@ function AppInner() {
         })
         .select()
         .single();
-      
+
       if (itemErr || !itemData) throw itemErr;
 
       const { error: txErr } = await supabase
@@ -995,7 +1126,7 @@ function AppInner() {
           user_name: currentUser?.name || 'Admin',
           notes: 'Cadastro inicial'
         });
-      
+
       if (txErr) throw txErr;
 
       await fetchStockItems();
@@ -1040,7 +1171,7 @@ function AppInner() {
         })
         .select()
         .single();
-      
+
       if (tErr || !tData) throw tErr;
 
       if (newTraining.participants && newTraining.participants.length > 0) {
@@ -1110,32 +1241,32 @@ function AppInner() {
     switch (currentView) {
       case ViewState.DASHBOARD:
         return (
-          <Dashboard 
-            residents={residents} 
-            financials={financials} 
+          <Dashboard
+            residents={residents}
+            financials={financials}
             stockAlerts={lowStockItems}
           />
         );
       case ViewState.RESIDENTS:
         return (
-          <ResidentsList 
-            residents={residents} 
-            onSelectResident={handleSelectResident} 
+          <ResidentsList
+            residents={residents}
+            onSelectResident={handleSelectResident}
             onAddResident={handleAddResident}
           />
         );
       case ViewState.RESIDENT_DETAIL:
-        if (!selectedResident) return <ResidentsList residents={residents} onSelectResident={handleSelectResident} onAddResident={handleAddResident}/>;
+        if (!selectedResident) return <ResidentsList residents={residents} onSelectResident={handleSelectResident} onAddResident={handleAddResident} />;
         return (
-          <ResidentProfile 
-            resident={selectedResident} 
-            onBack={() => navigateTo(ViewState.RESIDENTS)} 
+          <ResidentProfile
+            resident={selectedResident}
+            onBack={() => navigateTo(ViewState.RESIDENTS)}
             onUpdateResident={handleUpdateResident}
           />
         );
       case ViewState.AGENDA:
         return (
-          <AgendaModule 
+          <AgendaModule
             events={events}
             residents={residents}
             onAddEvent={handleAddEvent}
@@ -1143,8 +1274,8 @@ function AppInner() {
         );
       case ViewState.FINANCE:
         return (
-          <FinanceModule 
-            records={financials} 
+          <FinanceModule
+            records={financials}
             contracts={contracts}
             invoices={invoices}
             residents={residents}
@@ -1155,7 +1286,7 @@ function AppInner() {
         );
       case ViewState.TEAM:
         return (
-          <TeamModule 
+          <TeamModule
             employees={employees}
             trainings={trainingRecords}
             accessLogs={accessLogs}
@@ -1172,11 +1303,11 @@ function AppInner() {
         );
       case ViewState.REPORTS:
         return (
-           <ReportsModule 
-             residents={residents}
-             employees={employees}
-             invoices={invoices}
-           />
+          <ReportsModule
+            residents={residents}
+            employees={employees}
+            invoices={invoices}
+          />
         );
       case ViewState.USERS:
         return (
@@ -1187,10 +1318,21 @@ function AppInner() {
         );
       case ViewState.STOCK:
         return (
-          <StockModule 
-            items={stockItems} 
+          <StockModule
+            items={stockItems}
             onUpdateStock={handleUpdateStock}
             onAddItem={handleAddStockItem}
+          />
+        );
+      case ViewState.ROOMS:
+        return (
+          <RoomsModule
+            rooms={rooms}
+            residents={residents}
+            onAddRoom={handleAddRoom}
+            onUpdateRoom={handleUpdateRoom}
+            onDeleteRoom={handleDeleteRoom}
+            onUpdateResident={handleUpdateResident}
           />
         );
       default:
@@ -1236,18 +1378,18 @@ function AppInner() {
       <main className="flex-1 max-w-full lg:max-w-[calc(100vw-256px)] transition-all">
         {/* Mobile Header trigger - Sticky for accessibility */}
         <div className="sticky top-0 z-20 lg:hidden px-4 py-3 bg-slate-900 text-white flex justify-between items-center shadow-md select-none border-b border-slate-800">
-           <div className="flex items-center space-x-2">
-             <HeartPulse className="h-6 w-6 text-rose-500" />
-             <span className="text-lg font-bold tracking-tight">Recanto dos Anciãos</span>
-           </div>
-           <button
-             onClick={() => setSidebarOpen(true)}
-             className="w-[44px] h-[44px] flex items-center justify-center rounded-lg bg-slate-800 hover:bg-slate-700 active:scale-95 transition-all text-slate-200 hover:text-white"
-             aria-label="Toggle Menu"
-             id="mobile-menu-trigger-button"
-           >
-             <Menu className="h-6 w-6" />
-           </button>
+          <div className="flex items-center space-x-2">
+            <HeartPulse className="h-6 w-6 text-rose-500" />
+            <span className="text-lg font-bold tracking-tight">Recanto dos Anciãos</span>
+          </div>
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="w-[44px] h-[44px] flex items-center justify-center rounded-lg bg-slate-800 hover:bg-slate-700 active:scale-95 transition-all text-slate-200 hover:text-white"
+            aria-label="Toggle Menu"
+            id="mobile-menu-trigger-button"
+          >
+            <Menu className="h-6 w-6" />
+          </button>
         </div>
 
         <div className="p-4 md:p-8 max-w-7xl mx-auto">

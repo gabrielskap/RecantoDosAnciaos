@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Utensils, AlertTriangle, CheckCircle2, PieChart as PieIcon, FileText, Droplets } from 'lucide-react';
-import { Resident, DietPlan, MealTime, NutritionalLog } from '../types';
+import { Utensils, AlertTriangle, CheckCircle2, PieChart as PieIcon, FileText, Droplets, Plus, X } from 'lucide-react';
+import { Resident, DietPlan, DietConsistency, DietType, MealTime, NutritionalLog } from '../types';
 import { PieChart as RechartPie, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 
 interface NutritionModuleProps {
@@ -12,6 +12,16 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
   const [activeTab, setActiveTab] = useState<'dashboard' | 'daily' | 'plans'>('dashboard');
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [selectedMeal, setSelectedMeal] = useState<MealTime>('Almoço');
+
+  // New plan modal state
+  const [showNewPlanModal, setShowNewPlanModal] = useState(false);
+  const [newPlanResidentId, setNewPlanResidentId] = useState('');
+  const [newPlanConsistency, setNewPlanConsistency] = useState<DietConsistency>('Geral');
+  const [newPlanType, setNewPlanType] = useState<DietType>('Livre');
+  const [newPlanFluidRestriction, setNewPlanFluidRestriction] = useState('');
+  const [newPlanRestrictions, setNewPlanRestrictions] = useState<string[]>([]);
+  const [newPlanRestrictionInput, setNewPlanRestrictionInput] = useState('');
+  const [newPlanObservations, setNewPlanObservations] = useState('');
 
   const dietsCount = residents.reduce((acc, r) => {
     const type = r.dietPlan?.type || 'Não Definido';
@@ -37,6 +47,29 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
       logs.push({ id: Math.random().toString(36).substr(2, 9), date: selectedDate, meal: selectedMeal, acceptance });
     }
     onUpdateResident({ ...resident, nutritionalLogs: logs });
+  };
+
+  const handleCreatePlan = () => {
+    if (!newPlanResidentId) return;
+    const resident = residents.find(r => r.id === newPlanResidentId);
+    if (!resident) return;
+    const plan: DietPlan = {
+      consistency: newPlanConsistency,
+      type: newPlanType,
+      restrictions: newPlanRestrictions,
+      fluidRestriction: newPlanFluidRestriction || undefined,
+      observations: newPlanObservations || undefined,
+      updatedAt: new Date().toISOString(),
+    };
+    onUpdateResident({ ...resident, dietPlan: plan });
+    setShowNewPlanModal(false);
+    setNewPlanResidentId('');
+    setNewPlanConsistency('Geral');
+    setNewPlanType('Livre');
+    setNewPlanFluidRestriction('');
+    setNewPlanRestrictions([]);
+    setNewPlanRestrictionInput('');
+    setNewPlanObservations('');
   };
 
   const handleDietUpdate = (residentId: string, newPlan: Partial<DietPlan>) => {
@@ -243,7 +276,16 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
 
       {/* DIET PLANS */}
       {activeTab === 'plans' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        <div className="space-y-4">
+          <div className="flex justify-end">
+            <button
+              onClick={() => setShowNewPlanModal(true)}
+              className="flex items-center gap-2 bg-violet-600 hover:bg-violet-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors shadow-sm shadow-violet-200"
+            >
+              <Plus className="h-4 w-4" /> Novo Plano Alimentar
+            </button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {residents.map(r => (
             <div key={r.id} className="bg-white rounded-2xl shadow-sm shadow-violet-100/40 p-5">
               <div className="flex items-center gap-3 mb-4">
@@ -287,6 +329,142 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
               </div>
             </div>
           ))}
+          </div>
+        </div>
+      )}
+
+      {/* NEW PLAN MODAL */}
+      {showNewPlanModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between p-5 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-violet-600 flex items-center justify-center">
+                  <FileText className="h-5 w-5 text-white" />
+                </div>
+                <div>
+                  <h2 className="font-bold text-slate-800">Novo Plano Alimentar</h2>
+                  <p className="text-xs text-slate-400">Preencha os dados e vincule a um residente</p>
+                </div>
+              </div>
+              <button onClick={() => setShowNewPlanModal(false)} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Residente *</label>
+                <select
+                  value={newPlanResidentId}
+                  onChange={e => setNewPlanResidentId(e.target.value)}
+                  className={inputClass}
+                >
+                  <option value="">Selecione um residente...</option>
+                  {residents.map(r => (
+                    <option key={r.id} value={r.id}>{r.name} — Quarto {r.room}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Consistência</label>
+                  <select value={newPlanConsistency} onChange={e => setNewPlanConsistency(e.target.value as DietConsistency)} className={inputClass}>
+                    {(['Geral', 'Branda', 'Pastosa', 'Líquida', 'Líquida-Pastosa'] as DietConsistency[]).map(o => <option key={o}>{o}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Tipo de Dieta</label>
+                  <select value={newPlanType} onChange={e => setNewPlanType(e.target.value as DietType)} className={inputClass}>
+                    {(['Livre', 'Hipossódica', 'Diabética', 'Hipolipídica', 'Hiperproteica'] as DietType[]).map(o => <option key={o}>{o}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Restrição Hídrica</label>
+                <input
+                  type="text"
+                  placeholder="Ex: 1500ml/dia"
+                  value={newPlanFluidRestriction}
+                  onChange={e => setNewPlanFluidRestriction(e.target.value)}
+                  className={inputClass}
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Restrições Alimentares</label>
+                <div className="flex gap-2 mb-2">
+                  <input
+                    type="text"
+                    placeholder="Adicionar restrição..."
+                    value={newPlanRestrictionInput}
+                    onChange={e => setNewPlanRestrictionInput(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && newPlanRestrictionInput.trim()) {
+                        setNewPlanRestrictions(prev => [...prev, newPlanRestrictionInput.trim()]);
+                        setNewPlanRestrictionInput('');
+                        e.preventDefault();
+                      }
+                    }}
+                    className={inputClass + ' flex-1'}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (newPlanRestrictionInput.trim()) {
+                        setNewPlanRestrictions(prev => [...prev, newPlanRestrictionInput.trim()]);
+                        setNewPlanRestrictionInput('');
+                      }
+                    }}
+                    className="px-3 py-2 bg-violet-50 text-violet-700 rounded-xl text-sm font-semibold hover:bg-violet-100 transition-colors border border-violet-200"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </button>
+                </div>
+                {newPlanRestrictions.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {newPlanRestrictions.map((item, i) => (
+                      <span key={i} className="flex items-center gap-1 text-xs font-semibold bg-orange-50 text-orange-700 px-2 py-0.5 rounded-full">
+                        {item}
+                        <button onClick={() => setNewPlanRestrictions(prev => prev.filter((_, j) => j !== i))} className="hover:text-orange-900 ml-0.5">
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Observações</label>
+                <textarea
+                  rows={3}
+                  placeholder="Observações nutricionais relevantes..."
+                  value={newPlanObservations}
+                  onChange={e => setNewPlanObservations(e.target.value)}
+                  className={inputClass + ' resize-none'}
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 p-5 border-t border-slate-100">
+              <button
+                onClick={() => setShowNewPlanModal(false)}
+                className="flex-1 py-2.5 px-4 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleCreatePlan}
+                disabled={!newPlanResidentId}
+                className="flex-1 py-2.5 px-4 rounded-xl bg-violet-600 text-white text-sm font-semibold hover:bg-violet-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Salvar Plano
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

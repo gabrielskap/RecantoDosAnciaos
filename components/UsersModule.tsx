@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Plus, X, Search, Trash2, Mail, Lock, User, UserPlus, AlertCircle, Check, ShieldAlert } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { AuthUser, Resident, SystemAccessLog, Profile } from '../types';
+import CustomSelect from './CustomSelect';
 
 interface UsersModuleProps {
   residents: Resident[];
@@ -11,16 +12,61 @@ interface UsersModuleProps {
 const UsersModule: React.FC<UsersModuleProps> = ({ residents, onAddAccessLog }) => {
   const { users, profiles, addUser, deleteUser, currentUser } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [userToDelete, setUserToDelete] = useState<AuthUser | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(() => {
+    return sessionStorage.getItem('modal_users_create_open') === 'true';
+  });
+  const [userToDelete, setUserToDelete] = useState<AuthUser | null>(() => {
+    const saved = sessionStorage.getItem('modal_users_delete_user');
+    return saved ? JSON.parse(saved) : null;
+  });
 
   // Form State
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [selectedProfileId, setSelectedProfileId] = useState('');
-  const [selectedResidentId, setSelectedResidentId] = useState('');
-  const [formError, setFormError] = useState('');
+  const [name, setName] = useState(() => {
+    return sessionStorage.getItem('modal_users_form_name') || '';
+  });
+  const [email, setEmail] = useState(() => {
+    return sessionStorage.getItem('modal_users_form_email') || '';
+  });
+  const [password, setPassword] = useState(() => {
+    return sessionStorage.getItem('modal_users_form_password') || '';
+  });
+  const [selectedProfileId, setSelectedProfileId] = useState(() => {
+    return sessionStorage.getItem('modal_users_form_profile_id') || '';
+  });
+  const [selectedResidentId, setSelectedResidentId] = useState(() => {
+    return sessionStorage.getItem('modal_users_form_resident_id') || '';
+  });
+  const [formError, setFormError] = useState(() => {
+    return sessionStorage.getItem('modal_users_form_error') || '';
+  });
+
+  React.useEffect(() => {
+    if (isModalOpen) {
+      sessionStorage.setItem('modal_users_create_open', 'true');
+      sessionStorage.setItem('modal_users_form_name', name);
+      sessionStorage.setItem('modal_users_form_email', email);
+      sessionStorage.setItem('modal_users_form_password', password);
+      sessionStorage.setItem('modal_users_form_profile_id', selectedProfileId);
+      sessionStorage.setItem('modal_users_form_resident_id', selectedResidentId);
+      sessionStorage.setItem('modal_users_form_error', formError);
+    } else {
+      sessionStorage.removeItem('modal_users_create_open');
+      sessionStorage.removeItem('modal_users_form_name');
+      sessionStorage.removeItem('modal_users_form_email');
+      sessionStorage.removeItem('modal_users_form_password');
+      sessionStorage.removeItem('modal_users_form_profile_id');
+      sessionStorage.removeItem('modal_users_form_resident_id');
+      sessionStorage.removeItem('modal_users_form_error');
+    }
+  }, [isModalOpen, name, email, password, selectedProfileId, selectedResidentId, formError]);
+
+  React.useEffect(() => {
+    if (userToDelete) {
+      sessionStorage.setItem('modal_users_delete_user', JSON.stringify(userToDelete));
+    } else {
+      sessionStorage.removeItem('modal_users_delete_user');
+    }
+  }, [userToDelete]);
 
   // Search Filter
   const filteredUsers = users.filter(u =>
@@ -49,7 +95,7 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, onAddAccessLog }) 
     if (!email.trim()) return setFormError('O e-mail é obrigatório.');
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return setFormError('Digite um e-mail válido.');
     if (password.length < 4) return setFormError('A senha deve conter pelo menos 4 caracteres.');
-    
+
     // Check email uniqueness
     if (users.some(u => u.email.toLowerCase() === email.trim().toLowerCase())) {
       return setFormError('Este e-mail já está cadastrado.');
@@ -243,11 +289,10 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, onAddAccessLog }) 
                       <button
                         onClick={() => setUserToDelete(user)}
                         disabled={currentUser?.id === user.id}
-                        className={`p-1.5 rounded-lg border transition-colors ${
-                          currentUser?.id === user.id
+                        className={`p-1.5 rounded-lg border transition-colors ${currentUser?.id === user.id
                             ? 'text-slate-300 border-slate-100 cursor-not-allowed'
                             : 'text-rose-500 border-rose-100 hover:bg-rose-50 hover:text-rose-600'
-                        }`}
+                          }`}
                         title={currentUser?.id === user.id ? 'Você não pode se auto-excluir' : 'Excluir usuário'}
                       >
                         <Trash2 className="h-4 w-4" />
@@ -311,10 +356,13 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, onAddAccessLog }) 
         </div>
       </div>
 
-      {/* Creation Modal */}
+      {/* Creation Modal - Sempre ativo (não fecha ao clicar no fundo/backdrop) */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-60 backdrop-blur-sm">
-          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto flex flex-col transform transition-all">
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto flex flex-col transform transition-all"
+          >
             <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-55 sticky top-0 z-10">
               <div className="flex items-center gap-2">
                 <UserPlus className="h-5 w-5 text-primary-600" />
@@ -385,17 +433,12 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, onAddAccessLog }) 
               <div className="grid grid-cols-1 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Perfil de Acesso / Hierarquia</label>
-                  <select
+                  <CustomSelect
                     value={selectedProfileId}
-                    onChange={e => setSelectedProfileId(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  >
-                    {profiles.map(p => (
-                      <option key={p.id} value={p.id}>
-                        {p.name} ({p.type})
-                      </option>
-                    ))}
-                  </select>
+                    onChange={setSelectedProfileId}
+                    options={profiles.map(p => ({ value: p.id, label: p.name, desc: p.type }))}
+                    placeholder="Selecione um perfil..."
+                  />
                 </div>
               </div>
 
@@ -403,18 +446,13 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, onAddAccessLog }) 
                 <div className="bg-purple-50/50 p-4 border border-purple-100 rounded-lg space-y-2">
                   <label className="block text-sm font-medium text-purple-900">Vincular a Residente</label>
                   <p className="text-xs text-purple-700">Este usuário terá acesso restrito às informações apenas do residente selecionado.</p>
-                  <select
+                  <CustomSelect
                     required
                     value={selectedResidentId}
-                    onChange={e => setSelectedResidentId(e.target.value)}
-                    className="w-full px-3 py-2 border border-purple-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-400"
-                  >
-                    {residents.map(r => (
-                      <option key={r.id} value={r.id}>
-                        {r.name} (Quarto: {r.room})
-                      </option>
-                    ))}
-                  </select>
+                    onChange={setSelectedResidentId}
+                    options={residents.map(r => ({ value: r.id, label: r.name, desc: `Quarto: ${r.room}` }))}
+                    placeholder="Selecione o residente..."
+                  />
                 </div>
               )}
 
@@ -438,10 +476,13 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, onAddAccessLog }) 
         </div>
       )}
 
-      {/* Deletion Confirmation Modal */}
+      {/* Deletion Confirmation Modal - Sempre ativo (não fecha ao clicar no fundo/backdrop) */}
       {userToDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-60 backdrop-blur-sm">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 space-y-4">
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 space-y-4"
+          >
             <div className="flex items-center gap-3 text-rose-600">
               <div className="p-2 bg-rose-100 rounded-full shrink-0">
                 <ShieldAlert className="h-6 w-6" />

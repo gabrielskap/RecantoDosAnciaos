@@ -252,6 +252,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const hasPermission = (module: ViewState, action: PermissionAction): boolean => {
     if (!currentUser) return false;
+    
+    // Super Administrador tem acesso total a tudo por padrão
+    if (currentUser.profile.type === 'Administrador') return true;
+    
+    // Fallback de permissão para novos módulos (ROOMS) caso não estejam persistidos no banco
+    if (module === ViewState.ROOMS) {
+      if (currentUser.profile.type === 'Médico' || currentUser.profile.type === 'Cuidador') {
+        return action === 'view';
+      }
+    }
+    
     const perm = currentUser.profile.permissions.find(p => p.module === module);
     return perm ? perm.actions.includes(action) : false;
   };

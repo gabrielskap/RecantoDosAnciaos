@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { AlertTriangle, CheckCircle2, Package, Plus, Minus, X, History, ArrowDownCircle, ArrowUpCircle, PackageSearch } from 'lucide-react';
 import { StockItem } from '../types';
+import CustomSelect from './CustomSelect';
 
 interface StockModuleProps {
   items: StockItem[];
@@ -15,9 +16,35 @@ const categoryConfig: Record<string, { bg: string; text: string; label: string }
 };
 
 const StockModule: React.FC<StockModuleProps> = ({ items, onUpdateStock, onAddItem }) => {
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [selectedHistoryItem, setSelectedHistoryItem] = useState<StockItem | null>(null);
-  const [newItem, setNewItem] = useState({ name: '', category: 'medicamento', quantity: '', unit: '', minThreshold: '' });
+  const [isModalOpen, setIsModalOpen] = useState(() => {
+    return sessionStorage.getItem('modal_stock_item_open') === 'true';
+  });
+  const [selectedHistoryItem, setSelectedHistoryItem] = useState<StockItem | null>(() => {
+    const saved = sessionStorage.getItem('modal_stock_history_item');
+    return saved ? JSON.parse(saved) : null;
+  });
+  const [newItem, setNewItem] = useState(() => {
+    const saved = sessionStorage.getItem('modal_stock_new_item');
+    return saved ? JSON.parse(saved) : { name: '', category: 'medicamento', quantity: '', unit: '', minThreshold: '' };
+  });
+
+  React.useEffect(() => {
+    if (isModalOpen) {
+      sessionStorage.setItem('modal_stock_item_open', 'true');
+      sessionStorage.setItem('modal_stock_new_item', JSON.stringify(newItem));
+    } else {
+      sessionStorage.removeItem('modal_stock_item_open');
+      sessionStorage.removeItem('modal_stock_new_item');
+    }
+  }, [isModalOpen, newItem]);
+
+  React.useEffect(() => {
+    if (selectedHistoryItem) {
+      sessionStorage.setItem('modal_stock_history_item', JSON.stringify(selectedHistoryItem));
+    } else {
+      sessionStorage.removeItem('modal_stock_history_item');
+    }
+  }, [selectedHistoryItem]);
 
   const lowCount = items.filter(i => i.quantity < i.minThreshold).length;
   const inputClass = 'w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500';
@@ -180,10 +207,13 @@ const StockModule: React.FC<StockModuleProps> = ({ items, onUpdateStock, onAddIt
         )}
       </div>
 
-      {/* Add Item Modal */}
+      {/* Add Item Modal - Sempre ativo (não fecha ao clicar no fundo/backdrop) */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden">
+          <div 
+            onClick={(e) => e.stopPropagation()} 
+            className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden"
+          >
             <div className="px-6 py-4 border-b border-slate-100 bg-[#F8F7FF] flex justify-between items-center">
               <div>
                 <h3 className="font-bold text-slate-800">Novo Item de Estoque</h3>
@@ -200,11 +230,15 @@ const StockModule: React.FC<StockModuleProps> = ({ items, onUpdateStock, onAddIt
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1.5">Categoria</label>
-                <select value={newItem.category} onChange={e => setNewItem({ ...newItem, category: e.target.value })} className={inputClass}>
-                  <option value="medicamento">Medicamento</option>
-                  <option value="insumo">Insumo</option>
-                  <option value="alimento">Alimento</option>
-                </select>
+                <CustomSelect
+                  value={newItem.category}
+                  onChange={v => setNewItem({ ...newItem, category: v })}
+                  options={[
+                    { value: 'medicamento', label: 'Medicamento', badge: { label: 'Medicamento', bg: 'bg-blue-50', text: 'text-blue-700' } },
+                    { value: 'insumo', label: 'Insumo', badge: { label: 'Insumo', bg: 'bg-violet-50', text: 'text-violet-700' } },
+                    { value: 'alimento', label: 'Alimento', badge: { label: 'Alimento', bg: 'bg-amber-50', text: 'text-amber-700' } },
+                  ]}
+                />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -229,10 +263,13 @@ const StockModule: React.FC<StockModuleProps> = ({ items, onUpdateStock, onAddIt
         </div>
       )}
 
-      {/* History Modal */}
+      {/* History Modal - Sempre ativo (não fecha ao clicar no fundo/backdrop) */}
       {selectedHistoryItem && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[80vh] flex flex-col overflow-hidden">
+          <div 
+            onClick={(e) => e.stopPropagation()} 
+            className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[80vh] flex flex-col overflow-hidden"
+          >
             <div className="px-6 py-4 border-b border-slate-100 bg-[#F8F7FF] flex justify-between items-center shrink-0">
               <div>
                 <h3 className="font-bold text-slate-800">Histórico de Movimentações</h3>

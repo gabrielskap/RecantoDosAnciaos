@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { CalendarDays, Clock, MapPin, User, Plus, X, ChevronLeft, ChevronRight, Stethoscope, Users, Music, Activity } from 'lucide-react';
 import { CalendarEvent, EventType, Resident } from '../types';
+import CustomSelect from './CustomSelect';
 
 interface AgendaModuleProps {
   events: CalendarEvent[];
@@ -23,12 +24,27 @@ const weekDays  = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
 const AgendaModule: React.FC<AgendaModuleProps> = ({ events, residents, onAddEvent }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(() => {
+    return sessionStorage.getItem('modal_agenda_open') === 'true';
+  });
   const [filterType, setFilterType] = useState<EventType | 'all'>('all');
 
-  const [newEvent, setNewEvent] = useState<Partial<CalendarEvent>>({
-    title: '', type: 'atividade', start: '', end: '', residentId: '', location: '', description: '',
+  const [newEvent, setNewEvent] = useState<Partial<CalendarEvent>>(() => {
+    const saved = sessionStorage.getItem('modal_agenda_new_event');
+    return saved ? JSON.parse(saved) : {
+      title: '', type: 'atividade', start: '', end: '', residentId: '', location: '', description: '',
+    };
   });
+
+  React.useEffect(() => {
+    if (isModalOpen) {
+      sessionStorage.setItem('modal_agenda_open', 'true');
+      sessionStorage.setItem('modal_agenda_new_event', JSON.stringify(newEvent));
+    } else {
+      sessionStorage.removeItem('modal_agenda_open');
+      sessionStorage.removeItem('modal_agenda_new_event');
+    }
+  }, [isModalOpen, newEvent]);
 
   const daysInMonth  = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate();
   const firstDayOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1).getDay();
@@ -143,18 +159,18 @@ const AgendaModule: React.FC<AgendaModuleProps> = ({ events, residents, onAddEve
               {selectedDate.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}
             </p>
             <div className="mt-2">
-              <select
+              <CustomSelect
                 value={filterType}
-                onChange={e => setFilterType(e.target.value as any)}
-                className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-slate-600 focus:outline-none focus:ring-2 focus:ring-violet-400"
-              >
-                <option value="all">Todos os tipos</option>
-                <option value="medico">Médico</option>
-                <option value="visita">Visita</option>
-                <option value="terapia">Terapia</option>
-                <option value="atividade">Atividade</option>
-                <option value="reuniao">Reunião</option>
-              </select>
+                onChange={v => setFilterType(v as any)}
+                options={[
+                  { value: 'all', label: 'Todos os tipos' },
+                  { value: 'medico', label: 'Médico', badge: { label: 'Médico', bg: 'bg-rose-50', text: 'text-rose-700', dot: 'bg-rose-400' } },
+                  { value: 'visita', label: 'Visita', badge: { label: 'Visita', bg: 'bg-blue-50', text: 'text-blue-700', dot: 'bg-blue-400' } },
+                  { value: 'terapia', label: 'Terapia', badge: { label: 'Terapia', bg: 'bg-violet-50', text: 'text-violet-700', dot: 'bg-violet-400' } },
+                  { value: 'atividade', label: 'Atividade', badge: { label: 'Atividade', bg: 'bg-emerald-50', text: 'text-emerald-700', dot: 'bg-emerald-400' } },
+                  { value: 'reuniao', label: 'Reunião', badge: { label: 'Reunião', bg: 'bg-amber-50', text: 'text-amber-700', dot: 'bg-amber-400' } },
+                ]}
+              />
             </div>
           </div>
 
@@ -199,10 +215,13 @@ const AgendaModule: React.FC<AgendaModuleProps> = ({ events, residents, onAddEve
         </div>
       </div>
 
-      {/* Modal */}
+      {/* Modal - Sempre ativo (não fecha ao clicar no fundo/backdrop) */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden">
+          <div 
+            onClick={(e) => e.stopPropagation()} 
+            className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden"
+          >
             <div className="px-6 py-4 border-b border-slate-100 bg-[#F8F7FF] flex justify-between items-center">
               <div>
                 <h3 className="font-bold text-slate-800">Novo Agendamento</h3>
@@ -220,13 +239,17 @@ const AgendaModule: React.FC<AgendaModuleProps> = ({ events, residents, onAddEve
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1.5">Tipo</label>
-                  <select value={newEvent.type} onChange={e => setNewEvent({ ...newEvent, type: e.target.value as any })} className={inputClass}>
-                    <option value="medico">Médico</option>
-                    <option value="visita">Visita Familiar</option>
-                    <option value="terapia">Terapia</option>
-                    <option value="atividade">Atividade Social</option>
-                    <option value="reuniao">Reunião</option>
-                  </select>
+                  <CustomSelect
+                    value={newEvent.type || 'atividade'}
+                    onChange={v => setNewEvent({ ...newEvent, type: v as any })}
+                    options={[
+                      { value: 'medico', label: 'Médico', badge: { label: 'Médico', bg: 'bg-rose-50', text: 'text-rose-700', dot: 'bg-rose-400' } },
+                      { value: 'visita', label: 'Visita Familiar', badge: { label: 'Visita', bg: 'bg-blue-50', text: 'text-blue-700', dot: 'bg-blue-400' } },
+                      { value: 'terapia', label: 'Terapia', badge: { label: 'Terapia', bg: 'bg-violet-50', text: 'text-violet-700', dot: 'bg-violet-400' } },
+                      { value: 'atividade', label: 'Atividade Social', badge: { label: 'Atividade', bg: 'bg-emerald-50', text: 'text-emerald-700', dot: 'bg-emerald-400' } },
+                      { value: 'reuniao', label: 'Reunião', badge: { label: 'Reunião', bg: 'bg-amber-50', text: 'text-amber-700', dot: 'bg-amber-400' } },
+                    ]}
+                  />
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1.5">Local</label>
@@ -239,10 +262,15 @@ const AgendaModule: React.FC<AgendaModuleProps> = ({ events, residents, onAddEve
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1.5">Residente (opcional)</label>
-                <select value={newEvent.residentId} onChange={e => setNewEvent({ ...newEvent, residentId: e.target.value })} className={inputClass}>
-                  <option value="">Selecione...</option>
-                  {residents.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-                </select>
+                <CustomSelect
+                  value={newEvent.residentId || ''}
+                  onChange={v => setNewEvent({ ...newEvent, residentId: v })}
+                  options={[
+                    { value: '', label: 'Nenhum (evento geral)' },
+                    ...residents.map(r => ({ value: r.id, label: r.name, desc: `Quarto ${r.room}` }))
+                  ]}
+                  placeholder="Selecione um residente..."
+                />
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1.5">Descrição / Observações</label>
