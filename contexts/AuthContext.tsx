@@ -14,6 +14,7 @@ const ALL_MODULES = [
   ViewState.STOCK,
   ViewState.REPORTS,
   ViewState.AI_ASSISTANT,
+  ViewState.USERS,
 ];
 
 const allActions: PermissionAction[] = ['view', 'edit', 'create', 'delete'];
@@ -101,12 +102,16 @@ export const MOCK_USERS: AuthUser[] = [
 
 interface AuthContextValue {
   currentUser: AuthUser | null;
+  users: AuthUser[];
   profiles: Profile[];
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
   hasPermission: (module: ViewState, action: PermissionAction) => boolean;
   updateProfile: (profile: Profile) => void;
   addProfile: (profile: Profile) => void;
+  addUser: (user: Omit<AuthUser, 'id'>) => void;
+  deleteUser: (id: string) => void;
+  updateUser: (user: AuthUser) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -148,8 +153,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setProfiles(prev => [...prev, profile]);
   };
 
+  const addUser = (userData: Omit<AuthUser, 'id'>) => {
+    const newUser: AuthUser = {
+      ...userData,
+      id: `user-${Date.now()}`
+    };
+    setUsers(prev => [...prev, newUser]);
+  };
+
+  const deleteUser = (id: string) => {
+    setUsers(prev => prev.filter(u => u.id !== id));
+    if (currentUser?.id === id) {
+      setCurrentUser(null);
+    }
+  };
+
+  const updateUser = (updatedUser: AuthUser) => {
+    setUsers(prev => prev.map(u => u.id === updatedUser.id ? updatedUser : u));
+    if (currentUser?.id === updatedUser.id) {
+      setCurrentUser(updatedUser);
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ currentUser, profiles, login, logout, hasPermission, updateProfile, addProfile }}>
+    <AuthContext.Provider value={{ currentUser, users, profiles, login, logout, hasPermission, updateProfile, addProfile, addUser, deleteUser, updateUser }}>
       {children}
     </AuthContext.Provider>
   );

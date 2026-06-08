@@ -85,27 +85,6 @@ const LoginScreen: React.FC = () => {
             </button>
           </form>
 
-          {/* Demo hints */}
-          <div className="mt-6 border-t border-slate-100 pt-4">
-            <p className="text-xs text-slate-500 font-medium mb-2">Usuários de demonstração (senha: 1234)</p>
-            <div className="space-y-1">
-              {[
-                { email: 'admin@recanto.com', label: 'Administrador' },
-                { email: 'ana@recanto.com', label: 'Médico' },
-                { email: 'carlos@recanto.com', label: 'Cuidador' },
-                { email: 'joao@familia.com', label: 'Responsável' },
-              ].map(u => (
-                <button
-                  key={u.email}
-                  type="button"
-                  onClick={() => { setEmail(u.email); setPassword('1234'); }}
-                  className="w-full text-left text-xs text-slate-500 hover:text-primary-600 hover:bg-slate-50 px-2 py-1 rounded transition-colors"
-                >
-                  <span className="font-medium">{u.label}</span> — {u.email}
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
       </div>
     </div>

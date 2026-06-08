@@ -256,7 +256,7 @@ export interface SystemAccessLog {
   userId: string;
   userName: string;
   role: UserRole;
-  action: 'Login' | 'Logout' | 'Visualização Prontuário' | 'Edição Financeira' | 'Exportação Dados';
+  action: 'Login' | 'Logout' | 'Visualização Prontuário' | 'Edição Financeira' | 'Exportação Dados' | 'Cadastro de Usuário' | 'Exclusão de Usuário';
   resource?: string;
   ipAddress: string;
 }
@@ -287,7 +287,8 @@ export enum ViewState {
   TEAM = 'TEAM',
   NUTRITION = 'NUTRITION',
   REPORTS = 'REPORTS',
-  AGENDA = 'AGENDA'
+  AGENDA = 'AGENDA',
+  USERS = 'USERS'
 }
 
 // --- AUTH & RBAC TYPES ---

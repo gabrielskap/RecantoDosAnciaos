@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
 import ResidentsList from './components/ResidentsList';
@@ -7,6 +7,7 @@ import FinanceModule from './components/FinanceModule';
 import StockModule from './components/StockModule';
 import AIAssistant from './components/AIAssistant';
 import TeamModule from './components/TeamModule';
+import UsersModule from './components/UsersModule';
 import NutritionModule from './components/NutritionModule';
 import ReportsModule from './components/ReportsModule';
 import AgendaModule from './components/AgendaModule';
@@ -257,6 +258,72 @@ const INITIAL_EVENTS: CalendarEvent[] = [
   { id: 'ev4', title: 'Reunião de Equipe', start: new Date(new Date().setDate(new Date().getDate() + 1)).toISOString(), type: 'reuniao', createdBy: 'Admin', location: 'Sala de Reuniões' },
 ];
 
+// Path name to ViewState conversion
+const pathToView = (path: string): { view: ViewState; residentId?: string } => {
+  const parts = path.split('/').filter(Boolean);
+  if (parts.length === 0) {
+    return { view: ViewState.DASHBOARD };
+  }
+  
+  const primary = parts[0];
+  switch (primary) {
+    case 'dashboard':
+      return { view: ViewState.DASHBOARD };
+    case 'residents':
+      if (parts[1]) {
+        return { view: ViewState.RESIDENT_DETAIL, residentId: parts[1] };
+      }
+      return { view: ViewState.RESIDENTS };
+    case 'agenda':
+      return { view: ViewState.AGENDA };
+    case 'nutrition':
+      return { view: ViewState.NUTRITION };
+    case 'team':
+      return { view: ViewState.TEAM };
+    case 'finance':
+      return { view: ViewState.FINANCE };
+    case 'stock':
+      return { view: ViewState.STOCK };
+    case 'reports':
+      return { view: ViewState.REPORTS };
+    case 'assistant':
+      return { view: ViewState.AI_ASSISTANT };
+    case 'users':
+      return { view: ViewState.USERS };
+    default:
+      return { view: ViewState.DASHBOARD };
+  }
+};
+
+const viewToPath = (view: ViewState, residentId?: string): string => {
+  switch (view) {
+    case ViewState.DASHBOARD:
+      return '/';
+    case ViewState.RESIDENTS:
+      return '/residents';
+    case ViewState.RESIDENT_DETAIL:
+      return residentId ? `/residents/${residentId}` : '/residents';
+    case ViewState.AGENDA:
+      return '/agenda';
+    case ViewState.NUTRITION:
+      return '/nutrition';
+    case ViewState.TEAM:
+      return '/team';
+    case ViewState.FINANCE:
+      return '/finance';
+    case ViewState.STOCK:
+      return '/stock';
+    case ViewState.REPORTS:
+      return '/reports';
+    case ViewState.AI_ASSISTANT:
+      return '/assistant';
+    case ViewState.USERS:
+      return '/users';
+    default:
+      return '/';
+  }
+};
+
 function AppInner() {
   const { currentUser } = useAuth();
   const [currentView, setCurrentView] = useState<ViewState>(ViewState.DASHBOARD);
@@ -274,12 +341,93 @@ function AppInner() {
   const [accessLogs, setAccessLogs] = useState<SystemAccessLog[]>(INITIAL_ACCESS_LOGS);
   const [events, setEvents] = useState<CalendarEvent[]>(INITIAL_EVENTS);
 
+  // Navigate function that pushes state
+  const navigateTo = (view: ViewState, residentId?: string) => {
+    const path = viewToPath(view, residentId);
+    if (window.location.pathname !== path) {
+      window.history.pushState(null, '', path);
+    }
+    setCurrentView(view);
+    if (view === ViewState.RESIDENT_DETAIL && residentId) {
+      const found = residents.find(r => r.id === residentId) || null;
+      setSelectedResident(found);
+    } else {
+      setSelectedResident(null);
+    }
+  };
+
+  // Sync state with URL path on mount and popstate
+  useEffect(() => {
+    const handleLocationChange = () => {
+      // Don't route if not logged in
+      if (!currentUser) return;
+
+      const path = window.location.pathname;
+      
+      // Portal handles its own view internally or we use /portal
+      if (currentUser.profile.type === 'Responsável') {
+        if (path !== '/portal') {
+          window.history.replaceState(null, '', '/portal');
+        }
+        return;
+      }
+
+      // If we are at /portal but we are not a Responsável, redirect to /
+      if (path === '/portal') {
+        window.history.replaceState(null, '', '/');
+        setCurrentView(ViewState.DASHBOARD);
+        setSelectedResident(null);
+        return;
+      }
+
+      const { view, residentId } = pathToView(path);
+      setCurrentView(view);
+      if (view === ViewState.RESIDENT_DETAIL && residentId) {
+        const found = residents.find(r => r.id === residentId);
+        if (found) {
+          setSelectedResident(found);
+        } else {
+          // Fallback if resident ID not found
+          window.history.replaceState(null, '', '/residents');
+          setCurrentView(ViewState.RESIDENTS);
+          setSelectedResident(null);
+        }
+      } else {
+        setSelectedResident(null);
+      }
+    };
+
+    handleLocationChange();
+
+    window.addEventListener('popstate', handleLocationChange);
+    return () => window.removeEventListener('popstate', handleLocationChange);
+  }, [currentUser, residents]);
+
+  // Sync login/logout path changes
+  useEffect(() => {
+    if (currentUser) {
+      if (currentUser.profile.type === 'Responsável') {
+        if (window.location.pathname !== '/portal') {
+          window.history.replaceState(null, '', '/portal');
+        }
+      } else {
+        // Just sync view state to URL once logged in
+        const path = viewToPath(currentView, selectedResident?.id);
+        if (window.location.pathname !== path && window.location.pathname === '/') {
+          window.history.replaceState(null, '', path);
+        }
+      }
+    } else {
+      // Clear path when logged out
+      if (window.location.pathname !== '/' && window.location.pathname !== '/login') {
+        window.history.replaceState(null, '', '/');
+      }
+    }
+  }, [currentUser]);
+
   // Logic Handlers
   const handleSelectResident = (resident: Resident) => {
-    // We need to ensure we select the resident from the state to get updates
-    const currentResident = residents.find(r => r.id === resident.id) || resident;
-    setSelectedResident(currentResident);
-    setCurrentView(ViewState.RESIDENT_DETAIL);
+    navigateTo(ViewState.RESIDENT_DETAIL, resident.id);
   };
 
   const handleAddResident = (newResident: Resident) => {
@@ -369,6 +517,10 @@ function AppInner() {
     setTrainingRecords([newTraining, ...trainingRecords]);
   };
 
+  const handleAddAccessLog = (newLog: SystemAccessLog) => {
+    setAccessLogs(prev => [newLog, ...prev]);
+  };
+
   const handleAddEvent = (newEvent: CalendarEvent) => {
     setEvents([...events, newEvent]);
   };
@@ -399,7 +551,7 @@ function AppInner() {
         return (
           <ResidentProfile 
             resident={selectedResident} 
-            onBack={() => setCurrentView(ViewState.RESIDENTS)} 
+            onBack={() => navigateTo(ViewState.RESIDENTS)} 
             onUpdateResident={handleUpdateResident}
           />
         );
@@ -450,6 +602,13 @@ function AppInner() {
         );
       case ViewState.AI_ASSISTANT:
         return <AIAssistant />;
+      case ViewState.USERS:
+        return (
+          <UsersModule
+            residents={residents}
+            onAddAccessLog={handleAddAccessLog}
+          />
+        );
       case ViewState.STOCK:
         return (
           <StockModule 
@@ -476,7 +635,7 @@ function AppInner() {
     <div className="flex min-h-screen bg-[#F8F7FF] text-slate-900">
       <Sidebar
         currentView={currentView}
-        onChangeView={setCurrentView}
+        onChangeView={navigateTo}
         isOpen={sidebarOpen}
         setIsOpen={setSidebarOpen}
         stockAlertCount={lowStockItems.length}
