@@ -343,13 +343,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const addUser = async (userData: Omit<AuthUser, 'id'>) => {
     try {
-      // 1. Criar o usuário no Supabase Auth
+      // 1. Criar o usuário no Supabase Auth com metadados para que a trigger possa ler
       const { data, error } = await supabase.auth.signUp({
         email: userData.email,
         password: userData.password || '123456', // Senha padrão se vazia
         options: {
           data: {
-            name: userData.name
+            name: userData.name,
+            profile_id: userData.profile.id,
+            resident_id: userData.residentId || null
           }
         }
       });
@@ -357,16 +359,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (error) throw error;
       if (!data.user) throw new Error('Não foi possível registrar o usuário no sistema.');
 
-      // 2. Salvar na tabela de negócio Recanto_Usuarios
+      // 2. Salvar na tabela de negócio Recanto_Usuarios (usando upsert caso a trigger já tenha inserido)
       const { error: dbError } = await supabase
         .from('Recanto_Usuarios')
-        .insert({
+        .upsert({
           auth_user_id: data.user.id,
           name: userData.name,
           email: userData.email,
           profile_id: userData.profile.id,
           resident_id: userData.residentId || null
-        });
+        }, { onConflict: 'auth_user_id' });
 
       if (dbError) throw dbError;
 

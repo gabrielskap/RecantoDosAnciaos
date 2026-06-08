@@ -15,247 +15,7 @@ import ResidentPortal from './components/ResidentPortal';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { Menu, HeartPulse } from 'lucide-react';
 import { ViewState, Resident, FinancialRecord, StockItem, Employee, TrainingRecord, SystemAccessLog, Contract, Invoice, CalendarEvent, StockTransaction } from './types';
-
-// Initial Mock Data moved inside component or outside as initial state
-const INITIAL_RESIDENTS: Resident[] = [
-  {
-    id: '1',
-    name: 'Maria da Silva',
-    age: 82,
-    room: '101-A',
-    roomStatus: 'Ocupado',
-    careLevel: 'III',
-    photoUrl: 'https://picsum.photos/200/200?random=1',
-    admissionDate: '2023-05-12',
-    birthDate: '1942-03-15',
-    cpf: '123.456.789-00',
-    rg: '12.345.678-9',
-    emergencyContacts: [
-      { name: 'Carlos Silva', relation: 'Filho', phone: '(11) 99999-8888' }
-    ],
-    legalGuardian: {
-      name: 'Carlos Silva',
-      cpf: '987.654.321-00',
-      phone: '(11) 99999-8888',
-      address: 'Rua das Flores, 123, São Paulo - SP'
-    },
-    clinicalCondition: 'Hipertensa, diabética tipo 2. Histórico de AVC em 2020 com hemiparesia à direita.',
-    functionalCondition: 'Dependente para AVDs (Banho, vestimenta). Cadeirante.',
-    socialHistory: 'Viúva, possui 3 filhos. Recebe visitas semanais.',
-    allergies: ['Dipirona', 'Sulfa'],
-    medications: [
-      { id: 'm1', name: 'Losartana', dosage: '50mg', route: 'Oral', frequency: '12/12h', nextDose: '20:00', logs: [] },
-      { id: 'm2', name: 'AAS', dosage: '100mg', route: 'Oral', frequency: '1x dia', nextDose: '08:00', logs: [] }
-    ],
-    vitals: [
-      { timestamp: '2024-05-20T08:00:00', bp: '130/85', hr: 78, temp: 36.5, spo2: 96 },
-      { timestamp: '2024-05-21T08:00:00', bp: '128/82', hr: 75, temp: 36.6, spo2: 97 },
-      { timestamp: '2024-05-22T08:00:00', bp: '135/90', hr: 80, temp: 36.8, spo2: 95 },
-      { timestamp: '2024-05-23T08:00:00', bp: '125/80', hr: 72, temp: 36.4, spo2: 98 },
-      { timestamp: '2024-05-24T08:00:00', bp: '122/78', hr: 74, temp: 36.5, spo2: 98 },
-    ],
-    carePlan: [
-      { id: 'cp1', title: 'Prevenção de Lesão por Pressão', description: 'Mudança de decúbito a cada 2h e hidratação da pele.', frequency: '2 em 2 horas', assignedTo: 'Cuidadores', status: 'ativo', createdAt: '2023-05-12' },
-      { id: 'cp2', title: 'Controle Glicêmico', description: 'HGT em jejum e antes do jantar.', frequency: '2x ao dia', assignedTo: 'Enfermagem', status: 'ativo', createdAt: '2023-05-13' }
-    ],
-    dailyChecklists: [
-      { date: '2024-05-25', hygiene: true, oralCare: true, feeding: true, hydration: true, mobility: true, dressings: false, leisure: true }
-    ],
-    documents: [
-      { id: 'd1', name: 'Exame de Sangue - Maio/24', type: 'exame', url: '#', uploadDate: '2024-05-10' },
-      { id: 'd2', name: 'RG Digitalizado', type: 'documento_pessoal', url: '#', uploadDate: '2023-05-12' }
-    ],
-    auditLogs: [
-      { id: 'log1', timestamp: '2024-05-24T10:30:00', userId: 'u1', userName: 'Enf. Ana', action: 'Atualização de Prescrição', details: 'Adicionado AAS 100mg' },
-      { id: 'log2', timestamp: '2024-05-23T14:15:00', userId: 'u2', userName: 'Dr. Pedro', action: 'Evolução Médica', details: 'Paciente estável, mantido conduta.' },
-      { id: 'log3', timestamp: '2023-05-12T09:00:00', userId: 'u1', userName: 'Enf. Ana', action: 'Admissão', details: 'Registro inicial no sistema.' }
-    ],
-    dietPlan: {
-      consistency: 'Pastosa',
-      type: 'Diabética',
-      restrictions: ['Açúcar', 'Alimentos muito fibrosos'],
-      fluidRestriction: '2000ml/dia',
-      updatedAt: '2024-05-01'
-    },
-    nutritionalLogs: [
-      { id: 'n1', date: '2024-05-25', meal: 'Café da Manhã', acceptance: 80, fluidIntake: 200 },
-      { id: 'n2', date: '2024-05-25', meal: 'Almoço', acceptance: 50, fluidIntake: 150, notes: 'Recusou carne' },
-      { id: 'n3', date: '2024-05-25', meal: 'Lanche da Tarde', acceptance: 100, fluidIntake: 200 }
-    ]
-  },
-  {
-    id: '2',
-    name: 'João dos Santos',
-    age: 76,
-    room: '102-B',
-    roomStatus: 'Em Limpeza',
-    careLevel: 'II',
-    photoUrl: 'https://picsum.photos/200/200?random=2',
-    admissionDate: '2023-11-03',
-    clinicalCondition: 'Alzheimer fase inicial.',
-    functionalCondition: 'Deambula com dificuldade. Necessita supervisão.',
-    socialHistory: '',
-    emergencyContacts: [],
-    medications: [
-      { id: 'm3', name: 'Sinvastatina', dosage: '20mg', route: 'Oral', frequency: 'Noite', nextDose: '22:00', logs: [] }
-    ],
-    allergies: [],
-    vitals: [],
-    carePlan: [
-      { id: 'cp3', title: 'Estímulo Cognitivo', description: 'Jogos de memória e musicoterapia.', frequency: 'Diário', assignedTo: 'Terapeuta Ocupacional', status: 'ativo', createdAt: '2023-11-04' }
-    ],
-    dailyChecklists: [],
-    documents: [],
-    auditLogs: [
-       { id: 'log4', timestamp: '2023-11-03T10:00:00', userId: 'u3', userName: 'Admin', action: 'Admissão', details: 'Registro inicial.' }
-    ],
-    dietPlan: {
-      consistency: 'Geral',
-      type: 'Hipossódica',
-      restrictions: [],
-      updatedAt: '2023-11-04'
-    },
-    nutritionalLogs: [
-      { id: 'n4', date: '2024-05-25', meal: 'Almoço', acceptance: 100, fluidIntake: 300 }
-    ]
-  },
-  {
-    id: '3',
-    name: 'Ana Pereira',
-    age: 88,
-    room: '104-A',
-    roomStatus: 'Ocupado',
-    careLevel: 'I',
-    photoUrl: 'https://picsum.photos/200/200?random=3',
-    admissionDate: '2022-02-15',
-    clinicalCondition: 'Saudável para a idade.',
-    functionalCondition: 'Independente.',
-    socialHistory: 'Convívio social ativo.',
-    emergencyContacts: [],
-    medications: [],
-    allergies: ['Frutos do mar'],
-    vitals: [],
-    carePlan: [],
-    dailyChecklists: [],
-    documents: [],
-    auditLogs: [],
-    dietPlan: {
-      consistency: 'Geral',
-      type: 'Livre',
-      restrictions: ['Frutos do mar'],
-      updatedAt: '2022-02-15'
-    },
-    nutritionalLogs: []
-  },
-   {
-    id: '4',
-    name: 'Roberto Carlos',
-    age: 91,
-    room: '105-C',
-    roomStatus: 'Manutenção',
-    careLevel: 'III',
-    photoUrl: 'https://picsum.photos/200/200?random=4',
-    admissionDate: '2024-01-10',
-    clinicalCondition: 'Acamado.',
-    functionalCondition: 'Totalmente dependente.',
-    socialHistory: '',
-    emergencyContacts: [],
-    medications: [],
-    allergies: [],
-    vitals: [],
-    carePlan: [],
-    dailyChecklists: [],
-    documents: [],
-    auditLogs: [],
-    dietPlan: {
-      consistency: 'Líquida-Pastosa',
-      type: 'Hiperproteica',
-      restrictions: [],
-      updatedAt: '2024-01-11'
-    },
-    nutritionalLogs: []
-  }
-];
-
-// Contracts & Financials
-const INITIAL_CONTRACTS: Contract[] = [
-  { id: 'c1', residentId: '1', residentName: 'Maria da Silva', startDate: '2023-05-12', monthlyValue: 4500, dueDay: 5, status: 'Ativo' },
-  { id: 'c2', residentId: '2', residentName: 'João dos Santos', startDate: '2023-11-03', monthlyValue: 3800, dueDay: 5, status: 'Ativo' },
-  { id: 'c3', residentId: '3', residentName: 'Ana Pereira', startDate: '2022-02-15', monthlyValue: 3500, dueDay: 10, status: 'Ativo' },
-  { id: 'c4', residentId: '4', residentName: 'Roberto Carlos', startDate: '2024-01-10', monthlyValue: 5000, dueDay: 5, status: 'Ativo' },
-];
-
-const INITIAL_INVOICES: Invoice[] = [
-  { id: 'inv1', contractId: 'c1', residentName: 'Maria da Silva', amount: 4500, dueDate: '2024-05-05', status: 'Pago', monthYear: '05/2024', paidDate: '2024-05-05' },
-  { id: 'inv2', contractId: 'c2', residentName: 'João dos Santos', amount: 3800, dueDate: '2024-05-05', status: 'Pago', monthYear: '05/2024', paidDate: '2024-05-05' },
-  { id: 'inv3', contractId: 'c3', residentName: 'Ana Pereira', amount: 3500, dueDate: '2024-05-10', status: 'Atrasado', monthYear: '05/2024' },
-  { id: 'inv4', contractId: 'c4', residentName: 'Roberto Carlos', amount: 5000, dueDate: '2024-05-05', status: 'Pago', monthYear: '05/2024', paidDate: '2024-05-04' },
-];
-
-const INITIAL_FINANCIALS: FinancialRecord[] = [
-  { id: 'f1', type: 'receita', category: 'Mensalidade', description: 'Mensalidade - Maria Silva', amount: 4500, date: '2024-05-05', status: 'pago' },
-  { id: 'f2', type: 'receita', category: 'Mensalidade', description: 'Mensalidade - João Santos', amount: 3800, date: '2024-05-05', status: 'pago' },
-  { id: 'f3', type: 'despesa', category: 'Alimentação', description: 'Fornecedor Hortifruti', amount: 1250, date: '2024-05-10', status: 'pago' },
-  { id: 'f4', type: 'despesa', category: 'Farmácia', description: 'Medicamentos Uso Contínuo', amount: 890, date: '2024-05-12', status: 'pendente' },
-  { id: 'f5', type: 'despesa', category: 'Manutenção', description: 'Reparo Ar Condicionado', amount: 450, date: '2024-05-15', status: 'pago' },
-  { id: 'f6', type: 'receita', category: 'Doação', description: 'Doação Rotary Club', amount: 2000, date: '2024-05-18', status: 'pago' },
-];
-
-const INITIAL_STOCK: StockItem[] = [
-  { 
-    id: 's1', 
-    name: 'Dipirona 500mg', 
-    category: 'medicamento', 
-    quantity: 150, 
-    unit: 'comps', 
-    minThreshold: 50,
-    history: [
-      { id: 'h1', type: 'entrada', quantity: 200, date: '2024-05-01T10:00:00', user: 'Enf. Carlos' },
-      { id: 'h2', type: 'saida', quantity: 50, date: '2024-05-15T14:30:00', user: 'Enf. Ana', notes: 'Consumo quinzenal' }
-    ]
-  },
-  { 
-    id: 's2', 
-    name: 'Fralda Geriátrica G', 
-    category: 'insumo', 
-    quantity: 25, 
-    unit: 'unid', 
-    minThreshold: 40,
-    history: [
-      { id: 'h3', type: 'entrada', quantity: 100, date: '2024-05-01T09:00:00', user: 'Admin' },
-      { id: 'h4', type: 'saida', quantity: 75, date: '2024-05-20T18:00:00', user: 'Cuidador Pedro', notes: 'Reposição quartos' }
-    ]
-  },
-  { id: 's3', name: 'Luvas de Látex M', category: 'insumo', quantity: 80, unit: 'pares', minThreshold: 100 },
-  { id: 's4', name: 'Arroz 5kg', category: 'alimento', quantity: 10, unit: 'pct', minThreshold: 5 },
-  { id: 's5', name: 'Detergente Neutro', category: 'insumo', quantity: 12, unit: 'frascos', minThreshold: 10 },
-  { id: 's6', name: 'Losartana 50mg', category: 'medicamento', quantity: 200, unit: 'comps', minThreshold: 60 },
-];
-
-const INITIAL_EMPLOYEES: Employee[] = [
-  { id: 'e1', name: 'Dra. Ana Costa', role: 'Médico', cpf: '111.222.333-44', email: 'ana.costa@recantoanciaos.com.br', phone: '(11) 98888-7777', registrationNumber: 'CRM/SP 123456', isTechnicalLead: true, shift: 'Matutino', status: 'Ativo', admissionDate: '2022-01-10' },
-  { id: 'e2', name: 'Carlos Oliveira', role: 'Enfermeiro', cpf: '222.333.444-55', email: 'carlos.oliveira@recantoanciaos.com.br', phone: '(11) 97777-6666', registrationNumber: 'COREN/SP 654321', isTechnicalLead: true, shift: '12x36', status: 'Ativo', admissionDate: '2022-03-15' },
-  { id: 'e3', name: 'Mariana Souza', role: 'Cuidador', cpf: '333.444.555-66', email: 'mariana.souza@recantoanciaos.com.br', phone: '(11) 96666-5555', isTechnicalLead: false, shift: 'Noturno', status: 'Ativo', admissionDate: '2023-05-20' },
-  { id: 'e4', name: 'Pedro Santos', role: 'Cuidador', cpf: '444.555.666-77', email: 'pedro.santos@recantoanciaos.com.br', phone: '(11) 95555-4444', isTechnicalLead: false, shift: 'Vespertino', status: 'Férias', admissionDate: '2023-08-01' },
-];
-
-const INITIAL_ACCESS_LOGS: SystemAccessLog[] = [
-  { id: 'l1', timestamp: '2024-05-25T14:30:00', userId: 'e1', userName: 'Dra. Ana Costa', role: 'Médico', action: 'Visualização Prontuário', resource: 'Maria da Silva', ipAddress: '192.168.1.10' },
-  { id: 'l2', timestamp: '2024-05-25T13:15:00', userId: 'e2', userName: 'Carlos Oliveira', role: 'Enfermeiro', action: 'Edição Financeira', resource: 'Despesa #f4', ipAddress: '192.168.1.12' },
-  { id: 'l3', timestamp: '2024-05-25T08:00:00', userId: 'e3', userName: 'Mariana Souza', role: 'Cuidador', action: 'Login', ipAddress: '192.168.1.15' },
-];
-
-const INITIAL_TRAINING: TrainingRecord[] = [
-  { id: 't1', title: 'Primeiros Socorros e RCP', date: '2024-02-15', instructor: 'Corpo de Bombeiros', participants: ['Carlos Oliveira', 'Mariana Souza', 'Pedro Santos'], validUntil: '2025-02-15', description: 'Atualização obrigatória de suporte básico à vida.' },
-  { id: 't2', title: 'Cuidados com Lesão por Pressão', date: '2024-04-10', instructor: 'Enf. Especialista Julia', participants: ['Mariana Souza', 'Pedro Santos'], description: 'Técnicas de prevenção e curativos.' },
-];
-
-const INITIAL_EVENTS: CalendarEvent[] = [
-  { id: 'ev1', title: 'Consulta Cardiologista - Maria Silva', start: new Date(new Date().setHours(14, 0, 0, 0)).toISOString(), type: 'medico', residentId: '1', createdBy: 'Enf. Carlos', location: 'Clínica Cardios' },
-  { id: 'ev2', title: 'Visita Familiar - João Santos', start: new Date(new Date().setHours(10, 0, 0, 0)).toISOString(), type: 'visita', residentId: '2', createdBy: 'Recepção' },
-  { id: 'ev3', title: 'Musicoterapia em Grupo', start: new Date(new Date().setHours(15, 30, 0, 0)).toISOString(), type: 'atividade', createdBy: 'Terapeuta Ana', location: 'Salão Principal', description: 'Atividade recreativa para todos os residentes.' },
-  { id: 'ev4', title: 'Reunião de Equipe', start: new Date(new Date().setDate(new Date().getDate() + 1)).toISOString(), type: 'reuniao', createdBy: 'Admin', location: 'Sala de Reuniões' },
-];
+import { supabase } from './services/supabaseClient';
 
 // Path name to ViewState conversion
 const pathToView = (path: string): { view: ViewState; residentId?: string } => {
@@ -325,16 +85,421 @@ function AppInner() {
   const [selectedResident, setSelectedResident] = useState<Resident | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // Application State
-  const [residents, setResidents] = useState<Resident[]>(INITIAL_RESIDENTS);
-  const [financials, setFinancials] = useState<FinancialRecord[]>(INITIAL_FINANCIALS);
-  const [contracts, setContracts] = useState<Contract[]>(INITIAL_CONTRACTS);
-  const [invoices, setInvoices] = useState<Invoice[]>(INITIAL_INVOICES);
-  const [stockItems, setStockItems] = useState<StockItem[]>(INITIAL_STOCK);
-  const [employees, setEmployees] = useState<Employee[]>(INITIAL_EMPLOYEES);
-  const [trainingRecords, setTrainingRecords] = useState<TrainingRecord[]>(INITIAL_TRAINING);
-  const [accessLogs, setAccessLogs] = useState<SystemAccessLog[]>(INITIAL_ACCESS_LOGS);
-  const [events, setEvents] = useState<CalendarEvent[]>(INITIAL_EVENTS);
+  // Application State connected to database
+  const [residents, setResidents] = useState<Resident[]>([]);
+  const [financials, setFinancials] = useState<FinancialRecord[]>([]);
+  const [contracts, setContracts] = useState<Contract[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [stockItems, setStockItems] = useState<StockItem[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [trainingRecords, setTrainingRecords] = useState<TrainingRecord[]>([]);
+  const [accessLogs, setAccessLogs] = useState<SystemAccessLog[]>([]);
+  const [events, setEvents] = useState<CalendarEvent[]>([]);
+
+  // --- Supabase Data Fetchers ---
+
+  const fetchResidents = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('Recanto_Residentes')
+        .select(`
+          *,
+          emergencyContacts:Recanto_ContatosEmergencia(*),
+          legalGuardian:Recanto_ResponsaveisLegais(*),
+          medications:Recanto_Medicacoes(*, logs:Recanto_LogsMedicacao(*)),
+          vitals:Recanto_SinaisVitais(*),
+          carePlan:Recanto_PlanosAssistencia(*),
+          dailyChecklists:Recanto_ChecklistDiario(*),
+          documents:Recanto_Documentos(*),
+          auditLogs:Recanto_LogsAuditoria(*),
+          dietPlan:Recanto_PlanosDieta(*),
+          nutritionalLogs:Recanto_LogsNutricao(*)
+        `);
+
+      if (error) throw error;
+
+      const mapped: Resident[] = (data || []).map((r: any) => ({
+        id: r.id,
+        name: r.name,
+        cpf: r.cpf || undefined,
+        rg: r.rg || undefined,
+        birthDate: r.birth_date || undefined,
+        age: r.age,
+        room: r.room,
+        roomStatus: r.room_status,
+        careLevel: r.care_level,
+        photoUrl: r.photo_url || `https://picsum.photos/200/200?random=${r.id}`,
+        admissionDate: r.admission_date,
+        emergencyContacts: (r.emergencyContacts || []).map((c: any) => ({
+          name: c.name,
+          relation: c.relation,
+          phone: c.phone
+        })),
+        legalGuardian: r.legalGuardian && r.legalGuardian.length > 0 ? {
+          name: r.legalGuardian[0].name,
+          cpf: r.legalGuardian[0].cpf,
+          phone: r.legalGuardian[0].phone,
+          address: r.legalGuardian[0].address
+        } : undefined,
+        clinicalCondition: r.clinical_condition || '',
+        functionalCondition: r.functional_condition || '',
+        socialHistory: r.social_history || '',
+        medications: (r.medications || []).map((m: any) => ({
+          id: m.id,
+          name: m.name,
+          dosage: m.dosage,
+          route: m.route,
+          frequency: m.frequency,
+          nextDose: m.next_dose || '',
+          startDate: m.start_date || undefined,
+          endDate: m.end_date || undefined,
+          logs: (m.logs || []).map((log: any) => ({
+            id: log.id,
+            timestamp: log.timestamp,
+            administeredBy: log.administered_by,
+            status: log.status,
+            note: log.note || undefined
+          }))
+        })),
+        allergies: (r.allergies || []).map((a: any) => a.description),
+        vitals: (r.vitals || []).map((v: any) => ({
+          timestamp: v.timestamp,
+          bp: v.bp || '',
+          hr: v.hr || 0,
+          temp: v.temp ? parseFloat(v.temp) : 36.5,
+          spo2: v.spo2 || 0,
+          painLevel: v.pain_level || undefined
+        })),
+        carePlan: (r.carePlan || []).map((cp: any) => ({
+          id: cp.id,
+          title: cp.title,
+          description: cp.description || '',
+          frequency: cp.frequency || '',
+          assignedTo: cp.assigned_to || '',
+          status: cp.status,
+          createdAt: cp.created_at
+        })),
+        dailyChecklists: (r.dailyChecklists || []).map((chk: any) => ({
+          date: chk.date,
+          hygiene: chk.hygiene,
+          oralCare: chk.oral_care,
+          feeding: chk.feeding,
+          hydration: chk.hydration,
+          mobility: chk.mobility,
+          dressings: chk.dressings,
+          leisure: chk.leisure,
+          queixaDor: chk.queixa_dor || undefined,
+          queixaDorDesc: chk.queixa_dor_desc || undefined,
+          estadoNeurologico: chk.estado_neurologico || undefined,
+          arAmbiente: chk.ar_ambiente !== null ? chk.ar_ambiente : undefined,
+          alimentacao: chk.alimentacao || undefined,
+          alimentacaoDesc: chk.alimentacao_desc || undefined,
+          agitado: chk.agitado !== null ? chk.agitado : undefined,
+          prostrado: chk.prostrado !== null ? chk.prostrado : undefined,
+          sonolento: chk.sonolento !== null ? chk.sonolento : undefined,
+          eliminacaoEvacuacao: chk.eliminacao_evacuacao || undefined,
+          eliminacaoEvacuacaoDias: chk.eliminacao_evacuacao_dias || undefined,
+          aspectoEvacuacoes: chk.aspecto_evacuacoes || undefined,
+          diurese: chk.diurese || undefined,
+          diureseAspecto: chk.diurese_aspecto || undefined,
+          usoFraldas: chk.uso_fraldas || undefined,
+          mobilidadeSet: chk.mobilidade_set || undefined,
+          higieneCorporal: chk.higiene_corporal || undefined,
+          higieneOralVestir: chk.higiene_oral_vestir || undefined,
+          alteracoesPele: chk.alteracoes_pele || undefined,
+          alteracoesPeleDesc: chk.alteracoes_pele_desc || undefined,
+          sono: chk.sono || undefined,
+          sonoDesc: chk.sono_desc || undefined,
+          medicacoesAdministradas: chk.medicacoes_administradas || undefined,
+          atividadesConsulta: chk.atividades_consulta || undefined,
+          intercorrencia: chk.intercorrencia || undefined,
+          intercorrenciaDesc: chk.intercorrencia_desc || undefined
+        })),
+        documents: (r.documents || []).map((doc: any) => ({
+          id: doc.id,
+          name: doc.name,
+          type: doc.type,
+          url: doc.url,
+          uploadDate: doc.upload_date
+        })),
+        auditLogs: (r.auditLogs || []).map((al: any) => ({
+          id: al.id,
+          timestamp: al.timestamp,
+          userId: al.user_id,
+          userName: al.user_name,
+          action: al.action,
+          details: al.details || ''
+        })),
+        dietPlan: r.dietPlan && r.dietPlan.length > 0 ? {
+          consistency: r.dietPlan[0].consistency,
+          type: r.dietPlan[0].type,
+          restrictions: [],
+          fluidRestriction: r.dietPlan[0].fluid_restriction || undefined,
+          observations: r.dietPlan[0].observations || undefined,
+          updatedAt: r.dietPlan[0].updated_at
+        } : undefined,
+        nutritionalLogs: (r.nutritionalLogs || []).map((n: any) => ({
+          id: n.id,
+          date: n.date,
+          meal: n.meal,
+          acceptance: n.acceptance,
+          fluidIntake: n.fluid_intake || undefined,
+          notes: n.notes || undefined
+        }))
+      }));
+
+      setResidents(mapped);
+      
+      // Update selected resident context if it is active
+      if (selectedResident) {
+        const found = mapped.find(res => res.id === selectedResident.id);
+        if (found) setSelectedResident(found);
+      }
+    } catch (err) {
+      console.error('Erro ao buscar residentes:', err);
+    }
+  };
+
+  const fetchFinancials = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('Recanto_RegistrosFinanceiros')
+        .select('*')
+        .order('date', { ascending: false });
+
+      if (error) throw error;
+
+      const mapped: FinancialRecord[] = (data || []).map((f: any) => ({
+        id: f.id,
+        type: f.type,
+        category: f.category,
+        description: f.description,
+        amount: parseFloat(f.amount),
+        date: f.date,
+        status: f.status,
+        invoiceId: f.invoice_id || undefined
+      }));
+      setFinancials(mapped);
+    } catch (err) {
+      console.error('Erro ao buscar financeiro:', err);
+    }
+  };
+
+  const fetchContracts = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('Recanto_Contratos')
+        .select(`
+          *,
+          resident:Recanto_Residentes(name)
+        `);
+
+      if (error) throw error;
+
+      const mapped: Contract[] = (data || []).map((c: any) => ({
+        id: c.id,
+        residentId: c.resident_id,
+        residentName: c.resident?.name || 'Residente',
+        startDate: c.start_date,
+        endDate: c.end_date || undefined,
+        monthlyValue: parseFloat(c.monthly_value),
+        dueDay: c.due_day,
+        status: c.status,
+        fileUrl: c.file_url || undefined
+      }));
+      setContracts(mapped);
+    } catch (err) {
+      console.error('Erro ao buscar contratos:', err);
+    }
+  };
+
+  const fetchInvoices = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('Recanto_Mensalidades')
+        .select(`
+          *,
+          resident:Recanto_Residentes(name)
+        `);
+
+      if (error) throw error;
+
+      const mapped: Invoice[] = (data || []).map((i: any) => ({
+        id: i.id,
+        contractId: i.contract_id,
+        residentName: i.resident?.name || 'Residente',
+        amount: parseFloat(i.amount),
+        dueDate: i.due_date,
+        status: i.status,
+        monthYear: i.month_year,
+        paidDate: i.paid_date || undefined
+      }));
+      setInvoices(mapped);
+    } catch (err) {
+      console.error('Erro ao buscar mensalidades:', err);
+    }
+  };
+
+  const fetchStockItems = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('Recanto_Estoque')
+        .select(`
+          *,
+          history:Recanto_MovimentacoesEstoque(*)
+        `);
+
+      if (error) throw error;
+
+      const mapped: StockItem[] = (data || []).map((s: any) => ({
+        id: s.id,
+        name: s.name,
+        category: s.category,
+        quantity: s.quantity,
+        unit: s.unit,
+        minThreshold: s.min_threshold,
+        history: (s.history || []).map((h: any) => ({
+          id: h.id,
+          type: h.type,
+          quantity: h.quantity,
+          date: h.date,
+          user: h.user_name,
+          notes: h.notes || undefined
+        })).sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      }));
+      setStockItems(mapped);
+    } catch (err) {
+      console.error('Erro ao buscar estoque:', err);
+    }
+  };
+
+  const fetchEmployees = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('Recanto_Funcionarios')
+        .select('*');
+
+      if (error) throw error;
+
+      const mapped: Employee[] = (data || []).map((e: any) => ({
+        id: e.id,
+        name: e.name,
+        role: e.role,
+        cpf: e.cpf,
+        email: e.email,
+        phone: e.phone || '',
+        registrationNumber: e.registration_number || undefined,
+        isTechnicalLead: e.is_technical_lead,
+        shift: e.shift,
+        status: e.status,
+        admissionDate: e.admission_date
+      }));
+      setEmployees(mapped);
+    } catch (err) {
+      console.error('Erro ao buscar equipe:', err);
+    }
+  };
+
+  const fetchAccessLogs = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('Recanto_LogsAcesso')
+        .select('*')
+        .order('timestamp', { ascending: false });
+
+      if (error) throw error;
+
+      const mapped: SystemAccessLog[] = (data || []).map((l: any) => ({
+        id: l.id,
+        timestamp: l.timestamp,
+        userId: l.user_id,
+        userName: l.user_name,
+        role: l.role || 'Cuidador',
+        action: l.action,
+        resource: l.resource || undefined,
+        ipAddress: l.ip_address || ''
+      }));
+      setAccessLogs(mapped);
+    } catch (err) {
+      console.error('Erro ao buscar logs de acesso:', err);
+    }
+  };
+
+  const fetchTrainingRecords = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('Recanto_Treinamentos')
+        .select(`
+          *,
+          participants:Recanto_TreinamentosParticipantes(*)
+        `);
+
+      if (error) throw error;
+
+      const mapped: TrainingRecord[] = (data || []).map((t: any) => ({
+        id: t.id,
+        title: t.title,
+        date: t.date,
+        instructor: t.instructor,
+        participants: (t.participants || []).map((p: any) => p.employee_name),
+        validUntil: t.valid_until || undefined,
+        description: t.description || ''
+      }));
+      setTrainingRecords(mapped);
+    } catch (err) {
+      console.error('Erro ao buscar treinamentos:', err);
+    }
+  };
+
+  const fetchEvents = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('Recanto_Eventos')
+        .select('*');
+
+      if (error) throw error;
+
+      const mapped: CalendarEvent[] = (data || []).map((ev: any) => ({
+        id: ev.id,
+        title: ev.title,
+        start: ev.start_time,
+        end: ev.end_time || undefined,
+        type: ev.type,
+        residentId: ev.resident_id || undefined,
+        description: ev.description || undefined,
+        location: ev.location || undefined,
+        createdBy: ev.created_by
+      }));
+      setEvents(mapped);
+    } catch (err) {
+      console.error('Erro ao buscar eventos:', err);
+    }
+  };
+
+  // Sync state with Database on user login
+  useEffect(() => {
+    if (currentUser) {
+      fetchResidents();
+      fetchFinancials();
+      fetchContracts();
+      fetchInvoices();
+      fetchStockItems();
+      fetchEmployees();
+      fetchAccessLogs();
+      fetchTrainingRecords();
+      fetchEvents();
+    } else {
+      setResidents([]);
+      setFinancials([]);
+      setContracts([]);
+      setInvoices([]);
+      setStockItems([]);
+      setEmployees([]);
+      setTrainingRecords([]);
+      setAccessLogs([]);
+      setEvents([]);
+    }
+  }, [currentUser]);
 
   // Navigate function that pushes state
   const navigateTo = (view: ViewState, residentId?: string) => {
@@ -429,99 +594,513 @@ function AppInner() {
     navigateTo(ViewState.RESIDENT_DETAIL, resident.id);
   };
 
-  const handleAddResident = (newResident: Resident) => {
-    setResidents([...residents, newResident]);
-  };
+  const handleAddResident = async (newResident: Resident) => {
+    try {
+      const { data: resData, error: resError } = await supabase
+        .from('Recanto_Residentes')
+        .insert({
+          name: newResident.name,
+          cpf: newResident.cpf || null,
+          rg: newResident.rg || null,
+          birth_date: newResident.birthDate || null,
+          age: newResident.age,
+          room: newResident.room,
+          room_status: newResident.roomStatus || 'Ocupado',
+          care_level: newResident.careLevel,
+          photo_url: newResident.photoUrl || null,
+          admission_date: new Date().toISOString().split('T')[0],
+          clinical_condition: newResident.clinicalCondition || null,
+          functional_condition: newResident.functionalCondition || null,
+          social_history: newResident.socialHistory || null
+        })
+        .select()
+        .single();
 
-  const handleUpdateResident = (updatedResident: Resident) => {
-    setResidents(prev => prev.map(r => r.id === updatedResident.id ? updatedResident : r));
-    setSelectedResident(updatedResident);
-  };
+      if (resError || !resData) throw resError || new Error('Falha ao cadastrar residente');
 
-  const handleAddFinancialRecord = (newRecord: FinancialRecord) => {
-    setFinancials([newRecord, ...financials]);
-  };
+      if (newResident.emergencyContacts && newResident.emergencyContacts.length > 0) {
+        const { error: contactsError } = await supabase
+          .from('Recanto_ContatosEmergencia')
+          .insert(newResident.emergencyContacts.map(c => ({
+            resident_id: resData.id,
+            name: c.name,
+            relation: c.relation,
+            phone: c.phone
+          })));
+        if (contactsError) throw contactsError;
+      }
 
-  const handleAddContract = (newContract: Contract) => {
-    setContracts([...contracts, newContract]);
-  };
+      if (newResident.legalGuardian && newResident.legalGuardian.name) {
+        const { error: guardianError } = await supabase
+          .from('Recanto_ResponsaveisLegais')
+          .insert({
+            resident_id: resData.id,
+            name: newResident.legalGuardian.name,
+            cpf: newResident.legalGuardian.cpf,
+            phone: newResident.legalGuardian.phone,
+            address: newResident.legalGuardian.address
+          });
+        if (guardianError) throw guardianError;
+      }
 
-  const handleUpdateInvoice = (updatedInvoice: Invoice) => {
-    setInvoices(prev => prev.map(i => i.id === updatedInvoice.id ? updatedInvoice : i));
-    
-    // If paid, add to financial records automatically
-    if (updatedInvoice.status === 'Pago' && !financials.find(f => f.invoiceId === updatedInvoice.id)) {
-       const newRecord: FinancialRecord = {
-         id: Math.random().toString(36).substr(2, 9),
-         type: 'receita',
-         category: 'Mensalidade',
-         description: `Mensalidade ${updatedInvoice.monthYear} - ${updatedInvoice.residentName}`,
-         amount: updatedInvoice.amount,
-         date: updatedInvoice.paidDate || new Date().toISOString().split('T')[0],
-         status: 'pago',
-         invoiceId: updatedInvoice.id
-       };
-       handleAddFinancialRecord(newRecord);
+      await fetchResidents();
+    } catch (err: any) {
+      console.error('Error adding resident:', err);
+      alert(err.message || 'Erro ao cadastrar residente no servidor.');
     }
   };
 
-  const handleUpdateStock = (id: string, newQuantity: number) => {
-    setStockItems(prevItems => 
-      prevItems.map(item => {
-        if (item.id === id) {
-          // Calculate difference and create log
-          const diff = newQuantity - item.quantity;
-          if (diff === 0) return item;
+  const handleUpdateResident = async (updated: Resident) => {
+    try {
+      const { error: resError } = await supabase
+        .from('Recanto_Residentes')
+        .update({
+          name: updated.name,
+          age: updated.age,
+          room: updated.room,
+          room_status: updated.roomStatus || 'Ocupado',
+          care_level: updated.careLevel,
+          photo_url: updated.photoUrl,
+          clinical_condition: updated.clinicalCondition,
+          functional_condition: updated.functionalCondition,
+          social_history: updated.socialHistory
+        })
+        .eq('id', updated.id);
+      
+      if (resError) throw resError;
 
-          const type = diff > 0 ? 'entrada' : 'saida';
-          const newTransaction: StockTransaction = {
-             id: Math.random().toString(36).substr(2, 9),
-             type: type,
-             quantity: Math.abs(diff),
-             date: new Date().toISOString(),
-             user: 'Admin', // In real app, this would be current user
-             notes: 'Ajuste manual de estoque'
-          };
+      // 1. Alergias
+      await supabase.from('Recanto_Alergias').delete().eq('resident_id', updated.id);
+      if (updated.allergies && updated.allergies.length > 0) {
+        await supabase.from('Recanto_Alergias').insert(
+          updated.allergies.map(a => ({ resident_id: updated.id, description: a }))
+        );
+      }
+
+      // 2. Contatos de emergência
+      await supabase.from('Recanto_ContatosEmergencia').delete().eq('resident_id', updated.id);
+      if (updated.emergencyContacts && updated.emergencyContacts.length > 0) {
+        await supabase.from('Recanto_ContatosEmergencia').insert(
+          updated.emergencyContacts.map(c => ({
+            resident_id: updated.id,
+            name: c.name,
+            relation: c.relation,
+            phone: c.phone
+          }))
+        );
+      }
+
+      // 3. Responsável Legal
+      if (updated.legalGuardian && updated.legalGuardian.name) {
+        await supabase.from('Recanto_ResponsaveisLegais').upsert({
+          resident_id: updated.id,
+          name: updated.legalGuardian.name,
+          cpf: updated.legalGuardian.cpf,
+          phone: updated.legalGuardian.phone,
+          address: updated.legalGuardian.address
+        }, { onConflict: 'resident_id' });
+      }
+
+      // 4. Medicações
+      if (updated.medications) {
+        for (const med of updated.medications) {
+          const isMockId = med.id.length < 15;
+          const { data: medData, error: medErr } = await supabase
+            .from('Recanto_Medicacoes')
+            .upsert({
+              id: isMockId ? undefined : med.id,
+              resident_id: updated.id,
+              name: med.name,
+              dosage: med.dosage,
+              route: med.route,
+              frequency: med.frequency,
+              next_dose: med.nextDose,
+              start_date: med.startDate || null,
+              end_date: med.endDate || null
+            })
+            .select()
+            .single();
           
-          return { 
-            ...item, 
-            quantity: Math.max(0, newQuantity),
-            history: [newTransaction, ...(item.history || [])]
-          };
+          if (!medErr && medData && med.logs && med.logs.length > 0) {
+            for (const log of med.logs) {
+              const isLogMock = log.id.length < 15;
+              await supabase
+                .from('Recanto_LogsMedicacao')
+                .upsert({
+                  id: isLogMock ? undefined : log.id,
+                  medication_id: medData.id,
+                  timestamp: log.timestamp,
+                  administered_by: log.administeredBy,
+                  status: log.status,
+                  note: log.note || null
+                });
+            }
+          }
         }
-        return item;
-      })
-    );
+      }
+
+      // 5. Sinais Vitais
+      if (updated.vitals && updated.vitals.length > 0) {
+        for (const vit of updated.vitals) {
+          await supabase
+            .from('Recanto_SinaisVitais')
+            .upsert({
+              resident_id: updated.id,
+              timestamp: vit.timestamp,
+              bp: vit.bp,
+              hr: vit.hr,
+              temp: vit.temp,
+              spo2: vit.spo2,
+              pain_level: vit.painLevel || null
+            }, { onConflict: 'resident_id,timestamp' });
+        }
+      }
+
+      // 6. Planos de Assistência
+      if (updated.carePlan) {
+        for (const cp of updated.carePlan) {
+          const isCpMock = cp.id.length < 15;
+          await supabase
+            .from('Recanto_PlanosAssistencia')
+            .upsert({
+              id: isCpMock ? undefined : cp.id,
+              resident_id: updated.id,
+              title: cp.title,
+              description: cp.description,
+              frequency: cp.frequency,
+              assigned_to: cp.assignedTo,
+              status: cp.status
+            });
+        }
+      }
+
+      // 7. Checklist Diário
+      if (updated.dailyChecklists) {
+        for (const chk of updated.dailyChecklists) {
+          await supabase
+            .from('Recanto_ChecklistDiario')
+            .upsert({
+              resident_id: updated.id,
+              date: chk.date,
+              hygiene: chk.hygiene,
+              oral_care: chk.oralCare,
+              feeding: chk.feeding,
+              hydration: chk.hydration,
+              mobility: chk.mobility,
+              dressings: chk.dressings,
+              leisure: chk.leisure,
+              queixa_dor: chk.queixaDor || null,
+              queixa_dor_desc: chk.queixaDorDesc || null,
+              estado_neurologico: chk.estadoNeurologico || null,
+              ar_ambiente: chk.arAmbiente !== undefined ? chk.arAmbiente : null,
+              alimentacao: chk.alimentacao || null,
+              alimentacao_desc: chk.alimentacaoDesc || null,
+              agitado: chk.agitado !== undefined ? chk.agitado : null,
+              prostrado: chk.prostrado !== undefined ? chk.prostrado : null,
+              sonolento: chk.sonolento !== undefined ? chk.sonolento : null,
+              eliminacao_evacuacao: chk.eliminacaoEvacuacao || null,
+              eliminacao_evacuacao_dias: chk.eliminacaoEvacuacaoDias || null,
+              aspecto_evacuacoes: chk.aspectoEvacuacoes || null,
+              diurese: chk.diurese || null,
+              diurese_aspecto: chk.diureseAspecto || null,
+              uso_fraldas: chk.usoFraldas || null,
+              mobilidade_set: chk.mobilidadeSet || null,
+              higiene_corporal: chk.higieneCorporal || null,
+              higiene_oral_vestir: chk.higieneOralVestir || null,
+              alteracoes_pele: chk.alteracoesPele || null,
+              alteracoes_pele_desc: chk.alteracoesPeleDesc || null,
+              sono: chk.sono || null,
+              sono_desc: chk.sonoDesc || null,
+              medicacoes_administradas: chk.medicacoesAdministradas || null,
+              atividades_consulta: chk.atividadesConsulta || null,
+              intercorrencia: chk.intercorrencia || null,
+              intercorrencia_desc: chk.intercorrenciaDesc || null
+            }, { onConflict: 'resident_id,date' });
+        }
+      }
+
+      // 8. Documentos
+      if (updated.documents) {
+        for (const doc of updated.documents) {
+          const isDocMock = doc.id.length < 15;
+          await supabase
+            .from('Recanto_Documentos')
+            .upsert({
+              id: isDocMock ? undefined : doc.id,
+              resident_id: updated.id,
+              name: doc.name,
+              type: doc.type,
+              url: doc.url,
+              upload_date: doc.uploadDate
+            });
+        }
+      }
+
+      // 9. Diet Plan
+      if (updated.dietPlan) {
+        const { data: dpData } = await supabase
+          .from('Recanto_PlanosDieta')
+          .upsert({
+            resident_id: updated.id,
+            consistency: updated.dietPlan.consistency,
+            type: updated.dietPlan.type,
+            fluid_restriction: updated.dietPlan.fluidRestriction || null,
+            observations: updated.dietPlan.observations || null
+          }, { onConflict: 'resident_id' })
+          .select()
+          .single();
+
+        if (dpData && updated.dietPlan.restrictions) {
+          await supabase.from('Recanto_RestricoesDieta').delete().eq('diet_plan_id', dpData.id);
+          if (updated.dietPlan.restrictions.length > 0) {
+            await supabase.from('Recanto_RestricoesDieta').insert(
+              updated.dietPlan.restrictions.map(r => ({
+                diet_plan_id: dpData.id,
+                description: r
+              }))
+            );
+          }
+        }
+      }
+
+      // 10. Nutritional Logs
+      if (updated.nutritionalLogs) {
+        for (const n of updated.nutritionalLogs) {
+          const isNutMock = n.id.length < 15;
+          await supabase
+            .from('Recanto_LogsNutricao')
+            .upsert({
+              id: isNutMock ? undefined : n.id,
+              resident_id: updated.id,
+              date: n.date,
+              meal: n.meal,
+              acceptance: n.acceptance,
+              fluid_intake: n.fluidIntake || null,
+              notes: n.notes || null
+            });
+        }
+      }
+
+      await fetchResidents();
+    } catch (err) {
+      console.error('Error updating resident:', err);
+      alert('Erro ao atualizar dados do residente no servidor.');
+    }
   };
 
-  const handleAddStockItem = (newItem: StockItem) => {
-    // Add initial entry log
-    const initialLog: StockTransaction = {
-      id: Math.random().toString(36).substr(2, 9),
-      type: 'entrada',
-      quantity: newItem.quantity,
-      date: new Date().toISOString(),
-      user: 'Admin',
-      notes: 'Cadastro inicial'
-    };
-    
-    setStockItems([...stockItems, { ...newItem, history: [initialLog] }]);
+  const handleAddFinancialRecord = async (newRecord: FinancialRecord) => {
+    try {
+      const { error } = await supabase
+        .from('Recanto_RegistrosFinanceiros')
+        .insert({
+          type: newRecord.type,
+          category: newRecord.category,
+          description: newRecord.description,
+          amount: newRecord.amount,
+          date: newRecord.date,
+          status: newRecord.status,
+          invoice_id: newRecord.invoiceId || null
+        });
+      if (error) throw error;
+      await fetchFinancials();
+    } catch (err) {
+      console.error('Error adding financial record:', err);
+    }
   };
 
-  const handleAddEmployee = (newEmployee: Employee) => {
-    setEmployees([...employees, newEmployee]);
+  const handleAddContract = async (newContract: Contract) => {
+    try {
+      const { error } = await supabase
+        .from('Recanto_Contratos')
+        .insert({
+          resident_id: newContract.residentId,
+          start_date: newContract.startDate,
+          end_date: newContract.endDate || null,
+          monthly_value: newContract.monthlyValue,
+          due_day: newContract.dueDay,
+          status: newContract.status,
+          file_url: newContract.fileUrl || null
+        });
+      if (error) throw error;
+      await fetchContracts();
+      await fetchInvoices(); // Trigger creates the invoice automatically
+    } catch (err) {
+      console.error('Error adding contract:', err);
+    }
   };
 
-  const handleAddTraining = (newTraining: TrainingRecord) => {
-    setTrainingRecords([newTraining, ...trainingRecords]);
+  const handleUpdateInvoice = async (updatedInvoice: Invoice) => {
+    try {
+      const { error } = await supabase
+        .from('Recanto_Mensalidades')
+        .update({
+          status: updatedInvoice.status,
+          paid_date: updatedInvoice.paidDate || null
+        })
+        .eq('id', updatedInvoice.id);
+      if (error) throw error;
+      await fetchInvoices();
+      await fetchFinancials(); // Trigger syncs financial record automatically
+    } catch (err) {
+      console.error('Error updating invoice:', err);
+    }
   };
 
-  const handleAddAccessLog = (newLog: SystemAccessLog) => {
-    setAccessLogs(prev => [newLog, ...prev]);
+  const handleUpdateStock = async (id: string, newQuantity: number) => {
+    try {
+      const item = stockItems.find(i => i.id === id);
+      if (!item) return;
+      const diff = newQuantity - item.quantity;
+      if (diff === 0) return;
+
+      const type = diff > 0 ? 'entrada' : 'saida';
+      const { error } = await supabase
+        .from('Recanto_MovimentacoesEstoque')
+        .insert({
+          stock_item_id: id,
+          type: type,
+          quantity: Math.abs(diff),
+          user_name: currentUser?.name || 'Admin',
+          notes: 'Ajuste manual de estoque'
+        });
+      if (error) throw error;
+      await fetchStockItems();
+    } catch (err) {
+      console.error('Error updating stock:', err);
+    }
   };
 
-  const handleAddEvent = (newEvent: CalendarEvent) => {
-    setEvents([...events, newEvent]);
+  const handleAddStockItem = async (newItem: StockItem) => {
+    try {
+      const { data: itemData, error: itemErr } = await supabase
+        .from('Recanto_Estoque')
+        .insert({
+          name: newItem.name,
+          category: newItem.category,
+          quantity: 0,
+          unit: newItem.unit,
+          min_threshold: newItem.minThreshold
+        })
+        .select()
+        .single();
+      
+      if (itemErr || !itemData) throw itemErr;
+
+      const { error: txErr } = await supabase
+        .from('Recanto_MovimentacoesEstoque')
+        .insert({
+          stock_item_id: itemData.id,
+          type: 'entrada',
+          quantity: newItem.quantity,
+          user_name: currentUser?.name || 'Admin',
+          notes: 'Cadastro inicial'
+        });
+      
+      if (txErr) throw txErr;
+
+      await fetchStockItems();
+    } catch (err) {
+      console.error('Error adding stock item:', err);
+    }
+  };
+
+  const handleAddEmployee = async (newEmployee: Employee) => {
+    try {
+      const { error } = await supabase
+        .from('Recanto_Funcionarios')
+        .insert({
+          name: newEmployee.name,
+          role: newEmployee.role,
+          cpf: newEmployee.cpf,
+          email: newEmployee.email,
+          phone: newEmployee.phone || null,
+          registration_number: newEmployee.registrationNumber || null,
+          is_technical_lead: newEmployee.isTechnicalLead,
+          shift: newEmployee.shift,
+          status: newEmployee.status,
+          admission_date: newEmployee.admissionDate
+        });
+      if (error) throw error;
+      await fetchEmployees();
+    } catch (err) {
+      console.error('Error adding employee:', err);
+    }
+  };
+
+  const handleAddTraining = async (newTraining: TrainingRecord) => {
+    try {
+      const { data: tData, error: tErr } = await supabase
+        .from('Recanto_Treinamentos')
+        .insert({
+          title: newTraining.title,
+          description: newTraining.description,
+          date: newTraining.date,
+          instructor: newTraining.instructor,
+          valid_until: newTraining.validUntil || null
+        })
+        .select()
+        .single();
+      
+      if (tErr || !tData) throw tErr;
+
+      if (newTraining.participants && newTraining.participants.length > 0) {
+        const { error: pErr } = await supabase
+          .from('Recanto_TreinamentosParticipantes')
+          .insert(newTraining.participants.map(pName => {
+            const emp = employees.find(e => e.name === pName);
+            return {
+              training_id: tData.id,
+              employee_id: emp ? emp.id : null,
+              employee_name: pName
+            };
+          }));
+        if (pErr) throw pErr;
+      }
+
+      await fetchTrainingRecords();
+    } catch (err) {
+      console.error('Error adding training:', err);
+    }
+  };
+
+  const handleAddAccessLog = async (newLog: SystemAccessLog) => {
+    try {
+      const { error } = await supabase
+        .from('Recanto_LogsAcesso')
+        .insert({
+          user_id: newLog.userId,
+          user_name: newLog.userName,
+          role: newLog.role,
+          action: newLog.action,
+          resource: newLog.resource || null,
+          ip_address: newLog.ipAddress || null
+        });
+      if (error) throw error;
+      await fetchAccessLogs();
+    } catch (err) {
+      console.error('Error adding access log:', err);
+    }
+  };
+
+  const handleAddEvent = async (newEvent: CalendarEvent) => {
+    try {
+      const { error } = await supabase
+        .from('Recanto_Eventos')
+        .insert({
+          title: newEvent.title,
+          start_time: newEvent.start,
+          end_time: newEvent.end || null,
+          type: newEvent.type,
+          resident_id: newEvent.residentId || null,
+          description: newEvent.description || null,
+          location: newEvent.location || null,
+          created_by: newEvent.createdBy
+        });
+      if (error) throw error;
+      await fetchEvents();
+    } catch (err) {
+      console.error('Error adding event:', err);
+    }
   };
 
   // Derived State
