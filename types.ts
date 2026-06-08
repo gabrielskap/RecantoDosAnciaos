@@ -184,6 +184,19 @@ export interface Resident {
   // Nutrition
   dietPlan?: DietPlan;
   nutritionalLogs?: NutritionalLog[];
+
+  // Plano de Rotina Usual (Atrelados ao paciente)
+  usoFraldas?: 'sim' | 'nao';
+  mobilidadeSet?: 'independente' | 'auxilio' | 'acamado';
+  higieneCorporal?: 'independente' | 'auxilio';
+  higieneOralVestir?: 'independente' | 'auxilio';
+  reqHygiene?: boolean;
+  reqOralCare?: boolean;
+  reqFeeding?: boolean;
+  reqHydration?: boolean;
+  reqMobility?: boolean;
+  reqDressings?: boolean;
+  reqLeisure?: boolean;
 }
 
 // --- FINANCIAL & CONTRACTS TYPES ---

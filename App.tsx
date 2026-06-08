@@ -157,6 +157,17 @@ function AppInner() {
         clinicalCondition: r.clinical_condition || '',
         functionalCondition: r.functional_condition || '',
         socialHistory: r.social_history || '',
+        usoFraldas: r.uso_fraldas || 'nao',
+        mobilidadeSet: r.mobilidade_usual || 'independente',
+        higieneCorporal: r.higiene_corporal_usual || 'independente',
+        higieneOralVestir: r.higiene_oral_vestir_usual || 'independente',
+        reqHygiene: r.req_hygiene ?? false,
+        reqOralCare: r.req_oral_care ?? false,
+        reqFeeding: r.req_feeding ?? false,
+        reqHydration: r.req_hydration ?? false,
+        reqMobility: r.req_mobility ?? false,
+        reqDressings: r.req_dressings ?? false,
+        reqLeisure: r.req_leisure ?? false,
         medications: (r.medications || []).map((m: any) => ({
           id: m.id,
           name: m.name,
@@ -736,7 +747,18 @@ function AppInner() {
           address_neighborhood: newResident.addressNeighborhood || null,
           address_street: newResident.addressStreet || null,
           address_number: newResident.addressNumber || null,
-          address_complement: newResident.addressComplement || null
+          address_complement: newResident.addressComplement || null,
+          uso_fraldas: newResident.usoFraldas || 'nao',
+          mobilidade_usual: newResident.mobilidadeSet || 'independente',
+          higiene_corporal_usual: newResident.higieneCorporal || 'independente',
+          higiene_oral_vestir_usual: newResident.higieneOralVestir || 'independente',
+          req_hygiene: newResident.reqHygiene || false,
+          req_oral_care: newResident.reqOralCare || false,
+          req_feeding: newResident.reqFeeding || false,
+          req_hydration: newResident.reqHydration || false,
+          req_mobility: newResident.reqMobility || false,
+          req_dressings: newResident.reqDressings || false,
+          req_leisure: newResident.reqLeisure || false
         })
         .select()
         .single();
@@ -795,7 +817,18 @@ function AppInner() {
           address_neighborhood: updated.addressNeighborhood || null,
           address_street: updated.addressStreet || null,
           address_number: updated.addressNumber || null,
-          address_complement: updated.addressComplement || null
+          address_complement: updated.addressComplement || null,
+          uso_fraldas: updated.usoFraldas || 'nao',
+          mobilidade_usual: updated.mobilidadeSet || 'independente',
+          higiene_corporal_usual: updated.higieneCorporal || 'independente',
+          higiene_oral_vestir_usual: updated.higieneOralVestir || 'independente',
+          req_hygiene: updated.reqHygiene || false,
+          req_oral_care: updated.reqOralCare || false,
+          req_feeding: updated.reqFeeding || false,
+          req_hydration: updated.reqHydration || false,
+          req_mobility: updated.reqMobility || false,
+          req_dressings: updated.reqDressings || false,
+          req_leisure: updated.reqLeisure || false
         })
         .eq('id', updated.id);
 
@@ -1272,15 +1305,26 @@ function AppInner() {
         return (
           <ResidentsList
             residents={residents}
+            rooms={rooms}
             onSelectResident={handleSelectResident}
             onAddResident={handleAddResident}
+            onUpdateResident={handleUpdateResident}
           />
         );
       case ViewState.RESIDENT_DETAIL:
-        if (!selectedResident) return <ResidentsList residents={residents} onSelectResident={handleSelectResident} onAddResident={handleAddResident} />;
+        if (!selectedResident) return (
+          <ResidentsList
+            residents={residents}
+            rooms={rooms}
+            onSelectResident={handleSelectResident}
+            onAddResident={handleAddResident}
+            onUpdateResident={handleUpdateResident}
+          />
+        );
         return (
           <ResidentProfile
             resident={selectedResident}
+            rooms={rooms}
             onBack={() => navigateTo(ViewState.RESIDENTS)}
             onUpdateResident={handleUpdateResident}
           />
