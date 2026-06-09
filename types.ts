@@ -37,6 +37,14 @@ export interface CarePlan {
   createdAt: string;
 }
 
+export interface CarePlanAdherence {
+  id?: string;
+  checklistId?: string;
+  carePlanId: string;
+  status: 'conseguindo_seguir' | 'nao_conseguindo_seguir' | 'apresentando_dificuldades';
+  comment?: string;
+}
+
 export interface DailyChecklist {
   date: string;
   hygiene: boolean; // Banho/Higiene
@@ -74,6 +82,8 @@ export interface DailyChecklist {
   atividadesConsulta?: string;
   intercorrencia?: 'sim' | 'nao';
   intercorrenciaDesc?: string;
+  carePlanAdherence?: CarePlanAdherence[];
+  photoUrl?: string;
 }
 
 export interface AuditLog {
@@ -141,6 +151,18 @@ export interface Room {
   status?: RoomStatus;
 }
 
+export interface Visit {
+  id: string;
+  residentId: string;
+  visitorName: string;
+  relation: string;
+  cpf?: string;
+  phone?: string;
+  date: string;
+  temperature?: number;
+  observations?: string;
+  createdBy: string;
+}
 
 export interface Resident {
   id: string;
@@ -180,6 +202,7 @@ export interface Resident {
   dailyChecklists: DailyChecklist[];
   documents: ResidentDocument[];
   auditLogs: AuditLog[];
+  visits: Visit[];
 
   // Nutrition
   dietPlan?: DietPlan;
@@ -351,4 +374,5 @@ export interface AuthUser {
   password: string;
   profile: Profile;
   residentId?: string; // somente para Responsável
+  employeeRole?: UserRole;
 }

@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Search, Filter, FileText, X, User, Phone, FileHeart, Plus, AlertCircle, BedDouble, Home, Edit2, ClipboardList } from 'lucide-react';
+import { Search, Filter, FileText, X, User, Phone, FileHeart, Plus, AlertCircle, BedDouble, Home, Edit2, ClipboardList, Pill, Camera } from 'lucide-react';
 import { Resident, Room } from '../types';
 import CustomSelect from './CustomSelect';
+import { compressImage, uploadResidentPhoto } from '../services/supabaseClient';
 
 interface ResidentsListProps {
   residents: Resident[];
@@ -46,11 +47,12 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
     return (sessionStorage.getItem('modal_residents_active_tab') as any) || 'personal';
   });
   const [search, setSearch] = useState('');
+  const [photoUploading, setPhotoUploading] = useState(false);
 
   const [formData, setFormData] = useState<Partial<Resident>>(() => {
     const saved = sessionStorage.getItem('modal_residents_form_data');
     return saved ? JSON.parse(saved) : {
-      name: '', age: 0, room: '', careLevel: 'I', cpf: '', rg: '', birthDate: '',
+      name: '', age: 0, room: '', careLevel: 'I', cpf: '', rg: '', birthDate: '', photoUrl: '',
       addressCep: '', addressState: '', addressCity: '', addressNeighborhood: '',
       addressStreet: '', addressNumber: '', addressComplement: '',
       emergencyContacts: [],
@@ -159,6 +161,7 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
       cpf: resident.cpf || '',
       rg: resident.rg || '',
       birthDate: resident.birthDate || '',
+      photoUrl: resident.photoUrl || '',
       addressCep: resident.addressCep || '',
       addressState: resident.addressState || '',
       addressCity: resident.addressCity || '',
@@ -187,6 +190,23 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
     setIsModalOpen(true);
   };
 
+  const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setPhotoUploading(true);
+    try {
+      const base64 = await compressImage(file, 250, 250, 0.8);
+      const finalUrl = await uploadResidentPhoto(file, base64);
+      setFormData(prev => ({ ...prev, photoUrl: finalUrl }));
+    } catch (err) {
+      console.error('Erro ao processar imagem:', err);
+      alert('Erro ao processar a foto. Tente novamente.');
+    } finally {
+      setPhotoUploading(false);
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name || !formData.room) return;
@@ -201,6 +221,7 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
             age: formData.age || 0,
             room: formData.room!,
             careLevel: (formData.careLevel as 'I' | 'II' | 'III') || 'I',
+            photoUrl: formData.photoUrl || '',
             cpf: formData.cpf,
             rg: formData.rg,
             birthDate: formData.birthDate,
@@ -237,7 +258,7 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
         name: formData.name!, age: formData.age || 0, room: formData.room!,
         careLevel: (formData.careLevel as 'I' | 'II' | 'III') || 'I',
         cpf: formData.cpf, rg: formData.rg, birthDate: formData.birthDate,
-        photoUrl: `https://picsum.photos/200/200?random=${Math.floor(Math.random() * 1000)}`,
+        photoUrl: formData.photoUrl || `https://picsum.photos/200/200?random=${Math.floor(Math.random() * 1000)}`,
         admissionDate: new Date().toISOString(),
         addressCep: formData.addressCep,
         addressState: formData.addressState,
@@ -252,7 +273,7 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
         functionalCondition: formData.functionalCondition || '',
         socialHistory: formData.socialHistory || '',
         medications: [], allergies: [], vitals: [], carePlan: [],
-        auditLogs: [], dailyChecklists: [], documents: [],
+        auditLogs: [], dailyChecklists: [], documents: [], visits: [],
         usoFraldas: formData.usoFraldas || 'nao',
         mobilidadeSet: formData.mobilidadeSet || 'independente',
         higieneCorporal: formData.higieneCorporal || 'independente',
@@ -270,7 +291,7 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
     setIsModalOpen(false);
     setEditingResidentId(null);
     setFormData({
-      name: '', age: 0, room: '', careLevel: 'I',
+      name: '', age: 0, room: '', careLevel: 'I', photoUrl: '',
       addressCep: '', addressState: '', addressCity: '', addressNeighborhood: '',
       addressStreet: '', addressNumber: '', addressComplement: '',
       emergencyContacts: [],
@@ -313,7 +334,7 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
           onClick={() => {
             setEditingResidentId(null);
             setFormData({
-              name: '', age: 0, room: '', careLevel: 'I', cpf: '', rg: '', birthDate: '',
+              name: '', age: 0, room: '', careLevel: 'I', cpf: '', rg: '', birthDate: '', photoUrl: '',
               addressCep: '', addressState: '', addressCity: '', addressNeighborhood: '',
               addressStreet: '', addressNumber: '', addressComplement: '',
               emergencyContacts: [],
@@ -391,6 +412,26 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
                   </span>
                 </div>
 
+                {resident.medications && resident.medications.length > 0 && (
+                  <div className="mb-4 p-2.5 bg-violet-50/50 border border-violet-100 rounded-xl space-y-1">
+                    <span className="text-[10px] uppercase font-bold text-violet-650 flex items-center gap-1">
+                      <Pill className="h-3.5 w-3.5 text-violet-500" /> Próximas Medicações
+                    </span>
+                    <div className="space-y-1 max-h-[80px] overflow-y-auto pr-1">
+                      {resident.medications.map(med => (
+                        <div key={med.id} className="flex justify-between items-center text-xs text-slate-650">
+                          <span className="font-medium truncate max-w-[130px] sm:max-w-[160px]" title={`${med.name} (${med.dosage})`}>
+                            {med.name}
+                          </span>
+                          <span className="bg-white px-1.5 py-0.5 rounded text-[10px] font-bold text-violet-750 border border-violet-100/80 shrink-0">
+                            {med.nextDose}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <div className="pt-3 border-t border-slate-50 flex items-center justify-between">
                   <span className="text-xs text-slate-400">Última aferição: Hoje 08:00</span>
                   <div className="flex items-center gap-2">
@@ -459,6 +500,56 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
             <form onSubmit={handleSubmit} className="p-5 overflow-y-auto flex-1 space-y-4">
               {activeTab === 'personal' && (
                 <>
+                  {/* Photo Upload Container */}
+                  <div className="flex flex-col sm:flex-row items-center gap-4 p-4 bg-slate-50 border border-slate-200 rounded-2xl mb-4">
+                    <div className="relative group w-20 h-20 shrink-0">
+                      {formData.photoUrl ? (
+                        <img
+                          src={formData.photoUrl}
+                          alt="Preview"
+                          className="w-20 h-20 rounded-2xl object-cover border-2 border-violet-100"
+                        />
+                      ) : (
+                        <div className="w-20 h-20 rounded-2xl bg-violet-50 border-2 border-dashed border-violet-200 flex items-center justify-center text-violet-400">
+                          <User className="w-8 h-8" />
+                        </div>
+                      )}
+                      {photoUploading && (
+                        <div className="absolute inset-0 bg-black/40 rounded-2xl flex items-center justify-center">
+                          <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div className="flex-1 text-center sm:text-left min-w-0">
+                      <span className="block text-sm font-bold text-slate-800">Foto do Residente</span>
+                      <span className="block text-xs text-slate-400 mt-0.5">Imagem quadrada de até 5MB. Ajustada automaticamente.</span>
+                      
+                      <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 mt-3">
+                        <label className="relative flex items-center gap-1.5 bg-violet-50 hover:bg-violet-100 text-violet-700 px-3.5 py-2 rounded-xl text-xs font-semibold cursor-pointer transition-colors border border-violet-100">
+                          <Camera className="w-3.5 h-3.5" />
+                          {formData.photoUrl ? 'Alterar Foto' : 'Carregar Foto'}
+                          <input
+                            type="file"
+                            accept="image/png, image/jpeg, image/jpg, image/webp"
+                            onChange={handlePhotoChange}
+                            disabled={photoUploading}
+                            className="hidden"
+                          />
+                        </label>
+                        {formData.photoUrl && (
+                          <button
+                            type="button"
+                            onClick={() => setFormData(prev => ({ ...prev, photoUrl: '' }))}
+                            className="flex items-center gap-1 bg-white hover:bg-rose-50 text-rose-600 hover:text-rose-700 px-3.5 py-2 rounded-xl text-xs font-semibold border border-slate-200 hover:border-rose-100 transition-colors"
+                          >
+                            Remover
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
                   <div>
                     <label className="block text-xs font-semibold text-slate-600 mb-1.5">Nome Completo</label>
                     <input required type="text" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} className={inputClass} />
@@ -780,8 +871,14 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
                 <button type="button" onClick={() => { setIsModalOpen(false); setEditingResidentId(null); }} className="flex-1 sm:flex-none px-5 py-2.5 border border-slate-200 rounded-xl text-slate-600 font-semibold text-sm hover:bg-slate-50 transition-colors">
                   Cancelar
                 </button>
-                <button type="submit" className="flex-1 sm:flex-none px-6 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl font-semibold text-sm transition-colors">
-                  {editingResidentId ? 'Salvar Alterações' : 'Salvar Cadastro'}
+                <button
+                  type="submit"
+                  disabled={photoUploading}
+                  className={`flex-1 sm:flex-none px-6 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl font-semibold text-sm transition-colors ${
+                    photoUploading ? 'opacity-50 cursor-not-allowed' : ''
+                  }`}
+                >
+                  {photoUploading ? 'Processando...' : (editingResidentId ? 'Salvar Alterações' : 'Salvar Cadastro')}
                 </button>
               </div>
             </form>

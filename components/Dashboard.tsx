@@ -77,7 +77,22 @@ const Dashboard: React.FC<DashboardProps> = ({ residents, financials, stockAlert
     time: 'Agora',
     type: 'warning',
   }));
-  const allAlerts = [...dynamicStockAlerts, ...staticAlerts];
+  const medicationAlerts = residents.flatMap(resident => {
+    const meds = resident.medications || [];
+    return meds.map(med => ({
+      id: `med-${resident.id}-${med.id}`,
+      text: `Prescrição: ${resident.name} - ${med.name} (${med.dosage})`,
+      time: med.nextDose || '08:00',
+      type: 'medication',
+    }));
+  });
+
+  const allAlerts = [...dynamicStockAlerts, ...medicationAlerts, ...staticAlerts].sort((a, b) => {
+    if (a.time === 'Agora' && b.time !== 'Agora') return -1;
+    if (b.time === 'Agora' && a.time !== 'Agora') return 1;
+    if (a.time === 'Agora' && b.time === 'Agora') return 0;
+    return a.time.localeCompare(b.time);
+  });
 
   const kpis = [
     {
@@ -119,6 +134,7 @@ const Dashboard: React.FC<DashboardProps> = ({ residents, financials, stockAlert
   const alertIcon = (type: string) => {
     if (type === 'critical') return 'bg-rose-500';
     if (type === 'warning') return 'bg-amber-500';
+    if (type === 'medication') return 'bg-violet-500';
     return 'bg-blue-400';
   };
 

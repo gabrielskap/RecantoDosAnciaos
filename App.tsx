@@ -115,11 +115,12 @@ function AppInner() {
           medications:Recanto_Medicacoes(*, logs:Recanto_LogsMedicacao(*)),
           vitals:Recanto_SinaisVitais(*),
           carePlan:Recanto_PlanosAssistencia(*),
-          dailyChecklists:Recanto_ChecklistDiario(*),
+          dailyChecklists:Recanto_ChecklistDiario(*, carePlanAdherence:Recanto_AcompanhamentoPlano(*)),
           documents:Recanto_Documentos(*),
           auditLogs:Recanto_LogsAuditoria(*),
           dietPlan:Recanto_PlanosDieta(*),
-          nutritionalLogs:Recanto_LogsNutricao(*)
+          nutritionalLogs:Recanto_LogsNutricao(*),
+          visits:Recanto_Visitas(*)
         `);
 
       if (error) throw error;
@@ -237,7 +238,15 @@ function AppInner() {
           medicacoesAdministradas: chk.medicacoes_administradas || undefined,
           atividadesConsulta: chk.atividades_consulta || undefined,
           intercorrencia: chk.intercorrencia || undefined,
-          intercorrenciaDesc: chk.intercorrencia_desc || undefined
+          intercorrenciaDesc: chk.intercorrencia_desc || undefined,
+          photoUrl: chk.photo_url || undefined,
+          carePlanAdherence: (chk.carePlanAdherence || []).map((adh: any) => ({
+            id: adh.id,
+            checklistId: adh.checklist_id,
+            carePlanId: adh.care_plan_id,
+            status: adh.status,
+            comment: adh.comment || undefined
+          }))
         })),
         documents: (r.documents || []).map((doc: any) => ({
           id: doc.id,
@@ -269,7 +278,19 @@ function AppInner() {
           acceptance: n.acceptance,
           fluidIntake: n.fluid_intake || undefined,
           notes: n.notes || undefined
-        }))
+        })),
+        visits: (r.visits || []).map((v: any) => ({
+          id: v.id,
+          residentId: v.resident_id,
+          visitorName: v.visitor_name,
+          relation: v.relation,
+          cpf: v.cpf || undefined,
+          phone: v.phone || undefined,
+          date: v.date,
+          temperature: v.temperature ? parseFloat(v.temperature) : undefined,
+          observations: v.observations || undefined,
+          createdBy: v.created_by
+        })).sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())
       }));
 
       setResidents(mapped);
@@ -868,6 +889,21 @@ function AppInner() {
 
       // 4. Medicações
       if (updated.medications) {
+        // Excluir medicações removidas no front-end
+        const originalResident = residents.find(r => r.id === updated.id);
+        if (originalResident && originalResident.medications) {
+          const updatedMedIds = updated.medications.map(m => m.id);
+          const deletedMeds = originalResident.medications.filter(m => !updatedMedIds.includes(m.id));
+          for (const dMed of deletedMeds) {
+            if (dMed.id.length >= 15) { // Verifica se é um UUID do banco e não um ID temporário do front
+              await supabase
+                .from('Recanto_Medicacoes')
+                .delete()
+                .eq('id', dMed.id);
+            }
+          }
+        }
+
         for (const med of updated.medications) {
           const isMockId = med.id.length < 15;
           const { data: medData, error: medErr } = await supabase
@@ -942,7 +978,7 @@ function AppInner() {
       // 7. Checklist Diário
       if (updated.dailyChecklists) {
         for (const chk of updated.dailyChecklists) {
-          await supabase
+          const { data: chkData, error: chkErr } = await supabase
             .from('Recanto_ChecklistDiario')
             .upsert({
               resident_id: updated.id,
@@ -979,8 +1015,32 @@ function AppInner() {
               medicacoes_administradas: chk.medicacoesAdministradas || null,
               atividades_consulta: chk.atividadesConsulta || null,
               intercorrencia: chk.intercorrencia || null,
-              intercorrencia_desc: chk.intercorrenciaDesc || null
-            }, { onConflict: 'resident_id,date' });
+              intercorrencia_desc: chk.intercorrenciaDesc || null,
+              photo_url: chk.photoUrl || null
+            }, { onConflict: 'resident_id,date' })
+            .select()
+            .single();
+
+          if (!chkErr && chkData && chk.carePlanAdherence) {
+            // Delete old adherence records first to avoid orphans
+            await supabase
+              .from('Recanto_AcompanhamentoPlano')
+              .delete()
+              .eq('checklist_id', chkData.id);
+
+            if (chk.carePlanAdherence.length > 0) {
+              await supabase
+                .from('Recanto_AcompanhamentoPlano')
+                .insert(
+                  chk.carePlanAdherence.map(adh => ({
+                    checklist_id: chkData.id,
+                    care_plan_id: adh.carePlanId,
+                    status: adh.status,
+                    comment: adh.comment || null
+                  }))
+                );
+            }
+          }
         }
       }
 
@@ -1042,6 +1102,42 @@ function AppInner() {
               acceptance: n.acceptance,
               fluid_intake: n.fluidIntake || null,
               notes: n.notes || null
+            });
+        }
+      }
+
+      // 11. Visitas
+      if (updated.visits) {
+        // Excluir visitas removidas no front-end
+        const originalResident = residents.find(r => r.id === updated.id);
+        if (originalResident && originalResident.visits) {
+          const updatedVisitIds = updated.visits.map(v => v.id);
+          const deletedVisits = originalResident.visits.filter(v => !updatedVisitIds.includes(v.id));
+          for (const dVisit of deletedVisits) {
+            if (dVisit.id.length >= 15) {
+              await supabase
+                .from('Recanto_Visitas')
+                .delete()
+                .eq('id', dVisit.id);
+            }
+          }
+        }
+
+        for (const vis of updated.visits) {
+          const isVisMock = vis.id.length < 15;
+          await supabase
+            .from('Recanto_Visitas')
+            .upsert({
+              id: isVisMock ? undefined : vis.id,
+              resident_id: updated.id,
+              visitor_name: vis.visitorName,
+              relation: vis.relation,
+              cpf: vis.cpf || null,
+              phone: vis.phone || null,
+              date: vis.date,
+              temperature: vis.temperature || null,
+              observations: vis.observations || null,
+              created_by: vis.createdBy
             });
         }
       }

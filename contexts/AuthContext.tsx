@@ -70,13 +70,21 @@ const fetchUserProfile = async (authUserId: string): Promise<AuthUser | null> =>
     permissions: []
   };
 
+  // ALSO fetch employee role
+  const { data: employeeData } = await supabase
+    .from('Recanto_Funcionarios')
+    .select('role')
+    .eq('auth_user_id', authUserId)
+    .maybeSingle();
+
   return {
     id: data.auth_user_id || data.id,
     name: data.name,
     email: data.email,
     password: '',
     profile: mappedProfile,
-    residentId: data.resident_id || undefined
+    residentId: data.resident_id || undefined,
+    employeeRole: employeeData?.role || undefined
   };
 };
 
