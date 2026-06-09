@@ -140,6 +140,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   const [modalActiveTab, setModalActiveTab] = useState<'personal' | 'contacts' | 'clinical' | 'routine'>('personal');
   const [formData, setFormData] = useState<Partial<Resident>>({});
   const [photoUploading, setPhotoUploading] = useState(false);
+  const [checklistPhotoUploading, setChecklistPhotoUploading] = useState(false);
   const [contactTemp, setContactTemp] = useState({ name: '', relation: '', phone: '' });
   const [loadingCep, setLoadingCep] = useState(false);
   const [cepError, setCepError] = useState('');
@@ -228,6 +229,22 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
       } finally {
         setLoadingCep(false);
       }
+    }
+  };
+
+  const handleChecklistPhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setChecklistPhotoUploading(true);
+    try {
+      const base64 = await compressImage(file, 800, 800, 0.85);
+      const finalUrl = await uploadResidentPhoto(file, base64);
+      handleChecklistFieldChange('photoUrl', finalUrl);
+    } catch (err) {
+      console.error('Erro ao processar imagem do boletim:', err);
+      alert('Erro ao processar a foto. Tente novamente.');
+    } finally {
+      setChecklistPhotoUploading(false);
     }
   };
 
@@ -1276,6 +1293,26 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                             </div>
                           </div>
                         )}
+
+                        {/* SECTION 6: REGISTRO FOTOGRÁFICO — VIEW MODE */}
+                        {selectedChecklist.photoUrl && (
+                          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3 mt-6">
+                            <h4 className="font-semibold text-slate-800 border-b border-slate-100 pb-2 text-sm uppercase tracking-wider text-primary-700 flex items-center gap-2">
+                              <Camera className="h-4 w-4" />
+                              6. Registro Fotográfico do Residente
+                            </h4>
+                            <div className="flex flex-col items-start gap-2">
+                              <img
+                                src={selectedChecklist.photoUrl}
+                                alt="Foto do boletim diário"
+                                className="w-full max-w-sm rounded-xl border border-slate-200 shadow-sm object-cover"
+                              />
+                              <p className="text-xs text-slate-500 italic">
+                                Acompanhamento visual registrado neste boletim diário.
+                              </p>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )
@@ -1913,6 +1950,47 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                           </div>
                         </div>
                       )}
+
+                      {/* SECTION 6: REGISTRO FOTOGRÁFICO — EDIT MODE */}
+                      <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
+                        <h4 className="font-semibold text-slate-800 border-b border-slate-100 pb-2 text-sm uppercase tracking-wider text-primary-700 flex items-center gap-2">
+                          <Camera className="h-4 w-4" />
+                          6. Registro Fotográfico do Residente (Opcional)
+                        </h4>
+                        {checklistDraft.photoUrl ? (
+                          <div className="relative inline-block">
+                            <img
+                              src={checklistDraft.photoUrl}
+                              alt="Foto do boletim"
+                              className="w-full max-w-sm rounded-xl border border-slate-200 shadow-sm object-cover"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleChecklistFieldChange('photoUrl', '')}
+                              className="absolute top-2 right-2 p-1.5 bg-rose-600 text-white rounded-full hover:bg-rose-700 shadow-md transition-colors"
+                              title="Remover foto"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <label className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed border-slate-300 rounded-xl p-8 cursor-pointer hover:border-primary-400 hover:bg-primary-50 transition-all ${checklistPhotoUploading ? 'opacity-60 pointer-events-none' : ''}`}>
+                            <Camera className="h-8 w-8 text-slate-400" />
+                            <span className="text-sm font-semibold text-slate-600">
+                              {checklistPhotoUploading ? 'Enviando foto...' : 'Carregar Foto do Residente'}
+                            </span>
+                            <span className="text-xs text-slate-400">Clique para selecionar ou tire uma foto</span>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              capture="environment"
+                              onChange={handleChecklistPhotoChange}
+                              className="hidden"
+                              disabled={checklistPhotoUploading}
+                            />
+                          </label>
+                        )}
+                      </div>
 
                       {/* Bottom Sticky Action Bar in Edit Mode */}
                       <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 bg-slate-50 rounded-b-xl">
