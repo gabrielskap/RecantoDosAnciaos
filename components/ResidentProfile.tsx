@@ -316,6 +316,8 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   const today = new Date().toISOString().split('T')[0];
   const [selectedChecklistDate, setSelectedChecklistDate] = useState(today);
   const [isAllChecklistsModalOpen, setIsAllChecklistsModalOpen] = useState(false);
+  const [isSignConfirmModalOpen, setIsSignConfirmModalOpen] = useState(false);
+  const [signConfirmContext, setSignConfirmContext] = useState<'read' | 'edit'>('read');
 
   const selectedChecklist = resident.dailyChecklists?.find(c => c.date === selectedChecklistDate) || {
     date: selectedChecklistDate,
@@ -330,7 +332,31 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
 
   const [checklistDraft, setChecklistDraft] = useState<DailyChecklist | null>(null);
 
+  const handleRequestSign = (context: 'read' | 'edit') => {
+    setSignConfirmContext(context);
+    setIsSignConfirmModalOpen(true);
+  };
+
+  const handleConfirmSign = () => {
+    const signedBy = currentUser?.profile.name || 'Usuário';
+    const signedAt = new Date().toISOString();
+    setIsSignConfirmModalOpen(false);
+
+    if (signConfirmContext === 'edit' && checklistDraft && onUpdateResident) {
+      const signedDraft = { ...checklistDraft, signedBy, signedAt };
+      const otherChecklists = resident.dailyChecklists?.filter(c => c.date !== signedDraft.date) || [];
+      onUpdateResident({ ...resident, dailyChecklists: [signedDraft, ...otherChecklists] });
+      setSelectedChecklistDate(signedDraft.date);
+      setChecklistDraft(null);
+    } else if (signConfirmContext === 'read' && onUpdateResident) {
+      const updatedChecklist = { ...selectedChecklist, signedBy, signedAt };
+      const otherChecklists = resident.dailyChecklists?.filter(c => c.date !== updatedChecklist.date) || [];
+      onUpdateResident({ ...resident, dailyChecklists: [updatedChecklist, ...otherChecklists] });
+    }
+  };
+
   const handleStartEditChecklist = () => {
+    if (selectedChecklist.signedBy) return;
     const draft = { ...selectedChecklist };
     const parsed = parseMedications(draft.medicacoesAdministradas);
     if (!parsed && resident.medications && resident.medications.length > 0) {
@@ -360,18 +386,6 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     draft.carePlanAdherence = updatedAdherence;
 
     setChecklistDraft(draft);
-  };
-
-  const handleSaveChecklist = () => {
-    if (!onUpdateResident || !checklistDraft) return;
-    
-    const otherChecklists = resident.dailyChecklists?.filter(c => c.date !== checklistDraft.date) || [];
-    onUpdateResident({
-      ...resident,
-      dailyChecklists: [checklistDraft, ...otherChecklists]
-    });
-    setSelectedChecklistDate(checklistDraft.date);
-    setChecklistDraft(null);
   };
 
   const handleCancelEditChecklist = () => {
@@ -1008,18 +1022,34 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                             Acompanhamento clínico e de rotina do residente para este dia de plantão.
                           </p>
                         </div>
-                        <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-                          <span className="text-xs bg-emerald-100 text-emerald-800 border border-emerald-200 px-3 py-1.5 rounded-full font-medium flex items-center shadow-sm">
-                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 mr-1.5 animate-pulse"></span>
-                            Salvo no prontuário
-                          </span>
-                          <button
-                            onClick={handleStartEditChecklist}
-                            className="flex items-center px-4 py-2 bg-white text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold hover:bg-slate-50 transition-all shadow-sm"
-                          >
-                            <Edit2 className="h-3.5 w-3.5 mr-1.5 text-primary-600" />
-                            Editar Boletim
-                          </button>
+                        <div className="flex items-center gap-2 w-full sm:w-auto justify-end flex-wrap">
+                          {selectedChecklist.signedBy ? (
+                            <span className="text-xs bg-violet-100 text-violet-800 border border-violet-200 px-3 py-1.5 rounded-full font-medium flex items-center shadow-sm gap-1.5">
+                              <ShieldCheck className="h-3.5 w-3.5 text-violet-600" />
+                              Assinado por {selectedChecklist.signedBy}
+                            </span>
+                          ) : (
+                            <>
+                              <span className="text-xs bg-emerald-100 text-emerald-800 border border-emerald-200 px-3 py-1.5 rounded-full font-medium flex items-center shadow-sm">
+                                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 mr-1.5 animate-pulse"></span>
+                                Salvo no prontuário
+                              </span>
+                              <button
+                                onClick={() => handleRequestSign('read')}
+                                className="flex items-center px-4 py-2 bg-violet-600 text-white border border-violet-700 rounded-xl text-xs font-semibold hover:bg-violet-700 transition-all shadow-sm"
+                              >
+                                <PenTool className="h-3.5 w-3.5 mr-1.5" />
+                                Assinar Digitalmente
+                              </button>
+                              <button
+                                onClick={handleStartEditChecklist}
+                                className="flex items-center px-4 py-2 bg-white text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold hover:bg-slate-50 transition-all shadow-sm"
+                              >
+                                <Edit2 className="h-3.5 w-3.5 mr-1.5 text-primary-600" />
+                                Editar Boletim
+                              </button>
+                            </>
+                          )}
                         </div>
                       </div>
 
@@ -1059,6 +1089,35 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                                   <span className="bg-emerald-100 text-emerald-800 px-2.5 py-0.5 rounded-full text-xs font-semibold border border-emerald-200">Calmo / Estável</span>
                                 )}
                               </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* SECTION 1.5: SINAIS VITAIS — VIEW MODE */}
+                        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
+                          <h4 className="font-semibold text-slate-800 border-b border-slate-100 pb-2 text-sm uppercase tracking-wider text-primary-700 flex items-center gap-2">
+                            Sinais Vitais
+                          </h4>
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                            <div className="flex flex-col items-center justify-center bg-rose-50 border border-rose-200 rounded-xl p-3">
+                              <span className="text-[10px] font-semibold text-rose-600 uppercase tracking-wide mb-1">Freq. Cardíaca</span>
+                              <span className="text-lg font-bold text-rose-800">{selectedChecklist.frequenciaCardiaca || '—'}</span>
+                              <span className="text-[10px] text-rose-400 font-medium">bpm</span>
+                            </div>
+                            <div className="flex flex-col items-center justify-center bg-blue-50 border border-blue-200 rounded-xl p-3">
+                              <span className="text-[10px] font-semibold text-blue-600 uppercase tracking-wide mb-1">Pressão Arterial</span>
+                              <span className="text-lg font-bold text-blue-800">{selectedChecklist.pressaoArterial || '—'}</span>
+                              <span className="text-[10px] text-blue-400 font-medium">mmHg</span>
+                            </div>
+                            <div className="flex flex-col items-center justify-center bg-sky-50 border border-sky-200 rounded-xl p-3">
+                              <span className="text-[10px] font-semibold text-sky-600 uppercase tracking-wide mb-1">Saturação (SpO2)</span>
+                              <span className="text-lg font-bold text-sky-800">{selectedChecklist.saturacao || '—'}</span>
+                              <span className="text-[10px] text-sky-400 font-medium">%</span>
+                            </div>
+                            <div className="flex flex-col items-center justify-center bg-amber-50 border border-amber-200 rounded-xl p-3">
+                              <span className="text-[10px] font-semibold text-amber-600 uppercase tracking-wide mb-1">Temperatura</span>
+                              <span className="text-lg font-bold text-amber-800">{selectedChecklist.temperatura || '—'}</span>
+                              <span className="text-[10px] text-amber-400 font-medium">°C</span>
                             </div>
                           </div>
                         </div>
@@ -1345,10 +1404,11 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                         </button>
                         <button
                           type="button"
-                          onClick={handleSaveChecklist}
-                          className="flex items-center px-4 py-2 bg-primary-600 text-white border border-primary-700 rounded-xl text-xs font-semibold hover:bg-primary-700 transition-all shadow-md hover:shadow-lg"
+                          onClick={() => handleRequestSign('edit')}
+                          className="flex items-center px-4 py-2 bg-violet-600 text-white border border-violet-700 rounded-xl text-xs font-semibold hover:bg-violet-700 transition-all shadow-md hover:shadow-lg"
                         >
-                          Salvar Boletim
+                          <PenTool className="h-3.5 w-3.5 mr-1.5" />
+                          Assinar e Salvar
                         </button>
                       </div>
                     </div>
@@ -1888,6 +1948,73 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                         </div>
                       </div>
 
+                      {/* SECTION 4: SINAIS VITAIS — EDIT MODE */}
+                      <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
+                        <h4 className="font-semibold text-slate-800 border-b border-slate-100 pb-2 text-sm uppercase tracking-wider text-primary-700">
+                          4. Sinais Vitais
+                        </h4>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                          <div className="space-y-1.5">
+                            <label className="block text-xs font-bold text-slate-700">Freq. Cardíaca</label>
+                            <div className="relative">
+                              <input
+                                type="number"
+                                min="0"
+                                value={checklistDraft.frequenciaCardiaca || ''}
+                                onChange={(e) => handleChecklistFieldChange('frequenciaCardiaca', e.target.value)}
+                                placeholder="Ex: 72"
+                                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-rose-400 pr-12"
+                              />
+                              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 pointer-events-none">bpm</span>
+                            </div>
+                          </div>
+                          <div className="space-y-1.5">
+                            <label className="block text-xs font-bold text-slate-700">Pressão Arterial</label>
+                            <div className="relative">
+                              <input
+                                type="text"
+                                value={checklistDraft.pressaoArterial || ''}
+                                onChange={(e) => handleChecklistFieldChange('pressaoArterial', e.target.value)}
+                                placeholder="Ex: 120/80"
+                                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-400 pr-16"
+                              />
+                              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 pointer-events-none">mmHg</span>
+                            </div>
+                          </div>
+                          <div className="space-y-1.5">
+                            <label className="block text-xs font-bold text-slate-700">Saturação (SpO2)</label>
+                            <div className="relative">
+                              <input
+                                type="number"
+                                min="0"
+                                max="100"
+                                value={checklistDraft.saturacao || ''}
+                                onChange={(e) => handleChecklistFieldChange('saturacao', e.target.value)}
+                                placeholder="Ex: 98"
+                                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-sky-400 pr-8"
+                              />
+                              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 pointer-events-none">%</span>
+                            </div>
+                          </div>
+                          <div className="space-y-1.5">
+                            <label className="block text-xs font-bold text-slate-700">Temperatura</label>
+                            <div className="relative">
+                              <input
+                                type="number"
+                                step="0.1"
+                                min="30"
+                                max="45"
+                                value={checklistDraft.temperatura || ''}
+                                onChange={(e) => handleChecklistFieldChange('temperatura', e.target.value)}
+                                placeholder="Ex: 36.5"
+                                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-amber-400 pr-8"
+                              />
+                              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 pointer-events-none">°C</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
                       {/* SECTION 5: PLANO INDIVIDUAL DE CUIDADOS */}
                       {checklistDraft.carePlanAdherence && checklistDraft.carePlanAdherence.length > 0 && (
                         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4 animate-in fade-in duration-200">
@@ -2003,13 +2130,11 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                         </button>
                         <button
                           type="button"
-                          onClick={handleSaveChecklist}
-                          className="flex items-center px-6 py-2.5 bg-primary-600 text-white rounded-xl text-xs font-bold hover:bg-primary-700 transition-all shadow-md hover:shadow-lg"
+                          onClick={() => handleRequestSign('edit')}
+                          className="flex items-center px-6 py-2.5 bg-violet-600 text-white rounded-xl text-xs font-bold hover:bg-violet-700 transition-all shadow-md hover:shadow-lg"
                         >
-                          <svg className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                          </svg>
-                          Salvar Boletim Clínico
+                          <PenTool className="h-4 w-4 mr-2" />
+                          Assinar e Salvar Boletim
                         </button>
                       </div>
                     </div>
@@ -3082,6 +3207,52 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* Modal de Confirmação de Assinatura Digital */}
+      {isSignConfirmModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden">
+            <div className="px-6 py-5 border-b border-slate-100 bg-violet-50 flex items-center gap-3">
+              <div className="p-2.5 bg-violet-100 rounded-xl">
+                <ShieldCheck className="h-6 w-6 text-violet-600" />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-800 text-base">Assinatura Digital do Boletim</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Confirme para assinar digitalmente</p>
+              </div>
+            </div>
+            <div className="px-6 py-5 space-y-4">
+              <div className="flex gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+                <AlertOctagon className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+                <p className="text-sm text-amber-800 font-medium leading-relaxed">
+                  Atenção: após assinar digitalmente, o boletim <strong>não poderá sofrer nenhuma alteração</strong>. Esta ação é irreversível.
+                </p>
+              </div>
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5">
+                <p className="text-xs text-slate-500 font-medium uppercase tracking-wider">Assinatura de</p>
+                <p className="text-sm font-bold text-slate-800">{currentUser?.profile.name || 'Usuário'}</p>
+                <p className="text-xs text-slate-500">{new Date().toLocaleString('pt-BR')}</p>
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-100 flex gap-3 justify-end">
+              <button
+                type="button"
+                onClick={() => setIsSignConfirmModalOpen(false)}
+                className="px-5 py-2.5 bg-white text-slate-700 border border-slate-300 rounded-xl text-sm font-semibold hover:bg-slate-50 transition-all"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmSign}
+                className="flex items-center px-6 py-2.5 bg-violet-600 text-white rounded-xl text-sm font-bold hover:bg-violet-700 transition-all shadow-md"
+              >
+                <PenTool className="h-4 w-4 mr-2" />
+                Confirmar Assinatura
+              </button>
+            </div>
           </div>
         </div>
       )}

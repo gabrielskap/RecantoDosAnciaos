@@ -84,6 +84,12 @@ export interface DailyChecklist {
   intercorrenciaDesc?: string;
   carePlanAdherence?: CarePlanAdherence[];
   photoUrl?: string;
+  signedBy?: string;
+  signedAt?: string;
+  frequenciaCardiaca?: string;
+  pressaoArterial?: string;
+  saturacao?: string;
+  temperatura?: string;
 }
 
 export interface AuditLog {

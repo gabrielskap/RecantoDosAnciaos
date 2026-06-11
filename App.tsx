@@ -240,6 +240,8 @@ function AppInner() {
           intercorrencia: chk.intercorrencia || undefined,
           intercorrenciaDesc: chk.intercorrencia_desc || undefined,
           photoUrl: chk.photo_url || undefined,
+          signedBy: chk.signed_by || undefined,
+          signedAt: chk.signed_at || undefined,
           carePlanAdherence: (chk.carePlanAdherence || []).map((adh: any) => ({
             id: adh.id,
             checklistId: adh.checklist_id,
@@ -1016,7 +1018,9 @@ function AppInner() {
               atividades_consulta: chk.atividadesConsulta || null,
               intercorrencia: chk.intercorrencia || null,
               intercorrencia_desc: chk.intercorrenciaDesc || null,
-              photo_url: chk.photoUrl || null
+              photo_url: chk.photoUrl || null,
+              signed_by: chk.signedBy || null,
+              signed_at: chk.signedAt || null
             }, { onConflict: 'resident_id,date' })
             .select()
             .single();
