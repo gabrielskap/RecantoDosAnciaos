@@ -47,7 +47,7 @@ const pathToView = (path: string): { view: ViewState; residentId?: string } => {
     case 'reports':
       return { view: ViewState.REPORTS };
     case 'users':
-      return { view: ViewState.USERS };
+      return { view: ViewState.TEAM };
     case 'rooms':
       return { view: ViewState.ROOMS };
     default:
@@ -76,7 +76,7 @@ const viewToPath = (view: ViewState, residentId?: string): string => {
     case ViewState.REPORTS:
       return '/reports';
     case ViewState.USERS:
-      return '/users';
+      return '/team';
     case ViewState.ROOMS:
       return '/rooms';
     default:
@@ -204,52 +204,77 @@ function AppInner() {
           status: cp.status,
           createdAt: cp.created_at
         })),
-        dailyChecklists: (r.dailyChecklists || []).map((chk: any) => ({
-          date: chk.date,
-          hygiene: chk.hygiene,
-          oralCare: chk.oral_care,
-          feeding: chk.feeding,
-          hydration: chk.hydration,
-          mobility: chk.mobility,
-          dressings: chk.dressings,
-          leisure: chk.leisure,
-          queixaDor: chk.queixa_dor || undefined,
-          queixaDorDesc: chk.queixa_dor_desc || undefined,
-          estadoNeurologico: chk.estado_neurologico || undefined,
-          arAmbiente: chk.ar_ambiente !== null ? chk.ar_ambiente : undefined,
-          alimentacao: chk.alimentacao || undefined,
-          alimentacaoDesc: chk.alimentacao_desc || undefined,
-          agitado: chk.agitado !== null ? chk.agitado : undefined,
-          prostrado: chk.prostrado !== null ? chk.prostrado : undefined,
-          sonolento: chk.sonolento !== null ? chk.sonolento : undefined,
-          eliminacaoEvacuacao: chk.eliminacao_evacuacao || undefined,
-          eliminacaoEvacuacaoDias: chk.eliminacao_evacuacao_dias || undefined,
-          aspectoEvacuacoes: chk.aspecto_evacuacoes || undefined,
-          diurese: chk.diurese || undefined,
-          diureseAspecto: chk.diurese_aspecto || undefined,
-          usoFraldas: chk.uso_fraldas || undefined,
-          mobilidadeSet: chk.mobilidade_set || undefined,
-          higieneCorporal: chk.higiene_corporal || undefined,
-          higieneOralVestir: chk.higiene_oral_vestir || undefined,
-          alteracoesPele: chk.alteracoes_pele || undefined,
-          alteracoesPeleDesc: chk.alteracoes_pele_desc || undefined,
-          sono: chk.sono || undefined,
-          sonoDesc: chk.sono_desc || undefined,
-          medicacoesAdministradas: chk.medicacoes_administradas || undefined,
-          atividadesConsulta: chk.atividades_consulta || undefined,
-          intercorrencia: chk.intercorrencia || undefined,
-          intercorrenciaDesc: chk.intercorrencia_desc || undefined,
-          photoUrl: chk.photo_url || undefined,
-          signedBy: chk.signed_by || undefined,
-          signedAt: chk.signed_at || undefined,
-          carePlanAdherence: (chk.carePlanAdherence || []).map((adh: any) => ({
-            id: adh.id,
-            checklistId: adh.checklist_id,
-            carePlanId: adh.care_plan_id,
-            status: adh.status,
-            comment: adh.comment || undefined
-          }))
-        })),
+        dailyChecklists: (r.dailyChecklists || []).map((chk: any) => {
+          const shift = chk.shift || 'diurno';
+          const match = (r.vitals || []).find((v: any) => {
+            const vDate = new Date(v.timestamp);
+            const year = vDate.getFullYear();
+            const month = String(vDate.getMonth() + 1).padStart(2, '0');
+            const day = String(vDate.getDate()).padStart(2, '0');
+            const localDateStr = `${year}-${month}-${day}`;
+            
+            if (localDateStr !== chk.date) return false;
+            
+            const hour = vDate.getHours();
+            if (shift === 'noturno') {
+              return hour >= 18 || hour < 6;
+            } else {
+              return hour >= 6 && hour < 18;
+            }
+          });
+
+          return {
+            date: chk.date,
+            shift,
+            hygiene: chk.hygiene,
+            oralCare: chk.oral_care,
+            feeding: chk.feeding,
+            hydration: chk.hydration,
+            mobility: chk.mobility,
+            dressings: chk.dressings,
+            leisure: chk.leisure,
+            queixaDor: chk.queixa_dor || undefined,
+            queixaDorDesc: chk.queixa_dor_desc || undefined,
+            estadoNeurologico: chk.estado_neurologico || undefined,
+            arAmbiente: chk.ar_ambiente !== null ? chk.ar_ambiente : undefined,
+            alimentacao: chk.alimentacao || undefined,
+            alimentacaoDesc: chk.alimentacao_desc || undefined,
+            agitado: chk.agitado !== null ? chk.agitado : undefined,
+            prostrado: chk.prostrado !== null ? chk.prostrado : undefined,
+            sonolento: chk.sonolento !== null ? chk.sonolento : undefined,
+            eliminacaoEvacuacao: chk.eliminacao_evacuacao || undefined,
+            eliminacaoEvacuacaoDias: chk.eliminacao_evacuacao_dias || undefined,
+            aspectoEvacuacoes: chk.aspecto_evacuacoes || undefined,
+            diurese: chk.diurese || undefined,
+            diureseAspecto: chk.diurese_aspecto || undefined,
+            usoFraldas: chk.uso_fraldas || undefined,
+            mobilidadeSet: chk.mobilidade_set || undefined,
+            higieneCorporal: chk.higiene_corporal || undefined,
+            higieneOralVestir: chk.higiene_oral_vestir || undefined,
+            alteracoesPele: chk.alteracoes_pele || undefined,
+            alteracoesPeleDesc: chk.alteracoes_pele_desc || undefined,
+            sono: chk.sono || undefined,
+            sonoDesc: chk.sono_desc || undefined,
+            medicacoesAdministradas: chk.medicacoes_administradas || undefined,
+            atividadesConsulta: chk.atividades_consulta || undefined,
+            intercorrencia: chk.intercorrencia || undefined,
+            intercorrenciaDesc: chk.intercorrencia_desc || undefined,
+            photoUrl: chk.photo_url || undefined,
+            signedBy: chk.signed_by || undefined,
+            signedAt: chk.signed_at || undefined,
+            frequenciaCardiaca: match && match.hr ? String(match.hr) : undefined,
+            pressaoArterial: match && match.bp ? match.bp : undefined,
+            saturacao: match && match.spo2 ? String(match.spo2) : undefined,
+            temperatura: match && match.temp ? String(match.temp) : undefined,
+            carePlanAdherence: (chk.carePlanAdherence || []).map((adh: any) => ({
+              id: adh.id,
+              checklistId: adh.checklist_id,
+              carePlanId: adh.care_plan_id,
+              status: adh.status,
+              comment: adh.comment || undefined
+            }))
+          };
+        }),
         documents: (r.documents || []).map((doc: any) => ({
           id: doc.id,
           name: doc.name,
@@ -822,6 +847,37 @@ function AppInner() {
 
   const handleUpdateResident = async (updated: Resident) => {
     try {
+      // Sincronizar sinais vitais dos boletins com a tabela de sinais vitais
+      if (updated.dailyChecklists) {
+        const extractedVitals = updated.dailyChecklists
+          .filter(chk => chk.frequenciaCardiaca || chk.pressaoArterial || chk.saturacao || chk.temperatura)
+          .map(chk => {
+            const shift = chk.shift || 'diurno';
+            const [year, month, day] = chk.date.split('-').map(Number);
+            const hour = shift === 'noturno' ? 22 : 10;
+            const localDate = new Date(year, month - 1, day, hour, 0, 0);
+            const timestamp = localDate.toISOString();
+
+            return {
+              timestamp,
+              bp: chk.pressaoArterial || '',
+              hr: chk.frequenciaCardiaca ? parseInt(chk.frequenciaCardiaca, 10) : 0,
+              temp: chk.temperatura ? parseFloat(chk.temperatura) : 36.5,
+              spo2: chk.saturacao ? parseInt(chk.saturacao, 10) : 0,
+              painLevel: chk.queixaDor === 'sim' ? 5 : undefined
+            };
+          });
+
+        const vitalsMap = new Map();
+        (updated.vitals || []).forEach(v => {
+          vitalsMap.set(v.timestamp, v);
+        });
+        extractedVitals.forEach(v => {
+          vitalsMap.set(v.timestamp, v);
+        });
+        updated.vitals = Array.from(vitalsMap.values());
+      }
+
       const { error: resError } = await supabase
         .from('Recanto_Residentes')
         .update({
@@ -985,6 +1041,7 @@ function AppInner() {
             .upsert({
               resident_id: updated.id,
               date: chk.date,
+              shift: chk.shift || 'diurno',
               hygiene: chk.hygiene,
               oral_care: chk.oralCare,
               feeding: chk.feeding,
@@ -1021,7 +1078,7 @@ function AppInner() {
               photo_url: chk.photoUrl || null,
               signed_by: chk.signedBy || null,
               signed_at: chk.signedAt || null
-            }, { onConflict: 'resident_id,date' })
+            }, { onConflict: 'resident_id,date,shift' })
             .select()
             .single();
 
@@ -1457,6 +1514,8 @@ function AppInner() {
             accessLogs={accessLogs}
             onAddEmployee={handleAddEmployee}
             onAddTraining={handleAddTraining}
+            residents={residents}
+            onAddAccessLog={handleAddAccessLog}
           />
         );
       case ViewState.NUTRITION:
@@ -1472,15 +1531,6 @@ function AppInner() {
             residents={residents}
             employees={employees}
             invoices={invoices}
-          />
-        );
-      case ViewState.USERS:
-        return (
-          <UsersModule
-            residents={residents}
-            employees={employees}
-            onAddEmployee={handleAddEmployee}
-            onAddAccessLog={handleAddAccessLog}
           />
         );
       case ViewState.STOCK:

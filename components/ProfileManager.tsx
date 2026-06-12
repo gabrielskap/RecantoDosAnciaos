@@ -14,7 +14,7 @@ const MODULE_LABELS: Record<ViewState, string> = {
   [ViewState.STOCK]: 'Estoque',
   [ViewState.REPORTS]: 'Relatórios',
   [ViewState.AI_ASSISTANT]: 'Assistente IA',
-  [ViewState.USERS]: 'Gestão de Usuários',
+  [ViewState.USERS]: 'Contas de Acesso',
   [ViewState.ROOMS]: 'Quartos',
 };
 

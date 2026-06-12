@@ -3,7 +3,7 @@ import {
   HeartPulse, LogOut, User, CalendarDays, ClipboardList, Activity,
   CheckCircle2, Circle, Thermometer, Heart, Wind, Droplets,
   MapPin, Clock, ChevronRight, Stethoscope, Dumbbell, Music,
-  Users, CalendarCheck, AlertCircle, Info
+  Users, CalendarCheck, AlertCircle, Info, Sun, Moon
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { Resident, CalendarEvent } from '../types';
@@ -18,6 +18,7 @@ type TabId = 'today' | 'agenda' | 'evolution' | 'profile';
 const ResidentPortal: React.FC<ResidentPortalProps> = ({ resident, events }) => {
   const { currentUser, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<TabId>('today');
+  const [portalShift, setPortalShift] = useState<'diurno' | 'noturno'>('diurno');
 
   if (!resident) {
     return (
@@ -32,8 +33,9 @@ const ResidentPortal: React.FC<ResidentPortalProps> = ({ resident, events }) => 
   }
 
   const todayStr = new Date().toISOString().split('T')[0];
-  const todayChecklist = resident.dailyChecklists?.find(c => c.date === todayStr)
-    ?? resident.dailyChecklists?.[resident.dailyChecklists.length - 1];
+  const shiftChecklists = resident.dailyChecklists?.filter(c => (c.shift || 'diurno') === portalShift) || [];
+  const todayChecklist = shiftChecklists.find(c => c.date === todayStr)
+    ?? shiftChecklists[shiftChecklists.length - 1];
 
   const recentVitals = resident.vitals?.slice(-3).reverse() ?? [];
   const latestVital = recentVitals[0];
@@ -193,6 +195,34 @@ const ResidentPortal: React.FC<ResidentPortalProps> = ({ resident, events }) => 
                   )}
                 </div>
 
+                {/* Shift Selector */}
+                <div className="flex justify-start gap-2 mt-4 mb-1">
+                  <button
+                    type="button"
+                    onClick={() => setPortalShift('diurno')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
+                      portalShift === 'diurno'
+                        ? 'bg-amber-50 text-amber-700 border-amber-200 font-bold'
+                        : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    <Sun className="h-3 w-3" />
+                    Diurno
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPortalShift('noturno')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
+                      portalShift === 'noturno'
+                        ? 'bg-indigo-50 text-indigo-700 border-indigo-200 font-bold'
+                        : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    <Moon className="h-3 w-3" />
+                    Noturno
+                  </button>
+                </div>
+
                 {totalTasks > 0 && (
                   <div className="mt-3 h-2 bg-slate-100 rounded-full overflow-hidden">
                     <div
@@ -222,7 +252,7 @@ const ResidentPortal: React.FC<ResidentPortalProps> = ({ resident, events }) => 
               ) : (
                 <div className="px-5 pb-5 flex items-center gap-2 text-slate-400">
                   <Clock className="h-4 w-4" />
-                  <span className="text-sm">Checklist de hoje ainda não preenchido pela equipe.</span>
+                  <span className="text-sm">Checklist {portalShift === 'diurno' ? 'diurno' : 'noturno'} de hoje ainda não preenchido pela equipe.</span>
                 </div>
               )}
             </section>

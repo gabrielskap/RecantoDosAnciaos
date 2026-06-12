@@ -47,6 +47,7 @@ export interface CarePlanAdherence {
 
 export interface DailyChecklist {
   date: string;
+  shift?: 'diurno' | 'noturno';
   hygiene: boolean; // Banho/Higiene
   oralCare: boolean; // Higiene Oral
   feeding: boolean; // Aceitação alimentar (legacy boolean, keeping for compatibility)

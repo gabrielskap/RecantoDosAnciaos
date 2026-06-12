@@ -3,7 +3,7 @@ import {
   ArrowLeft, Activity, Pill, FileText, Sparkles,
   Thermometer, Heart, CheckCircle, PenTool, ShieldCheck,
   ClipboardList, History, Plus, User, Clock, File, Paperclip, CalendarCheck, AlertOctagon,
-  BedDouble, Home, Wrench, PaintRoller, Edit2, X, Phone, FileHeart, Trash2, Users, Camera
+  BedDouble, Home, Wrench, PaintRoller, Edit2, X, Phone, FileHeart, Trash2, Users, Camera, Sun, Moon
 } from 'lucide-react';
 import { Resident, CarePlan, AuditLog, DailyChecklist, Medication, RoomStatus, Room } from '../types';
 import { summarizePatientHealth } from '../services/geminiService';
@@ -37,7 +37,7 @@ interface ResidentProfileProps {
 }
 
 const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBack, onUpdateResident }) => {
-  const [activeTab, setActiveTab] = useState<'info' | 'meds' | 'vitals' | 'care' | 'visits' | 'docs' | 'evolution' | 'history'>('vitals');
+  const [activeTab, setActiveTab] = useState<'info' | 'meds' | 'vitals' | 'routine' | 'care_plan' | 'visits' | 'docs' | 'evolution' | 'history'>('vitals');
   const [aiAnalysis, setAiAnalysis] = useState<string>('');
   const [loadingAi, setLoadingAi] = useState(false);
   const [isSigned, setIsSigned] = useState(false);
@@ -315,12 +315,16 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   // Daily Checklist State
   const today = new Date().toISOString().split('T')[0];
   const [selectedChecklistDate, setSelectedChecklistDate] = useState(today);
+  const [selectedShift, setSelectedShift] = useState<'diurno' | 'noturno'>('diurno');
   const [isAllChecklistsModalOpen, setIsAllChecklistsModalOpen] = useState(false);
   const [isSignConfirmModalOpen, setIsSignConfirmModalOpen] = useState(false);
   const [signConfirmContext, setSignConfirmContext] = useState<'read' | 'edit'>('read');
 
-  const selectedChecklist = resident.dailyChecklists?.find(c => c.date === selectedChecklistDate) || {
+  const selectedChecklist = resident.dailyChecklists?.find(
+    c => c.date === selectedChecklistDate && (c.shift || 'diurno') === selectedShift
+  ) || {
     date: selectedChecklistDate,
+    shift: selectedShift,
     hygiene: false,
     oralCare: false,
     feeding: false,
@@ -343,21 +347,25 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     setIsSignConfirmModalOpen(false);
 
     if (signConfirmContext === 'edit' && checklistDraft && onUpdateResident) {
-      const signedDraft = { ...checklistDraft, signedBy, signedAt };
-      const otherChecklists = resident.dailyChecklists?.filter(c => c.date !== signedDraft.date) || [];
+      const signedDraft = { ...checklistDraft, signedBy, signedAt, shift: selectedShift };
+      const otherChecklists = resident.dailyChecklists?.filter(
+        c => !(c.date === signedDraft.date && (c.shift || 'diurno') === selectedShift)
+      ) || [];
       onUpdateResident({ ...resident, dailyChecklists: [signedDraft, ...otherChecklists] });
       setSelectedChecklistDate(signedDraft.date);
       setChecklistDraft(null);
     } else if (signConfirmContext === 'read' && onUpdateResident) {
-      const updatedChecklist = { ...selectedChecklist, signedBy, signedAt };
-      const otherChecklists = resident.dailyChecklists?.filter(c => c.date !== updatedChecklist.date) || [];
+      const updatedChecklist = { ...selectedChecklist, signedBy, signedAt, shift: selectedShift };
+      const otherChecklists = resident.dailyChecklists?.filter(
+        c => !(c.date === updatedChecklist.date && (c.shift || 'diurno') === selectedShift)
+      ) || [];
       onUpdateResident({ ...resident, dailyChecklists: [updatedChecklist, ...otherChecklists] });
     }
   };
 
   const handleStartEditChecklist = () => {
     if (selectedChecklist.signedBy) return;
-    const draft = { ...selectedChecklist };
+    const draft = { ...selectedChecklist, shift: selectedShift };
     const parsed = parseMedications(draft.medicacoesAdministradas);
     if (!parsed && resident.medications && resident.medications.length > 0) {
       const initialMeds: ChecklistMedication[] = resident.medications.map(med => ({
@@ -518,8 +526,14 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     if (!onUpdateResident) return;
     
     // Create new list or update existing
-    const updatedChecklist = { ...selectedChecklist, [field]: !selectedChecklist[field as keyof DailyChecklist] };
-    const otherChecklists = resident.dailyChecklists?.filter(c => c.date !== selectedChecklistDate) || [];
+    const updatedChecklist = { 
+      ...selectedChecklist, 
+      [field]: !selectedChecklist[field as keyof DailyChecklist],
+      shift: selectedShift
+    };
+    const otherChecklists = resident.dailyChecklists?.filter(
+      c => !(c.date === selectedChecklistDate && (c.shift || 'diurno') === selectedShift)
+    ) || [];
     
     onUpdateResident({
       ...resident,
@@ -533,8 +547,14 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     } else {
       if (!onUpdateResident) return;
       
-      const updatedChecklist = { ...selectedChecklist, [field]: value };
-      const otherChecklists = resident.dailyChecklists?.filter(c => c.date !== selectedChecklistDate) || [];
+      const updatedChecklist = { 
+        ...selectedChecklist, 
+        [field]: value,
+        shift: selectedShift
+      };
+      const otherChecklists = resident.dailyChecklists?.filter(
+        c => !(c.date === selectedChecklistDate && (c.shift || 'diurno') === selectedShift)
+      ) || [];
       
       onUpdateResident({
         ...resident,
@@ -593,7 +613,8 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     { id: 'info', label: 'Cadastro', icon: User },
     { id: 'vitals', label: 'Sinais Vitais', icon: Activity },
     { id: 'meds', label: 'Medicamentos', icon: Pill },
-    { id: 'care', label: 'Rotina & Plano', icon: ClipboardList },
+    { id: 'routine', label: 'Rotina Diária', icon: ClipboardList },
+    { id: 'care_plan', label: 'Plano Evolutivo', icon: FileHeart },
     { id: 'visits', label: 'Visitas', icon: Users },
     { id: 'docs', label: 'Documentos', icon: Paperclip },
     { id: 'evolution', label: 'Evolução', icon: FileText },
@@ -830,46 +851,92 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
             </div>
           )}
 
-          {activeTab === 'vitals' && (
-            <div className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-slate-50 p-4 rounded-lg border border-slate-100">
-                  <div className="flex items-center text-slate-500 mb-2">
-                    <Heart className="h-4 w-4 mr-2" /> Frequência Cardíaca
+          {activeTab === 'vitals' && (() => {
+            const sortedVitals = [...(resident.vitals || [])].sort(
+              (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+            );
+            const latestVital = sortedVitals[0] || null;
+
+            const chartData = [...(resident.vitals || [])]
+              .map(v => {
+                const systolicPart = v.bp ? v.bp.split('/')[0] : '';
+                const diastolicPart = v.bp ? v.bp.split('/')[1] : '';
+                const systolic = parseInt(systolicPart, 10);
+                const diastolic = parseInt(diastolicPart, 10);
+                
+                const vDate = new Date(v.timestamp);
+                const formattedDate = vDate.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) + ' ' + (vDate.getHours() === 22 ? 'N' : 'D');
+                
+                return {
+                  ...v,
+                  systolic: isNaN(systolic) ? null : systolic,
+                  diastolic: isNaN(diastolic) ? null : diastolic,
+                  formattedDate
+                };
+              })
+              .filter(v => v.systolic !== null)
+              .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+              .slice(-14);
+
+            return (
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="bg-slate-50 p-4 rounded-lg border border-slate-100 shadow-sm">
+                    <div className="flex items-center text-slate-500 mb-2">
+                      <Heart className="h-4 w-4 mr-2 text-rose-500" /> Frequência Cardíaca
+                    </div>
+                    <p className="text-2xl font-bold text-slate-800">
+                      {latestVital?.hr ? `${latestVital.hr}` : '—'}{' '}
+                      <span className="text-sm font-normal text-slate-500">bpm</span>
+                    </p>
                   </div>
-                  <p className="text-2xl font-bold text-slate-800">72 <span className="text-sm font-normal text-slate-500">bpm</span></p>
+                  <div className="bg-slate-50 p-4 rounded-lg border border-slate-100 shadow-sm">
+                     <div className="flex items-center text-slate-500 mb-2">
+                      <Activity className="h-4 w-4 mr-2 text-blue-500" /> Pressão Arterial
+                    </div>
+                    <p className="text-2xl font-bold text-slate-800">
+                      {latestVital?.bp || '—'}{' '}
+                      <span className="text-sm font-normal text-slate-500">mmHg</span>
+                    </p>
+                  </div>
+                  <div className="bg-slate-50 p-4 rounded-lg border border-slate-100 shadow-sm">
+                     <div className="flex items-center text-slate-500 mb-2">
+                      <Thermometer className="h-4 w-4 mr-2 text-amber-500" /> Temperatura
+                    </div>
+                    <p className="text-2xl font-bold text-slate-800">
+                      {latestVital?.temp ? `${latestVital.temp}` : '—'}{' '}
+                      <span className="text-sm font-normal text-slate-500">°C</span>
+                    </p>
+                  </div>
                 </div>
-                <div className="bg-slate-50 p-4 rounded-lg border border-slate-100">
-                   <div className="flex items-center text-slate-500 mb-2">
-                    <Activity className="h-4 w-4 mr-2" /> Pressão Arterial
-                  </div>
-                  <p className="text-2xl font-bold text-slate-800">120/80 <span className="text-sm font-normal text-slate-500">mmHg</span></p>
-                </div>
-                <div className="bg-slate-50 p-4 rounded-lg border border-slate-100">
-                   <div className="flex items-center text-slate-500 mb-2">
-                    <Thermometer className="h-4 w-4 mr-2" /> Temperatura
-                  </div>
-                  <p className="text-2xl font-bold text-slate-800">36.5 <span className="text-sm font-normal text-slate-500">°C</span></p>
+                
+                <div className="h-64 w-full mt-8 bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                  <h4 className="text-sm font-semibold text-slate-700 mb-4 flex items-center justify-between">
+                    <span>Histórico de Pressão Arterial (últimas medições)</span>
+                    <span className="text-xs text-slate-400 font-normal">D = Diurno / N = Noturno</span>
+                  </h4>
+                  {chartData.length > 0 ? (
+                    <ResponsiveContainer width="100%" height="90%">
+                      <LineChart data={chartData}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                        <XAxis dataKey="formattedDate" stroke="#94a3b8" fontSize={11} />
+                        <YAxis stroke="#94a3b8" fontSize={11} domain={[40, 200]} />
+                        <Tooltip 
+                          contentStyle={{ backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #e2e8f0' }}
+                        />
+                        <Line type="monotone" dataKey="systolic" stroke="#f43f5e" strokeWidth={2.5} dot={{ r: 4 }} activeDot={{ r: 6 }} name="Sistólica (mmHg)" />
+                        <Line type="monotone" dataKey="diastolic" stroke="#3b82f6" strokeWidth={2.5} dot={{ r: 4 }} name="Diastólica (mmHg)" />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="h-4/5 flex items-center justify-center border border-dashed border-slate-200 rounded-lg p-6 text-slate-400 text-xs italic">
+                      Nenhum registro de pressão arterial encontrado para este residente.
+                    </div>
+                  )}
                 </div>
               </div>
-              
-              <div className="h-64 w-full mt-8">
-                <h4 className="text-sm font-semibold text-slate-700 mb-4">Histórico de Pressão Sistólica (7 dias)</h4>
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={resident.vitals}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                    <XAxis dataKey="timestamp" stroke="#94a3b8" fontSize={12} tickFormatter={(v) => v.split('T')[0].slice(5)} />
-                    <YAxis stroke="#94a3b8" fontSize={12} domain={[100, 180]} />
-                    <Tooltip 
-                      contentStyle={{ backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #e2e8f0' }}
-                    />
-                    <Line type="monotone" dataKey="hr" stroke="#0ea5e9" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} name="BPM" />
-                    <Line type="monotone" dataKey="spo2" stroke="#10b981" strokeWidth={2} dot={{ r: 4 }} name="SPO2" />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          )}
+            );
+          })()}
 
           {activeTab === 'meds' && (
             <div className="space-y-4">
@@ -934,7 +1001,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
             </div>
           )}
 
-          {activeTab === 'care' && (
+          {activeTab === 'routine' && (
             <div className="space-y-6 animate-in fade-in duration-200">
               {/* Date Selector Header (only visible when not editing) */}
               {checklistDraft === null && (
@@ -974,6 +1041,42 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
 
               {/* Daily Checklist */}
               <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 shadow-inner">
+                {/* Shift Selector Toggle */}
+                <div className="flex justify-center mb-6">
+                  <div className="bg-slate-200/80 p-1 rounded-xl flex gap-1 border border-slate-300/50 shadow-inner">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (checklistDraft === null) setSelectedShift('diurno');
+                      }}
+                      disabled={checklistDraft !== null}
+                      className={`flex items-center gap-2 px-5 py-2 rounded-lg text-xs font-bold transition-all ${
+                        selectedShift === 'diurno'
+                          ? 'bg-white text-amber-600 shadow-sm border border-slate-200'
+                          : 'text-slate-500 hover:text-slate-800'
+                      } ${checklistDraft !== null ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                    >
+                      <Sun className="h-3.5 w-3.5" />
+                      Boletim Diurno
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (checklistDraft === null) setSelectedShift('noturno');
+                      }}
+                      disabled={checklistDraft !== null}
+                      className={`flex items-center gap-2 px-5 py-2 rounded-lg text-xs font-bold transition-all ${
+                        selectedShift === 'noturno'
+                          ? 'bg-white text-indigo-650 shadow-sm border border-slate-200'
+                          : 'text-slate-500 hover:text-slate-800'
+                      } ${checklistDraft !== null ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                    >
+                      <Moon className="h-3.5 w-3.5" />
+                      Boletim Noturno
+                    </button>
+                  </div>
+                </div>
+
                 {checklistDraft === null ? (
                   /* READ-ONLY & COMPLETED VIEW OR UNFILLED PLACEHOLDER */
                   !(
@@ -996,17 +1099,17 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                         <CalendarCheck className="h-10 w-10" />
                       </div>
                       <h3 className="text-lg font-bold text-slate-800 mb-1">
-                        Rotina Diária Pendente ({new Date(selectedChecklistDate + 'T00:00:00').toLocaleDateString('pt-BR')})
+                        Rotina {selectedShift === 'diurno' ? 'Diurna' : 'Noturna'} Pendente ({new Date(selectedChecklistDate + 'T00:00:00').toLocaleDateString('pt-BR')})
                       </h3>
                       <p className="text-sm text-slate-500 max-w-sm mb-6">
-                        O prontuário diário para este dia ainda não foi iniciado para este residente. Crie o boletim para registrar a evolução de rotina.
+                        O prontuário {selectedShift === 'diurno' ? 'diurno' : 'noturno'} para este dia ainda não foi iniciado para este residente. Crie o boletim para registrar a evolução de rotina.
                       </p>
                       <button
                         onClick={handleStartEditChecklist}
                         className="flex items-center px-6 py-3 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 transition-all shadow-md hover:shadow-lg"
                       >
                         <Plus className="h-5 w-5 mr-2" />
-                        Preencher Boletim Diário
+                        Preencher Boletim {selectedShift === 'diurno' ? 'Diurno' : 'Noturno'}
                       </button>
                     </div>
                   ) : (
@@ -1016,10 +1119,10 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                         <div>
                           <h3 className="font-bold text-lg text-slate-800 flex items-center">
                             <CalendarCheck className="h-6 w-6 mr-2 text-primary-600" />
-                            Boletim Diário de Acompanhamento ({new Date(selectedChecklistDate + 'T00:00:00').toLocaleDateString('pt-BR')})
+                            Boletim {selectedShift === 'diurno' ? 'Diurno' : 'Noturno'} de Acompanhamento ({new Date(selectedChecklistDate + 'T00:00:00').toLocaleDateString('pt-BR')})
                           </h3>
                           <p className="text-xs text-slate-500 mt-1">
-                            Acompanhamento clínico e de rotina do residente para este dia de plantão.
+                            Acompanhamento clínico e de rotina {selectedShift === 'diurno' ? 'diurno' : 'noturno'} do residente para este dia de plantão.
                           </p>
                         </div>
                         <div className="flex items-center gap-2 w-full sm:w-auto justify-end flex-wrap">
@@ -1382,7 +1485,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                       <div>
                         <h3 className="font-bold text-lg text-slate-800 flex items-center">
                           <CalendarCheck className="h-6 w-6 mr-2 text-primary-600" />
-                          Preenchimento de Boletim Diário
+                          Preenchimento de Boletim {selectedShift === 'diurno' ? 'Diurno' : 'Noturno'}
                         </h3>
                         <div className="flex items-center gap-2 mt-2">
                           <span className="text-xs font-semibold text-slate-600">Data do Boletim:</span>
@@ -2134,15 +2237,19 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                           className="flex items-center px-6 py-2.5 bg-violet-600 text-white rounded-xl text-xs font-bold hover:bg-violet-700 transition-all shadow-md hover:shadow-lg"
                         >
                           <PenTool className="h-4 w-4 mr-2" />
-                          Assinar e Salvar Boletim
+                          Assinar e Salvar Boletim {selectedShift === 'diurno' ? 'Diurno' : 'Noturno'}
                         </button>
                       </div>
                     </div>
                   </div>
                 )}
               </div>
+            </div>
+          )}
 
-              <div className="flex justify-between items-center mt-6">
+          {activeTab === 'care_plan' && (
+            <div className="space-y-6 animate-in fade-in duration-200">
+              <div className="flex justify-between items-center">
                 <h3 className="text-lg font-semibold text-slate-800">Plano Individual de Cuidados</h3>
                 {canManageCarePlan && (
                   <button 
@@ -2991,7 +3098,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                     <div className="text-center py-12 px-4 bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col items-center">
                       <ClipboardList className="h-12 w-12 text-slate-300 mb-3" />
                       <p className="text-sm font-semibold text-slate-650">Nenhum boletim diário preenchido para este residente.</p>
-                      <p className="text-xs text-slate-400 mt-1">Preencha um boletim diário na aba "Rotina & Plano" para iniciar o histórico.</p>
+                      <p className="text-xs text-slate-400 mt-1">Preencha um boletim diário na aba "Rotina Diária" para iniciar o histórico.</p>
                     </div>
                   );
                 }
@@ -3000,11 +3107,14 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                   <div className="space-y-3">
                     {filledChecklists.map((chk) => {
                       const formattedDate = new Date(chk.date + 'T00:00:00').toLocaleDateString('pt-BR');
+                      const shiftVal = chk.shift || 'diurno';
                       return (
                         <div
-                          key={chk.date}
+                          key={`${chk.date}-${shiftVal}`}
                           onClick={() => {
                             setSelectedChecklistDate(chk.date);
+                            setSelectedShift(shiftVal);
+                            setActiveTab('routine');
                             setIsAllChecklistsModalOpen(false);
                           }}
                           className="bg-white hover:bg-indigo-50/40 p-4 rounded-xl border border-slate-200 shadow-sm hover:border-indigo-200 cursor-pointer transition-all flex flex-col md:flex-row justify-between items-start md:items-center gap-3 group"
@@ -3013,6 +3123,14 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                             <div className="flex items-center gap-2">
                               <CalendarCheck className="h-4.5 w-4.5 text-indigo-600 shrink-0" />
                               <span className="font-bold text-slate-800 text-sm">{formattedDate}</span>
+                              <span className={`flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                                shiftVal === 'noturno'
+                                  ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                                  : 'bg-amber-50 text-amber-700 border-amber-200'
+                              }`}>
+                                {shiftVal === 'noturno' ? <Moon className="h-3 w-3" /> : <Sun className="h-3 w-3" />}
+                                {shiftVal === 'noturno' ? 'Noturno' : 'Diurno'}
+                              </span>
                             </div>
 
                             {/* Bulletins Badges/Summaries */}

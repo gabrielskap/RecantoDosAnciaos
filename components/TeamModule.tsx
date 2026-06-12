@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { Users, Calendar, Award, Shield, Plus, X, Search, CheckCircle, AlertOctagon } from 'lucide-react';
-import { Employee, TrainingRecord, SystemAccessLog, UserRole } from '../types';
+import { Users, Calendar, Award, Shield, Plus, X, Search, CheckCircle, AlertOctagon, UserCheck } from 'lucide-react';
+import { Employee, TrainingRecord, SystemAccessLog, UserRole, Resident, ViewState } from '../types';
 import ProfileManager from './ProfileManager';
 import { useAuth } from '../contexts/AuthContext';
 import CustomSelect from './CustomSelect';
+import UsersModule from './UsersModule';
 
 interface TeamModuleProps {
   employees: Employee[];
@@ -11,12 +12,23 @@ interface TeamModuleProps {
   accessLogs: SystemAccessLog[];
   onAddEmployee: (emp: Omit<Employee, 'id'>) => Promise<Employee>;
   onAddTraining: (training: TrainingRecord) => void;
+  residents: Resident[];
+  onAddAccessLog: (log: SystemAccessLog) => void;
 }
 
-const TeamModule: React.FC<TeamModuleProps> = ({ employees, trainings, accessLogs, onAddEmployee, onAddTraining }) => {
-  const { currentUser, profiles, addUser } = useAuth();
+const TeamModule: React.FC<TeamModuleProps> = ({ 
+  employees, 
+  trainings, 
+  accessLogs, 
+  onAddEmployee, 
+  onAddTraining,
+  residents,
+  onAddAccessLog
+}) => {
+  const { currentUser, profiles, addUser, users, hasPermission } = useAuth();
   const isAdmin = currentUser?.profile.type === 'Administrador';
-  const [activeTab, setActiveTab] = useState<'employees' | 'schedule' | 'training' | 'logs' | 'profiles'>('employees');
+  const showUsersTab = hasPermission(ViewState.USERS, 'view');
+  const [activeTab, setActiveTab] = useState<'employees' | 'users' | 'schedule' | 'training' | 'logs' | 'profiles'>('employees');
   const [isEmpModalOpen, setIsEmpModalOpen] = useState(() => {
     return sessionStorage.getItem('modal_team_emp_open') === 'true';
   });
@@ -39,11 +51,15 @@ const TeamModule: React.FC<TeamModuleProps> = ({ employees, trainings, accessLog
     };
   });
 
-  const [createAccessUser, setCreateAccessUser] = useState(false);
+  const [linkUserMode, setLinkUserMode] = useState<string>('none');
   const [accessPassword, setAccessPassword] = useState('');
   const [accessProfileId, setAccessProfileId] = useState('');
 
   const employeeProfiles = profiles.filter(p => p.type !== 'Responsável');
+  const unlinkedUsers = users.filter(u => 
+    u.profile.type !== 'Responsável' && 
+    !employees.some(e => e.auth_user_id === u.id)
+  );
 
   // New Training Form State
   const [newTrain, setNewTrain] = useState<Partial<TrainingRecord>>(() => {
@@ -81,7 +97,7 @@ const TeamModule: React.FC<TeamModuleProps> = ({ employees, trainings, accessLog
     e.preventDefault();
     if (!newEmp.name || !newEmp.cpf) return;
 
-    if (createAccessUser) {
+    if (linkUserMode === 'create') {
       if (!newEmp.email || !newEmp.email.trim()) {
         alert('O e-mail é obrigatório para criar um usuário de acesso.');
         return;
@@ -107,12 +123,13 @@ const TeamModule: React.FC<TeamModuleProps> = ({ employees, trainings, accessLog
         isTechnicalLead: newEmp.isTechnicalLead || false,
         shift: newEmp.shift as any,
         status: 'Ativo',
-        admissionDate: new Date().toISOString().split('T')[0]
+        admissionDate: new Date().toISOString().split('T')[0],
+        auth_user_id: (linkUserMode !== 'none' && linkUserMode !== 'create') ? linkUserMode : undefined
       };
 
       const createdEmp = await onAddEmployee(employee);
 
-      if (createAccessUser && createdEmp && createdEmp.id) {
+      if (linkUserMode === 'create' && createdEmp && createdEmp.id) {
         const profile = profiles.find(p => p.id === accessProfileId);
         if (profile) {
           await addUser({
@@ -127,7 +144,7 @@ const TeamModule: React.FC<TeamModuleProps> = ({ employees, trainings, accessLog
 
       setIsEmpModalOpen(false);
       setNewEmp({ name: '', role: 'Cuidador', cpf: '', email: '', phone: '', shift: 'Matutino', isTechnicalLead: false });
-      setCreateAccessUser(false);
+      setLinkUserMode('none');
       setAccessPassword('');
       setAccessProfileId('');
     } catch (err: any) {
@@ -155,11 +172,13 @@ const TeamModule: React.FC<TeamModuleProps> = ({ employees, trainings, accessLog
     setNewTrain({ title: '', instructor: '', date: '', description: '', validUntil: '' });
   };
 
+  const inputClass = 'w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white';
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">Gestão de Equipe</h1>
+          <h1 className="text-2xl font-bold text-slate-800">Equipe e Acessos</h1>
           <p className="text-slate-500">Colaboradores, Escalas e Controle de Acesso</p>
         </div>
       </div>
@@ -168,6 +187,7 @@ const TeamModule: React.FC<TeamModuleProps> = ({ employees, trainings, accessLog
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-1 flex overflow-x-auto">
         {[
           { id: 'employees', label: 'Colaboradores', icon: Users },
+          ...(showUsersTab ? [{ id: 'users', label: 'Contas de Acesso', icon: UserCheck }] : []),
           { id: 'schedule', label: 'Escalas de Trabalho', icon: Calendar },
           { id: 'training', label: 'Treinamentos', icon: Award },
           { id: 'logs', label: 'Logs de Acesso (LGPD)', icon: Shield },
@@ -300,6 +320,18 @@ const TeamModule: React.FC<TeamModuleProps> = ({ employees, trainings, accessLog
           </div>
         )}
 
+        {/* USERS TAB */}
+        {activeTab === 'users' && showUsersTab && (
+          <div className="p-4 sm:p-6">
+            <UsersModule
+              residents={residents}
+              employees={employees}
+              onAddEmployee={onAddEmployee}
+              onAddAccessLog={onAddAccessLog}
+            />
+          </div>
+        )}
+
         {/* SCHEDULE TAB */}
         {activeTab === 'schedule' && (
           <div className="p-6">
@@ -419,120 +451,160 @@ const TeamModule: React.FC<TeamModuleProps> = ({ employees, trainings, accessLog
 
       {/* Add Employee Modal - Sempre ativo (não fecha ao clicar no fundo/backdrop) */}
       {isEmpModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 bg-black bg-opacity-65">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/50 backdrop-blur-sm">
           <div 
             onClick={(e) => e.stopPropagation()} 
-            className="bg-white rounded-none sm:rounded-xl shadow-lg max-w-lg w-full h-full sm:h-auto overflow-y-auto sm:overflow-hidden flex flex-col"
+            className="bg-white w-full h-full sm:h-auto sm:rounded-2xl shadow-2xl sm:max-w-lg overflow-hidden flex flex-col max-h-[100vh] sm:max-h-[90vh]"
           >
-             <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50 sticky top-0 z-10">
-               <h3 className="font-semibold text-slate-800">Novo Colaborador</h3>
+             <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-[#F8F7FF] sticky top-0 z-10 shrink-0">
+               <div>
+                 <h3 className="font-bold text-slate-800">Novo Colaborador</h3>
+                 <p className="text-xs text-slate-400 mt-0.5">Cadastre um novo colaborador na equipe</p>
+               </div>
                <button 
                  onClick={() => setIsEmpModalOpen(false)}
-                 className="w-11 h-11 flex items-center justify-center rounded-lg hover:bg-slate-200 transition-colors"
+                 className="w-9 h-9 rounded-xl hover:bg-slate-200 flex items-center justify-center transition-colors"
                  aria-label="Close"
                >
-                 <X className="h-5 w-5 text-slate-400" />
+                 <X className="h-5 w-5 text-slate-500" />
                </button>
              </div>
-             <form onSubmit={handleEmpSubmit} className="p-6 space-y-4 flex-1">
-                 <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Nome Completo</label>
-                    <input required type="text" value={newEmp.name} onChange={e => setNewEmp({...newEmp, name: e.target.value})} className="w-full px-3 py-2.5 sm:py-2 border rounded-lg text-base sm:text-sm bg-white" />
-                 </div>
-                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                   <div>
-                     <label className="block text-sm font-medium text-slate-700 mb-1">Função (Perfil)</label>
-                     <CustomSelect
-                       value={newEmp.role || 'Cuidador'}
-                       onChange={v => setNewEmp({ ...newEmp, role: v as any })}
-                       options={[
-                         { value: 'Admin', label: 'Admin' },
-                         { value: 'Enfermeiro', label: 'Enfermeiro' },
-                         { value: 'Cuidador', label: 'Cuidador' },
-                         { value: 'Médico', label: 'Médico' },
-                         { value: 'Nutricionista', label: 'Nutricionista' },
-                       ]}
-                     />
-                   </div>
-                   <div>
-                     <label className="block text-sm font-medium text-slate-700 mb-1">CPF</label>
-                     <input required type="text" value={newEmp.cpf} onChange={e => setNewEmp({...newEmp, cpf: e.target.value})} className="w-full px-3 py-2.5 sm:py-2 border rounded-lg text-base sm:text-sm bg-white" />
-                   </div>
-                 </div>
-                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                   <div>
-                     <label className="block text-sm font-medium text-slate-700 mb-1">E-mail</label>
-                     <input type="email" value={newEmp.email} onChange={e => setNewEmp({...newEmp, email: e.target.value})} className="w-full px-3 py-2.5 sm:py-2 border rounded-lg text-base sm:text-sm bg-white" placeholder="exemplo@recanto.com" />
-                   </div>
-                   <div>
-                     <label className="block text-sm font-medium text-slate-700 mb-1">Telefone</label>
-                     <input type="text" value={newEmp.phone} onChange={e => setNewEmp({...newEmp, phone: e.target.value})} className="w-full px-3 py-2.5 sm:py-2 border rounded-lg text-base sm:text-sm bg-white" placeholder="(00) 00000-0000" />
-                   </div>
-                 </div>
-                 <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Nº Registro (CRM/COREN)</label>
-                    <input type="text" value={newEmp.registrationNumber} onChange={e => setNewEmp({...newEmp, registrationNumber: e.target.value})} className="w-full px-3 py-2.5 sm:py-2 border rounded-lg text-base sm:text-sm bg-white" />
-                 </div>
-                 <div className="grid grid-cols-2 gap-4">
+             <form onSubmit={handleEmpSubmit} className="p-6 space-y-4 flex-1 overflow-y-auto">
+                  <div>
+                     <label className="block text-xs font-semibold text-slate-600 mb-1.5">Nome Completo</label>
+                     <input required type="text" value={newEmp.name} onChange={e => setNewEmp({...newEmp, name: e.target.value})} className={inputClass} />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Turno</label>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">Função (Perfil)</label>
                       <CustomSelect
-                        value={newEmp.shift || 'Matutino'}
-                        onChange={v => setNewEmp({ ...newEmp, shift: v as any })}
+                        value={newEmp.role || 'Cuidador'}
+                        onChange={v => setNewEmp({ ...newEmp, role: v as any })}
                         options={[
-                          { value: 'Matutino', label: 'Matutino', desc: '07h – 13h' },
-                          { value: 'Vespertino', label: 'Vespertino', desc: '13h – 19h' },
-                          { value: 'Noturno', label: 'Noturno', desc: '19h – 07h' },
-                          { value: '12x36', label: '12x36', desc: 'Regime 12 horas' },
+                          { value: 'Admin', label: 'Admin' },
+                          { value: 'Enfermeiro', label: 'Enfermeiro' },
+                          { value: 'Cuidador', label: 'Cuidador' },
+                          { value: 'Médico', label: 'Médico' },
+                          { value: 'Nutricionista', label: 'Nutricionista' },
                         ]}
                       />
                     </div>
-                    <div className="flex items-center pt-6">
-                      <label className="flex items-center space-x-2 cursor-pointer w-full min-h-[44px]">
-                        <input type="checkbox" checked={newEmp.isTechnicalLead} onChange={e => setNewEmp({...newEmp, isTechnicalLead: e.target.checked})} className="rounded text-primary-600 focus:ring-primary-500 h-5 w-5 sm:h-4 sm:w-4" />
-                        <span className="text-sm font-medium text-slate-700">Resp. Técnico</span>
-                      </label>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">CPF</label>
+                      <input required type="text" value={newEmp.cpf} onChange={e => setNewEmp({...newEmp, cpf: e.target.value})} className={inputClass} />
                     </div>
-                 </div>
-                 <div className="pt-4 border-t border-slate-100 space-y-4">
-                    <label className="flex items-center space-x-2 cursor-pointer select-none">
-                      <input type="checkbox" checked={createAccessUser} onChange={e => {
-                        setCreateAccessUser(e.target.checked);
-                        if (e.target.checked && employeeProfiles.length > 0 && !accessProfileId) {
-                          setAccessProfileId(employeeProfiles[0].id);
-                        }
-                      }} className="rounded text-primary-600 focus:ring-primary-500 h-5 w-5 sm:h-4 sm:w-4" />
-                      <span className="text-sm font-semibold text-slate-800">Criar Usuário de Acesso ao Sistema</span>
-                    </label>
-                    
-                    {createAccessUser && (
-                      <div className="bg-primary-50/20 p-4 border border-primary-100 rounded-lg space-y-3 animate-fadeIn">
-                        <div>
-                          <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Perfil de Acesso</label>
-                          <CustomSelect
-                            value={accessProfileId}
-                            onChange={setAccessProfileId}
-                            options={employeeProfiles.map(p => ({ value: p.id, label: p.name, desc: p.type }))}
-                            placeholder="Selecione um perfil..."
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Senha Inicial</label>
-                          <input
-                            required={createAccessUser}
-                            type="password"
-                            placeholder="Mínimo 4 caracteres"
-                            value={accessPassword}
-                            onChange={e => setAccessPassword(e.target.value)}
-                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-                          />
-                        </div>
-                      </div>
-                    )}
-                 </div>
-                 <div className="pt-4 pb-8 sm:pb-0">
-                   <button type="submit" className="w-full bg-primary-600 hover:bg-primary-700 active:scale-95 text-white font-medium py-3 sm:py-2 rounded-lg transition-colors">Salvar Colaborador</button>
-                 </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">E-mail</label>
+                      <input type="email" autoComplete="new-password" value={newEmp.email} onChange={e => setNewEmp({...newEmp, email: e.target.value})} className={inputClass} placeholder="exemplo@recanto.com" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">Telefone</label>
+                      <input type="text" value={newEmp.phone} onChange={e => setNewEmp({...newEmp, phone: e.target.value})} className={inputClass} placeholder="(00) 00000-0000" />
+                    </div>
+                  </div>
+                  <div>
+                     <label className="block text-xs font-semibold text-slate-600 mb-1.5">Nº Registro (CRM/COREN)</label>
+                     <input type="text" value={newEmp.registrationNumber} onChange={e => setNewEmp({...newEmp, registrationNumber: e.target.value})} className={inputClass} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                     <div>
+                       <label className="block text-xs font-semibold text-slate-600 mb-1.5">Turno</label>
+                       <CustomSelect
+                         value={newEmp.shift || 'Matutino'}
+                         onChange={v => setNewEmp({ ...newEmp, shift: v as any })}
+                         options={[
+                           { value: 'Matutino', label: 'Matutino', desc: '07h – 13h' },
+                           { value: 'Vespertino', label: 'Vespertino', desc: '13h – 19h' },
+                           { value: 'Noturno', label: 'Noturno', desc: '19h – 07h' },
+                           { value: '12x36', label: '12x36', desc: 'Regime 12 horas' },
+                         ]}
+                       />
+                     </div>
+                     <div className="flex items-center pt-6">
+                       <label className="flex items-center space-x-2 cursor-pointer w-full min-h-[44px]">
+                         <input type="checkbox" checked={newEmp.isTechnicalLead} onChange={e => setNewEmp({...newEmp, isTechnicalLead: e.target.checked})} className="rounded text-primary-600 focus:ring-primary-500 h-5 w-5 sm:h-4 sm:w-4" />
+                         <span className="text-sm font-medium text-slate-700">Resp. Técnico</span>
+                       </label>
+                     </div>
+                  </div>
+                  <div className="pt-4 border-t border-slate-100 space-y-4">
+                     <div>
+                       <label className="block text-xs font-semibold text-slate-650 mb-1.5">Vincular a Usuário do Sistema</label>
+                       <CustomSelect
+                         value={linkUserMode}
+                         onChange={(val) => {
+                           setLinkUserMode(val);
+                           if (val === 'create' && employeeProfiles.length > 0 && !accessProfileId) {
+                             setAccessProfileId(employeeProfiles[0].id);
+                           }
+                           // Se for um usuário existente selecionado, podemos preencher automaticamente os campos de e-mail e nome
+                           if (val !== 'none' && val !== 'create') {
+                             const u = users.find(user => user.id === val);
+                             if (u) {
+                               setNewEmp(prev => ({
+                                 ...prev,
+                                 name: prev.name || u.name,
+                                 email: prev.email || u.email
+                               }));
+                             }
+                           }
+                         }}
+                         options={[
+                           { value: 'none', label: 'Não vincular a nenhum usuário' },
+                           { value: 'create', label: '➕ Criar Novo Usuário de Acesso...', desc: 'Criar novas credenciais de acesso' },
+                           ...unlinkedUsers.map(u => ({
+                             value: u.id,
+                             label: `${u.name} (${u.profile.name})`,
+                             desc: `E-mail: ${u.email}`
+                           }))
+                         ]}
+                         placeholder="Selecione..."
+                       />
+                     </div>
+                     
+                     {linkUserMode === 'create' && (
+                       <div className="bg-primary-50/20 p-4 border border-primary-100 rounded-xl space-y-3 animate-fadeIn">
+                         <div>
+                           <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1 text-slate-600">Perfil de Acesso</label>
+                           <CustomSelect
+                             value={accessProfileId}
+                             onChange={setAccessProfileId}
+                             options={employeeProfiles.map(p => ({ value: p.id, label: p.name, desc: p.type }))}
+                             placeholder="Selecione um perfil..."
+                           />
+                         </div>
+                         <div>
+                           <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1 text-slate-600">Senha Inicial</label>
+                           <input
+                             required={linkUserMode === 'create'}
+                             type="password"
+                             autoComplete="new-password"
+                             placeholder="••••••••"
+                             value={accessPassword}
+                             onChange={e => setAccessPassword(e.target.value)}
+                             className={inputClass}
+                           />
+                         </div>
+                       </div>
+                     )}
+                  </div>
+                  <div className="pt-4 border-t border-slate-100 flex gap-3 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setIsEmpModalOpen(false)}
+                      className="flex-1 sm:flex-none px-5 py-2.5 border border-slate-200 rounded-xl text-slate-600 font-semibold text-sm hover:bg-slate-50 transition-colors"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      className="flex-1 sm:flex-none px-6 py-2.5 bg-primary-600 hover:bg-primary-700 text-white rounded-xl font-semibold text-sm transition-colors shadow-sm"
+                    >
+                      Salvar Colaborador
+                    </button>
+                  </div>
               </form>
           </div>
         </div>
@@ -540,46 +612,61 @@ const TeamModule: React.FC<TeamModuleProps> = ({ employees, trainings, accessLog
 
       {/* Add Training Modal - Sempre ativo (não fecha ao clicar no fundo/backdrop) */}
       {isTrainModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 bg-black bg-opacity-65">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/50 backdrop-blur-sm">
           <div 
             onClick={(e) => e.stopPropagation()} 
-            className="bg-white rounded-none sm:rounded-xl shadow-lg max-w-lg w-full h-full sm:h-auto overflow-y-auto sm:overflow-hidden flex flex-col"
+            className="bg-white w-full h-full sm:h-auto sm:rounded-2xl shadow-2xl sm:max-w-lg overflow-hidden flex flex-col max-h-[100vh] sm:max-h-[90vh]"
           >
-             <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50 sticky top-0 z-10">
-               <h3 className="font-semibold text-slate-800">Registrar Treinamento</h3>
+             <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-[#F8F7FF] sticky top-0 z-10 shrink-0">
+               <div>
+                 <h3 className="font-bold text-slate-800">Registrar Treinamento</h3>
+                 <p className="text-xs text-slate-400 mt-0.5">Registre uma nova capacitação para a equipe</p>
+               </div>
                <button 
                  onClick={() => setIsTrainModalOpen(false)}
-                 className="w-11 h-11 flex items-center justify-center rounded-lg hover:bg-slate-200 transition-colors"
+                 className="w-9 h-9 rounded-xl hover:bg-slate-200 flex items-center justify-center transition-colors"
                  aria-label="Close"
                >
-                 <X className="h-5 w-5 text-slate-400" />
+                 <X className="h-5 w-5 text-slate-500" />
                </button>
              </div>
-             <form onSubmit={handleTrainSubmit} className="p-6 space-y-4 flex-1">
+             <form onSubmit={handleTrainSubmit} className="p-6 space-y-4 flex-1 overflow-y-auto">
                 <div>
-                   <label className="block text-sm font-medium text-slate-700 mb-1">Título do Curso</label>
-                   <input required type="text" value={newTrain.title} onChange={e => setNewTrain({...newTrain, title: e.target.value})} className="w-full px-3 py-2.5 sm:py-2 border rounded-lg text-base sm:text-sm bg-white" />
+                   <label className="block text-xs font-semibold text-slate-600 mb-1.5">Título do Curso</label>
+                   <input required type="text" value={newTrain.title} onChange={e => setNewTrain({...newTrain, title: e.target.value})} className={inputClass} />
                 </div>
                 <div>
-                   <label className="block text-sm font-medium text-slate-700 mb-1">Descrição</label>
-                   <textarea rows={2} value={newTrain.description} onChange={e => setNewTrain({...newTrain, description: e.target.value})} className="w-full px-3 py-2.5 sm:py-2 border rounded-lg text-base sm:text-sm bg-white" />
+                   <label className="block text-xs font-semibold text-slate-600 mb-1.5">Descrição</label>
+                   <textarea rows={2} value={newTrain.description} onChange={e => setNewTrain({...newTrain, description: e.target.value})} className={`${inputClass} resize-none`} />
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Instrutor</label>
-                    <input required type="text" value={newTrain.instructor} onChange={e => setNewTrain({...newTrain, instructor: e.target.value})} className="w-full px-3 py-2.5 sm:py-2 border rounded-lg text-base sm:text-sm bg-white" />
+                    <label className="block text-xs font-semibold text-slate-600 mb-1.5">Instrutor</label>
+                    <input required type="text" value={newTrain.instructor} onChange={e => setNewTrain({...newTrain, instructor: e.target.value})} className={inputClass} />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Data de Realização</label>
-                    <input required type="date" value={newTrain.date} onChange={e => setNewTrain({...newTrain, date: e.target.value})} className="w-full px-3 py-2.5 sm:py-2 border rounded-lg text-base sm:text-sm bg-white" />
+                    <label className="block text-xs font-semibold text-slate-600 mb-1.5">Data de Realização</label>
+                    <input required type="date" value={newTrain.date} onChange={e => setNewTrain({...newTrain, date: e.target.value})} className={inputClass} />
                   </div>
                 </div>
                 <div>
-                   <label className="block text-sm font-medium text-slate-700 mb-1">Validade (se houver)</label>
-                   <input type="date" value={newTrain.validUntil} onChange={e => setNewTrain({...newTrain, validUntil: e.target.value})} className="w-full px-3 py-2.5 sm:py-2 border rounded-lg text-base sm:text-sm bg-white" />
+                   <label className="block text-xs font-semibold text-slate-600 mb-1.5">Validade (se houver)</label>
+                   <input type="date" value={newTrain.validUntil} onChange={e => setNewTrain({...newTrain, validUntil: e.target.value})} className={inputClass} />
                 </div>
-                <div className="pt-4 pb-8 sm:pb-0">
-                  <button type="submit" className="w-full bg-slate-800 hover:bg-slate-900 active:scale-95 text-white font-medium py-3 sm:py-2 rounded-lg transition-colors">Registrar</button>
+                <div className="pt-4 border-t border-slate-100 flex gap-3 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setIsTrainModalOpen(false)}
+                    className="flex-1 sm:flex-none px-5 py-2.5 border border-slate-200 rounded-xl text-slate-600 font-semibold text-sm hover:bg-slate-50 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 sm:flex-none px-6 py-2.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-semibold text-sm transition-colors shadow-sm"
+                  >
+                    Registrar
+                  </button>
                 </div>
              </form>
           </div>

@@ -42,13 +42,7 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
     return sessionStorage.getItem('modal_users_form_error') || '';
   });
 
-  // Employee Linkage Form States
-  const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
-  const [empCpf, setEmpCpf] = useState('');
-  const [empPhone, setEmpPhone] = useState('');
-  const [empRegistration, setEmpRegistration] = useState('');
-  const [empIsTechnicalLead, setEmpIsTechnicalLead] = useState(false);
-  const [empShift, setEmpShift] = useState<'Matutino' | 'Vespertino' | 'Noturno' | '12x36'>('Matutino');
+
 
   React.useEffect(() => {
     if (isModalOpen) {
@@ -93,12 +87,6 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
     setEmail('');
     setPassword('');
     setSelectedResidentId(residents[0]?.id || '');
-    setSelectedEmployeeId('');
-    setEmpCpf('');
-    setEmpPhone('');
-    setEmpRegistration('');
-    setEmpIsTechnicalLead(false);
-    setEmpShift('Matutino');
     setFormError('');
     setIsModalOpen(true);
   };
@@ -124,48 +112,13 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
       return setFormError('Você deve selecionar o residente vinculado para este responsável.');
     }
 
-    // Validação de vínculo de colaborador obrigatório para equipe
-    if (profile.type !== 'Responsável' && !selectedEmployeeId) {
-      return setFormError('Você deve selecionar um colaborador para vincular a este usuário ou cadastrar um novo.');
-    }
-
-    if (profile.type !== 'Responsável' && selectedEmployeeId === 'NEW_EMPLOYEE') {
-      if (!empCpf.trim()) {
-        return setFormError('O CPF do colaborador é obrigatório.');
-      }
-    }
-
     try {
-      let finalEmployeeId = selectedEmployeeId;
-
-      // Se for cadastrar novo colaborador, criamos primeiro!
-      if (profile.type !== 'Responsável' && selectedEmployeeId === 'NEW_EMPLOYEE') {
-        const empData = {
-          name: name.trim(),
-          role: profile.type as any, // Mapeia o tipo de perfil para o cargo correspondente
-          cpf: empCpf.trim(),
-          email: email.trim().toLowerCase(),
-          phone: empPhone.trim(),
-          registrationNumber: empRegistration.trim() || undefined,
-          isTechnicalLead: empIsTechnicalLead,
-          shift: empShift,
-          status: 'Ativo' as const,
-          admissionDate: new Date().toISOString().split('T')[0]
-        };
-
-        const createdEmp = await onAddEmployee(empData);
-        if (!createdEmp || !createdEmp.id) {
-          return setFormError('Erro ao criar registro do colaborador. Operação abortada.');
-        }
-        finalEmployeeId = createdEmp.id;
-      }
-
-      const userData: Omit<AuthUser, 'id'> & { employeeId?: string } = {
+      const userData: Omit<AuthUser, 'id'> = {
         name: name.trim(),
         email: email.trim().toLowerCase(),
         password,
         profile,
-        ...(profile.type === 'Responsável' ? { residentId: selectedResidentId } : { employeeId: finalEmployeeId })
+        ...(profile.type === 'Responsável' ? { residentId: selectedResidentId } : {})
       };
 
       await addUser(userData);
@@ -251,13 +204,10 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
     return null;
   };
 
-  const unlinkedEmployees = employees.filter(emp => {
-    const hasAuthUserId = !!emp.auth_user_id;
-    const emailExistsInUsers = users.some(u => u.email.toLowerCase() === emp.email.toLowerCase());
-    return !hasAuthUserId && !emailExistsInUsers;
-  });
+
 
   const selectedProfile = profiles.find(p => p.id === selectedProfileId);
+  const inputClass = 'w-full pr-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white';
 
   return (
     <div className="space-y-6">
@@ -453,28 +403,31 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
 
       {/* Creation Modal - Sempre ativo (não fecha ao clicar no fundo/backdrop) */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-60 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/50 backdrop-blur-sm">
           <div
             onClick={(e) => e.stopPropagation()}
-            className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto flex flex-col transform transition-all"
+            className="bg-white w-full h-full sm:h-auto sm:rounded-2xl shadow-2xl sm:max-w-lg overflow-hidden flex flex-col max-h-[100vh] sm:max-h-[90vh]"
           >
-            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-55 sticky top-0 z-10">
+            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-[#F8F7FF] shrink-0 sticky top-0 z-10">
               <div className="flex items-center gap-2">
                 <UserPlus className="h-5 w-5 text-primary-600" />
-                <h3 className="font-semibold text-slate-800">Cadastrar Novo Usuário</h3>
+                <div>
+                  <h3 className="font-bold text-slate-800">Cadastrar Novo Usuário</h3>
+                  <p className="text-xs text-slate-400 mt-0.5">Preencha as credenciais e nível de acesso</p>
+                </div>
               </div>
               <button
                 onClick={() => setIsModalOpen(false)}
-                className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
+                className="w-9 h-9 rounded-xl hover:bg-slate-200 flex items-center justify-center transition-colors"
                 aria-label="Fechar"
               >
-                <X className="h-5 w-5" />
+                <X className="h-5 w-5 text-slate-500" />
               </button>
             </div>
 
-            <form onSubmit={handleCreateUser} className="p-6 space-y-4">
+            <form onSubmit={handleCreateUser} className="p-6 space-y-4 overflow-y-auto">
               {formError && (
-                <div className="bg-rose-50 border border-rose-200 rounded-lg p-3.5 flex items-start gap-2.5 text-rose-700 text-sm">
+                <div className="bg-rose-50 border border-rose-200 rounded-xl p-3.5 flex items-start gap-2.5 text-rose-700 text-sm">
                   <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
                   <span>{formError}</span>
                 </div>
@@ -482,12 +435,11 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
 
               <div className="grid grid-cols-1 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Perfil de Acesso / Hierarquia</label>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">Perfil de Acesso / Hierarquia</label>
                   <CustomSelect
                     value={selectedProfileId}
                     onChange={(val) => {
                       setSelectedProfileId(val);
-                      setSelectedEmployeeId('');
                       // Don't wipe name/email unless we are linking
                       const prof = profiles.find(p => p.id === val);
                       if (prof && prof.type === 'Responsável') {
@@ -501,157 +453,56 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
                 </div>
               </div>
 
-              {selectedProfile && selectedProfile.type !== 'Responsável' && (
-                <div className="bg-primary-50/20 p-4 border border-primary-100 rounded-lg space-y-3">
-                  <div>
-                    <label className="block text-sm font-medium text-primary-900 mb-1">Vincular a Colaborador da Equipe</label>
-                    <CustomSelect
-                      value={selectedEmployeeId}
-                      onChange={(val) => {
-                        setSelectedEmployeeId(val);
-                        if (val && val !== 'NEW_EMPLOYEE') {
-                          const emp = employees.find(e => e.id === val);
-                          if (emp) {
-                            setName(emp.name);
-                            setEmail(emp.email);
-                          }
-                        } else {
-                          setName('');
-                          setEmail('');
-                        }
-                      }}
-                      options={[
-                        { value: '', label: 'Selecione um colaborador existente...' },
-                        ...unlinkedEmployees.map(emp => ({
-                          value: emp.id,
-                          label: `${emp.name} (${emp.role})`,
-                          desc: `E-mail: ${emp.email || 'Não informado'} | CPF: ${emp.cpf}`
-                        })),
-                        { value: 'NEW_EMPLOYEE', label: '➕ Cadastrar Novo Colaborador...', desc: 'Criar cadastro na equipe simultaneamente' }
-                      ]}
-                      placeholder="Selecione..."
-                    />
-                  </div>
-
-                  {selectedEmployeeId === 'NEW_EMPLOYEE' && (
-                    <div className="pt-3 border-t border-primary-100 space-y-3">
-                      <p className="text-xs text-primary-700 font-semibold uppercase tracking-wider">Informações da Equipe</p>
-                      
-                      <div>
-                        <label className="block text-xs font-medium text-slate-600 mb-0.5">CPF do Colaborador</label>
-                        <input
-                          required
-                          type="text"
-                          placeholder="000.000.000-00"
-                          value={empCpf}
-                          onChange={e => setEmpCpf(e.target.value)}
-                          className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-                        />
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <label className="block text-xs font-medium text-slate-600 mb-0.5">Telefone</label>
-                          <input
-                            type="text"
-                            placeholder="(00) 00000-0000"
-                            value={empPhone}
-                            onChange={e => setEmpPhone(e.target.value)}
-                            className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-slate-600 mb-0.5">Turno</label>
-                          <CustomSelect
-                            value={empShift}
-                            onChange={val => setEmpShift(val as any)}
-                            options={[
-                              { value: 'Matutino', label: 'Matutino' },
-                              { value: 'Vespertino', label: 'Vespertino' },
-                              { value: 'Noturno', label: 'Noturno' },
-                              { value: '12x36', label: '12x36' },
-                            ]}
-                          />
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="block text-xs font-medium text-slate-600 mb-0.5">Nº Registro (CRM/COREN)</label>
-                        <input
-                          type="text"
-                          placeholder="Ex: COREN 12345"
-                          value={empRegistration}
-                          onChange={e => setEmpRegistration(e.target.value)}
-                          className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-                        />
-                      </div>
-
-                      <div className="flex items-center pt-1">
-                        <label className="flex items-center space-x-2 cursor-pointer select-none">
-                          <input
-                            type="checkbox"
-                            checked={empIsTechnicalLead}
-                            onChange={e => setEmpIsTechnicalLead(e.target.checked)}
-                            className="rounded text-primary-600 focus:ring-primary-500 h-4 w-4"
-                          />
-                          <span className="text-xs font-medium text-slate-700">Responsável Técnico</span>
-                        </label>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Nome Completo</label>
+                <label className="block text-xs font-semibold text-slate-600 mb-1.5">Nome Completo</label>
                 <div className="relative">
-                  <User className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                   <input
                     required
-                    disabled={!!selectedEmployeeId && selectedEmployeeId !== 'NEW_EMPLOYEE'}
                     type="text"
                     placeholder="Nome Completo do Usuário"
                     value={name}
                     onChange={e => setName(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                    className={`${inputClass} pl-9`}
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">E-mail de Acesso</label>
+                <label className="block text-xs font-semibold text-slate-600 mb-1.5">E-mail de Acesso</label>
                 <div className="relative">
-                  <Mail className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                   <input
                     required
-                    disabled={!!selectedEmployeeId && selectedEmployeeId !== 'NEW_EMPLOYEE' && !!employees.find(e => e.id === selectedEmployeeId)?.email}
                     type="email"
+                    autoComplete="new-password"
                     placeholder="exemplo@recanto.com"
                     value={email}
                     onChange={e => setEmail(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
+                    className={`${inputClass} pl-9`}
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Senha Inicial</label>
+                <label className="block text-xs font-semibold text-slate-600 mb-1.5">Senha Inicial</label>
                 <div className="relative">
-                  <Lock className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                   <input
                     required
                     type="password"
-                    placeholder="Mínimo 4 caracteres"
+                    autoComplete="new-password"
+                    placeholder="••••••••"
                     value={password}
                     onChange={e => setPassword(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    className={`${inputClass} pl-9`}
                   />
                 </div>
               </div>
 
               {selectedProfile && selectedProfile.type === 'Responsável' && (
-                <div className="bg-purple-50/50 p-4 border border-purple-100 rounded-lg space-y-2">
-                  <label className="block text-sm font-medium text-purple-900">Vincular a Residente</label>
+                <div className="bg-purple-50/50 p-4 border border-purple-100 rounded-xl space-y-2">
+                  <label className="block text-sm font-semibold text-purple-900">Vincular a Residente</label>
                   <p className="text-xs text-purple-700">Este usuário terá acesso restrito às informações apenas do residente selecionado.</p>
                   <CustomSelect
                     required
@@ -663,17 +514,17 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
                 </div>
               )}
 
-              <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 shrink-0">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 text-sm text-slate-500 bg-slate-100 rounded-lg hover:bg-slate-200 font-medium transition-colors"
+                  className="px-5 py-2.5 border border-slate-200 rounded-xl text-slate-600 font-semibold text-sm hover:bg-slate-50 transition-colors"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 text-sm text-white bg-primary-600 rounded-lg hover:bg-primary-700 font-medium shadow-sm transition-colors"
+                  className="px-6 py-2.5 bg-primary-600 hover:bg-primary-700 text-white rounded-xl font-semibold text-sm transition-colors shadow-sm"
                 >
                   Cadastrar Usuário
                 </button>
@@ -685,19 +536,19 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
 
       {/* Deletion Confirmation Modal - Sempre ativo (não fecha ao clicar no fundo/backdrop) */}
       {userToDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-60 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/50 backdrop-blur-sm">
           <div
             onClick={(e) => e.stopPropagation()}
-            className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 space-y-4"
+            className="bg-white sm:rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4"
           >
             <div className="flex items-center gap-3 text-rose-600">
-              <div className="p-2 bg-rose-100 rounded-full shrink-0">
+              <div className="p-2 bg-rose-100 rounded-xl shrink-0">
                 <ShieldAlert className="h-6 w-6" />
               </div>
               <h3 className="text-lg font-bold">Confirmar Exclusão</h3>
             </div>
 
-            <p className="text-sm text-slate-600">
+            <p className="text-sm text-slate-650">
               Tem certeza que deseja excluir o usuário <span className="font-semibold text-slate-800">{userToDelete.name}</span> (<span className="font-mono text-xs">{userToDelete.email}</span>)?
             </p>
             <p className="text-xs text-slate-400 italic">
@@ -707,13 +558,13 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
             <div className="flex justify-end gap-3 border-t border-slate-150 pt-4">
               <button
                 onClick={() => setUserToDelete(null)}
-                className="px-4 py-2 text-sm text-slate-500 bg-slate-100 rounded-lg hover:bg-slate-200 font-medium transition-colors"
+                className="px-5 py-2.5 border border-slate-200 rounded-xl text-slate-600 font-semibold text-sm hover:bg-slate-50 transition-colors"
               >
                 Cancelar
               </button>
               <button
                 onClick={handleDeleteUser}
-                className="px-4 py-2 text-sm text-white bg-rose-600 rounded-lg hover:bg-rose-700 font-medium shadow-sm transition-colors"
+                className="px-6 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-semibold text-sm transition-colors shadow-sm"
               >
                 Excluir Usuário
               </button>
