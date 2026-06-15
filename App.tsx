@@ -430,6 +430,7 @@ function AppInner() {
         quantity: s.quantity,
         unit: s.unit,
         minThreshold: s.min_threshold,
+        residentId: s.resident_id || undefined,
         history: (s.history || []).map((h: any) => ({
           id: h.id,
           type: h.type,
@@ -1203,6 +1204,27 @@ function AppInner() {
         }
       }
 
+      // 12. Logs de Auditoria / Evoluções
+      if (updated.auditLogs) {
+        for (const log of updated.auditLogs) {
+          const isLogMock = log.id.length < 15;
+          if (isLogMock) {
+            const { error: logErr } = await supabase
+              .from('Recanto_LogsAuditoria')
+              .insert({
+                resident_id: updated.id,
+                user_id: log.userId,
+                user_name: log.userName,
+                action: log.action,
+                details: log.details
+              });
+            if (logErr) {
+              console.error('Erro ao salvar log de auditoria:', logErr);
+            }
+          }
+        }
+      }
+
       await fetchResidents();
     } catch (err) {
       console.error('Error updating resident:', err);
@@ -1301,7 +1323,8 @@ function AppInner() {
           category: newItem.category,
           quantity: 0,
           unit: newItem.unit,
-          min_threshold: newItem.minThreshold
+          min_threshold: newItem.minThreshold,
+          resident_id: newItem.residentId || null
         })
         .select()
         .single();
@@ -1368,6 +1391,51 @@ function AppInner() {
       throw err;
     }
   };
+
+  const handleUpdateEmployee = async (updatedEmployee: Employee): Promise<Employee> => {
+    try {
+      const { data, error } = await supabase
+        .from('Recanto_Funcionarios')
+        .update({
+          name: updatedEmployee.name,
+          role: updatedEmployee.role,
+          cpf: updatedEmployee.cpf,
+          email: updatedEmployee.email,
+          phone: updatedEmployee.phone || null,
+          registration_number: updatedEmployee.registrationNumber || null,
+          is_technical_lead: updatedEmployee.isTechnicalLead,
+          shift: updatedEmployee.shift,
+          status: updatedEmployee.status,
+          admission_date: updatedEmployee.admissionDate,
+          auth_user_id: updatedEmployee.auth_user_id || null
+        })
+        .eq('id', updatedEmployee.id)
+        .select()
+        .single();
+      if (error) throw error;
+      await fetchEmployees();
+      
+      const mapped: Employee = {
+        id: data.id,
+        auth_user_id: data.auth_user_id || undefined,
+        name: data.name,
+        role: data.role,
+        cpf: data.cpf,
+        email: data.email,
+        phone: data.phone || '',
+        registrationNumber: data.registration_number || undefined,
+        isTechnicalLead: data.is_technical_lead,
+        shift: data.shift,
+        status: data.status,
+        admissionDate: data.admission_date
+      };
+      return mapped;
+    } catch (err) {
+      console.error('Error updating employee:', err);
+      throw err;
+    }
+  };
+
 
   const handleAddTraining = async (newTraining: TrainingRecord) => {
     try {
@@ -1513,6 +1581,7 @@ function AppInner() {
             trainings={trainingRecords}
             accessLogs={accessLogs}
             onAddEmployee={handleAddEmployee}
+            onUpdateEmployee={handleUpdateEmployee}
             onAddTraining={handleAddTraining}
             residents={residents}
             onAddAccessLog={handleAddAccessLog}
@@ -1537,6 +1606,7 @@ function AppInner() {
         return (
           <StockModule
             items={stockItems}
+            residents={residents}
             onUpdateStock={handleUpdateStock}
             onAddItem={handleAddStockItem}
           />

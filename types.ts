@@ -282,6 +282,7 @@ export interface StockItem {
   unit: string;
   minThreshold: number;
   history?: StockTransaction[];
+  residentId?: string;
 }
 
 // --- TEAM MANAGEMENT TYPES ---

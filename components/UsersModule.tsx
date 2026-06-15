@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, X, Search, Trash2, Mail, Lock, User, UserPlus, AlertCircle, Check, ShieldAlert } from 'lucide-react';
+import { Plus, X, Search, Trash2, Mail, Lock, User, UserPlus, AlertCircle, Check, ShieldAlert, Edit } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { AuthUser, Resident, SystemAccessLog, Profile, Employee } from '../types';
 import CustomSelect from './CustomSelect';
@@ -12,7 +12,7 @@ interface UsersModuleProps {
 }
 
 const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEmployee, onAddAccessLog }) => {
-  const { users, profiles, addUser, deleteUser, currentUser } = useAuth();
+  const { users, profiles, addUser, deleteUser, currentUser, updateUser } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(() => {
     return sessionStorage.getItem('modal_users_create_open') === 'true';
@@ -20,6 +20,10 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
   const [userToDelete, setUserToDelete] = useState<AuthUser | null>(() => {
     const saved = sessionStorage.getItem('modal_users_delete_user');
     return saved ? JSON.parse(saved) : null;
+  });
+
+  const [editingUserId, setEditingUserId] = useState<string | null>(() => {
+    return sessionStorage.getItem('modal_users_editing_user_id') || null;
   });
 
   // Form State
@@ -53,6 +57,9 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
       sessionStorage.setItem('modal_users_form_profile_id', selectedProfileId);
       sessionStorage.setItem('modal_users_form_resident_id', selectedResidentId);
       sessionStorage.setItem('modal_users_form_error', formError);
+      if (editingUserId) {
+        sessionStorage.setItem('modal_users_editing_user_id', editingUserId);
+      }
     } else {
       sessionStorage.removeItem('modal_users_create_open');
       sessionStorage.removeItem('modal_users_form_name');
@@ -61,8 +68,9 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
       sessionStorage.removeItem('modal_users_form_profile_id');
       sessionStorage.removeItem('modal_users_form_resident_id');
       sessionStorage.removeItem('modal_users_form_error');
+      sessionStorage.removeItem('modal_users_editing_user_id');
     }
-  }, [isModalOpen, name, email, password, selectedProfileId, selectedResidentId, formError]);
+  }, [isModalOpen, name, email, password, selectedProfileId, selectedResidentId, formError, editingUserId]);
 
   React.useEffect(() => {
     if (userToDelete) {
@@ -79,7 +87,7 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
   );
 
   const handleOpenModal = () => {
-    // Default to the first profile in the list
+    setEditingUserId(null);
     if (profiles.length > 0) {
       setSelectedProfileId(profiles[0].id);
     }
@@ -91,6 +99,17 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
     setIsModalOpen(true);
   };
 
+  const handleEditUser = (user: AuthUser) => {
+    setEditingUserId(user.id);
+    setName(user.name);
+    setEmail(user.email);
+    setPassword('');
+    setSelectedProfileId(user.profile.id);
+    setSelectedResidentId(user.residentId || residents[0]?.id || '');
+    setFormError('');
+    setIsModalOpen(true);
+  };
+
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError('');
@@ -98,11 +117,22 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
     if (!name.trim()) return setFormError('O nome completo é obrigatório.');
     if (!email.trim()) return setFormError('O e-mail é obrigatório.');
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return setFormError('Digite um e-mail válido.');
-    if (password.length < 4) return setFormError('A senha deve conter pelo menos 4 caracteres.');
+    
+    if (!editingUserId && password.length < 4) {
+      return setFormError('A senha deve conter pelo menos 4 caracteres.');
+    }
 
-    // Check email uniqueness
-    if (users.some(u => u.email.toLowerCase() === email.trim().toLowerCase())) {
-      return setFormError('Este e-mail já está cadastrado.');
+    if (!editingUserId) {
+      if (users.some(u => u.email.toLowerCase() === email.trim().toLowerCase())) {
+        return setFormError('Este e-mail já está cadastrado.');
+      }
+    } else {
+      const userBefore = users.find(u => u.id === editingUserId);
+      if (userBefore && userBefore.email.toLowerCase() !== email.trim().toLowerCase()) {
+        if (users.some(u => u.email.toLowerCase() === email.trim().toLowerCase())) {
+          return setFormError('Este e-mail já está cadastrado.');
+        }
+      }
     }
 
     const profile = profiles.find(p => p.id === selectedProfileId);
@@ -113,32 +143,59 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
     }
 
     try {
-      const userData: Omit<AuthUser, 'id'> = {
-        name: name.trim(),
-        email: email.trim().toLowerCase(),
-        password,
-        profile,
-        ...(profile.type === 'Responsável' ? { residentId: selectedResidentId } : {})
-      };
-
-      await addUser(userData);
-
-      // Create system access audit log
-      if (currentUser) {
-        const logEntry: SystemAccessLog = {
-          id: Math.random().toString(36).substr(2, 9),
-          timestamp: new Date().toISOString(),
-          userId: currentUser.id,
-          userName: currentUser.name,
-          role: currentUser.profile.type as any || 'Admin',
-          action: 'Cadastro de Usuário',
-          resource: `Usuário: ${userData.name} (${userData.email}) - Perfil: ${profile.name}`,
-          ipAddress: '192.168.1.50' // mock client IP
+      if (editingUserId) {
+        const updatedUser: AuthUser = {
+          id: editingUserId,
+          name: name.trim(),
+          email: email.trim().toLowerCase(),
+          password: '',
+          profile,
+          ...(profile.type === 'Responsável' ? { residentId: selectedResidentId } : {})
         };
-        onAddAccessLog(logEntry);
+
+        await updateUser(updatedUser);
+
+        if (currentUser) {
+          const logEntry: SystemAccessLog = {
+            id: Math.random().toString(36).substr(2, 9),
+            timestamp: new Date().toISOString(),
+            userId: currentUser.id,
+            userName: currentUser.name,
+            role: currentUser.profile.type as any || 'Admin',
+            action: 'Edição de Usuário' as any,
+            resource: `Usuário: ${updatedUser.name} (${updatedUser.email}) - Perfil: ${profile.name}`,
+            ipAddress: '192.168.1.50'
+          };
+          onAddAccessLog(logEntry);
+        }
+      } else {
+        const userData: Omit<AuthUser, 'id'> = {
+          name: name.trim(),
+          email: email.trim().toLowerCase(),
+          password,
+          profile,
+          ...(profile.type === 'Responsável' ? { residentId: selectedResidentId } : {})
+        };
+
+        await addUser(userData);
+
+        if (currentUser) {
+          const logEntry: SystemAccessLog = {
+            id: Math.random().toString(36).substr(2, 9),
+            timestamp: new Date().toISOString(),
+            userId: currentUser.id,
+            userName: currentUser.name,
+            role: currentUser.profile.type as any || 'Admin',
+            action: 'Cadastro de Usuário',
+            resource: `Usuário: ${userData.name} (${userData.email}) - Perfil: ${profile.name}`,
+            ipAddress: '192.168.1.50'
+          };
+          onAddAccessLog(logEntry);
+        }
       }
 
       setIsModalOpen(false);
+      setEditingUserId(null);
     } catch (err: any) {
       console.error(err);
       setFormError(err.message || 'Erro ao cadastrar usuário.');
@@ -320,17 +377,26 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
                       )}
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <button
-                        onClick={() => setUserToDelete(user)}
-                        disabled={currentUser?.id === user.id}
-                        className={`p-1.5 rounded-lg border transition-colors ${currentUser?.id === user.id
-                            ? 'text-slate-300 border-slate-100 cursor-not-allowed'
-                            : 'text-rose-500 border-rose-100 hover:bg-rose-50 hover:text-rose-600'
-                          }`}
-                        title={currentUser?.id === user.id ? 'Você não pode se auto-excluir' : 'Excluir usuário'}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                      <div className="flex items-center justify-center gap-2">
+                        <button
+                          onClick={() => handleEditUser(user)}
+                          className="p-1.5 rounded-lg border border-slate-200 text-slate-650 hover:bg-slate-100 hover:text-slate-800 transition-colors"
+                          title="Editar usuário"
+                        >
+                          <Edit className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => setUserToDelete(user)}
+                          disabled={currentUser?.id === user.id}
+                          className={`p-1.5 rounded-lg border transition-colors ${currentUser?.id === user.id
+                              ? 'text-slate-300 border-slate-100 cursor-not-allowed'
+                              : 'text-rose-500 border-rose-100 hover:bg-rose-50 hover:text-rose-600'
+                            }`}
+                          title={currentUser?.id === user.id ? 'Você não pode se auto-excluir' : 'Excluir usuário'}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -385,13 +451,22 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
                     {currentUser?.id === user.id ? (
                       <span className="text-[10px] bg-slate-150 text-slate-500 px-2 py-0.5 rounded font-medium border border-slate-200 shadow-sm">Você (Logado)</span>
                     ) : (
-                      <button
-                        onClick={() => setUserToDelete(user)}
-                        className="flex items-center gap-1.5 text-xs text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 px-2.5 py-1.5 rounded-lg font-medium transition-colors"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                        Excluir
-                      </button>
+                      <>
+                        <button
+                          onClick={() => handleEditUser(user)}
+                          className="flex items-center gap-1.5 text-xs text-slate-600 bg-slate-50 hover:bg-slate-100 border border-slate-200 px-2.5 py-1.5 rounded-lg font-medium transition-colors"
+                        >
+                          <Edit className="h-3.5 w-3.5" />
+                          Editar
+                        </button>
+                        <button
+                          onClick={() => setUserToDelete(user)}
+                          className="flex items-center gap-1.5 text-xs text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 px-2.5 py-1.5 rounded-lg font-medium transition-colors"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          Excluir
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>
@@ -410,10 +485,10 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
           >
             <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-[#F8F7FF] shrink-0 sticky top-0 z-10">
               <div className="flex items-center gap-2">
-                <UserPlus className="h-5 w-5 text-primary-600" />
+                {editingUserId ? <Edit className="h-5 w-5 text-primary-600" /> : <UserPlus className="h-5 w-5 text-primary-600" />}
                 <div>
-                  <h3 className="font-bold text-slate-800">Cadastrar Novo Usuário</h3>
-                  <p className="text-xs text-slate-400 mt-0.5">Preencha as credenciais e nível de acesso</p>
+                  <h3 className="font-bold text-slate-800">{editingUserId ? 'Editar Usuário' : 'Cadastrar Novo Usuário'}</h3>
+                  <p className="text-xs text-slate-400 mt-0.5">{editingUserId ? 'Atualize as credenciais e nível de acesso' : 'Preencha as credenciais e nível de acesso'}</p>
                 </div>
               </div>
               <button
@@ -479,26 +554,29 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
                     placeholder="exemplo@recanto.com"
                     value={email}
                     onChange={e => setEmail(e.target.value)}
-                    className={`${inputClass} pl-9`}
+                    disabled={!!editingUserId}
+                    className={`${inputClass} pl-9 ${editingUserId ? 'bg-slate-100 cursor-not-allowed text-slate-500' : ''}`}
                   />
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1.5">Senha Inicial</label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                  <input
-                    required
-                    type="password"
-                    autoComplete="new-password"
-                    placeholder="••••••••"
-                    value={password}
-                    onChange={e => setPassword(e.target.value)}
-                    className={`${inputClass} pl-9`}
-                  />
+              {!editingUserId && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">Senha Inicial</label>
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                    <input
+                      required={!editingUserId}
+                      type="password"
+                      autoComplete="new-password"
+                      placeholder="••••••••"
+                      value={password}
+                      onChange={e => setPassword(e.target.value)}
+                      className={`${inputClass} pl-9`}
+                    />
+                  </div>
                 </div>
-              </div>
+              )}
 
               {selectedProfile && selectedProfile.type === 'Responsável' && (
                 <div className="bg-purple-50/50 p-4 border border-purple-100 rounded-xl space-y-2">
@@ -526,7 +604,7 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
                   type="submit"
                   className="px-6 py-2.5 bg-primary-600 hover:bg-primary-700 text-white rounded-xl font-semibold text-sm transition-colors shadow-sm"
                 >
-                  Cadastrar Usuário
+                  {editingUserId ? 'Salvar Alterações' : 'Cadastrar Usuário'}
                 </button>
               </div>
             </form>

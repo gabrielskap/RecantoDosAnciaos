@@ -6,7 +6,6 @@ import {
   BedDouble, Home, Wrench, PaintRoller, Edit2, X, Phone, FileHeart, Trash2, Users, Camera, Sun, Moon
 } from 'lucide-react';
 import { Resident, CarePlan, AuditLog, DailyChecklist, Medication, RoomStatus, Room } from '../types';
-import { summarizePatientHealth } from '../services/geminiService';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import CustomSelect from './CustomSelect';
 import { useAuth } from '../contexts/AuthContext';
@@ -29,6 +28,60 @@ const parseMedications = (val?: string): ChecklistMedication[] | null => {
   return null;
 };
 
+const getDayOfWeek = (dateString: string): 'domingo' | 'segunda' | 'terca' | 'quarta' | 'quinta' | 'sexta' | 'sabado' => {
+  if (!dateString) return 'segunda';
+  const [year, month, day] = dateString.split('-').map(Number);
+  const date = new Date(year, month - 1, day);
+  const days: ('domingo' | 'segunda' | 'terca' | 'quarta' | 'quinta' | 'sexta' | 'sabado')[] = [
+    'domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado'
+  ];
+  return days[date.getDay()];
+};
+
+const isCarePlanActiveOnDate = (plan: CarePlan, dateString: string): boolean => {
+  if (!plan.frequency) return true;
+  try {
+    const parsed = JSON.parse(plan.frequency);
+    if (typeof parsed === 'object' && parsed !== null) {
+      const dayOfWeek = getDayOfWeek(dateString);
+      return Number(parsed[dayOfWeek]) > 0;
+    }
+  } catch (e) {
+    // Treat legacy frequencies as active
+    return true;
+  }
+  return true;
+};
+
+const formatFrequency = (frequency: string): string => {
+  if (!frequency) return 'Não definida';
+  try {
+    const parsed = JSON.parse(frequency);
+    if (typeof parsed === 'object' && parsed !== null) {
+      const daysMap: Record<string, string> = {
+        segunda: 'Seg',
+        terca: 'Ter',
+        quarta: 'Qua',
+        quinta: 'Qui',
+        sexta: 'Sex',
+        sabado: 'Sáb',
+        domingo: 'Dom'
+      };
+      const activeDays = Object.entries(parsed)
+        .filter(([_, value]) => Number(value) > 0)
+        .map(([day, value]) => `${daysMap[day] || day} (${value}x)`);
+      if (activeDays.length > 0) {
+        return activeDays.join(', ');
+      }
+      return 'Nenhum dia selecionado';
+    }
+  } catch (e) {
+    // Legacy support
+  }
+  return frequency;
+};
+
+
 interface ResidentProfileProps {
   resident: Resident;
   rooms: Room[];
@@ -38,9 +91,6 @@ interface ResidentProfileProps {
 
 const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBack, onUpdateResident }) => {
   const [activeTab, setActiveTab] = useState<'info' | 'meds' | 'vitals' | 'routine' | 'care_plan' | 'visits' | 'docs' | 'evolution' | 'history'>('vitals');
-  const [aiAnalysis, setAiAnalysis] = useState<string>('');
-  const [loadingAi, setLoadingAi] = useState(false);
-  const [isSigned, setIsSigned] = useState(false);
   const [isEditingStatus, setIsEditingStatus] = useState(false);
 
   const { currentUser } = useAuth();
@@ -309,8 +359,18 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   };
 
   // Care Plan Form
-  const [newPlan, setNewPlan] = useState({ title: '', description: '', frequency: '', assignedTo: 'Enfermagem' });
+  const [newPlan, setNewPlan] = useState({ title: '', description: '', frequency: '', assignedTo: '' });
+  const [frequencyDays, setFrequencyDays] = useState({
+    segunda: { checked: false, times: 1 },
+    terca: { checked: false, times: 1 },
+    quarta: { checked: false, times: 1 },
+    quinta: { checked: false, times: 1 },
+    sexta: { checked: false, times: 1 },
+    sabado: { checked: false, times: 1 },
+    domingo: { checked: false, times: 1 }
+  });
   const [showPlanForm, setShowPlanForm] = useState(false);
+  const [newNoteText, setNewNoteText] = useState('');
 
   // Daily Checklist State
   const today = new Date().toISOString().split('T')[0];
@@ -378,11 +438,13 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
       draft.medicacoesAdministradas = JSON.stringify(initialMeds);
     }
 
-    // Initialize carePlanAdherence for active care plans
+    // Initialize carePlanAdherence for active care plans on this date
     if (!draft.carePlanAdherence) {
       draft.carePlanAdherence = [];
     }
-    const activePlans = (resident.carePlan || []).filter(p => p.status === 'ativo');
+    const activePlans = (resident.carePlan || []).filter(
+      p => p.status === 'ativo' && isCarePlanActiveOnDate(p, draft.date)
+    );
     const updatedAdherence = activePlans.map(plan => {
       const existing = draft.carePlanAdherence?.find(a => a.carePlanId === plan.id);
       return existing || {
@@ -454,31 +516,6 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     }
   };
 
-  const handleAiSummary = async () => {
-    setLoadingAi(true);
-    const summary = await summarizePatientHealth(resident);
-    setAiAnalysis(summary);
-    setLoadingAi(false);
-  };
-
-  const handleSignature = () => {
-    setIsSigned(true);
-    if (onUpdateResident) {
-      const newLog: AuditLog = {
-        id: Math.random().toString(36).substr(2, 9),
-        timestamp: new Date().toISOString(),
-        userId: 'current-user',
-        userName: 'Usuário Atual',
-        action: 'Assinatura Digital',
-        details: 'Assinou o prontuário do turno.'
-      };
-      onUpdateResident({
-        ...resident,
-        auditLogs: [newLog, ...(resident.auditLogs || [])]
-      });
-    }
-  };
-
   const handleStatusChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     if (onUpdateResident) {
       onUpdateResident({
@@ -493,12 +530,32 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     e.preventDefault();
     if (!onUpdateResident || !canManageCarePlan) return;
 
+    // Serialize frequencyDays selection to JSON string
+    const freqObj = Object.keys(frequencyDays).reduce((acc, day) => {
+      const d = frequencyDays[day as keyof typeof frequencyDays];
+      acc[day] = d.checked ? d.times : 0;
+      return acc;
+    }, {} as Record<string, number>);
+
+    // Validate that at least one day is selected
+    const hasSelectedDay = Object.values(freqObj).some(times => times > 0);
+    if (!hasSelectedDay) {
+      alert("Por favor, selecione pelo menos um dia da semana para a frequência do plano.");
+      return;
+    }
+
+    const frequencyString = JSON.stringify(freqObj);
+
+    const creatorRole = currentUser?.employeeRole || currentUser?.profile.type || 'Profissional';
+    const creatorName = currentUser?.name || 'Usuário Atual';
+    const responsibleValue = `${creatorRole}: ${creatorName}`;
+
     const plan: CarePlan = {
       id: Math.random().toString(36).substr(2, 9),
       title: newPlan.title,
       description: newPlan.description,
-      frequency: newPlan.frequency,
-      assignedTo: newPlan.assignedTo,
+      frequency: frequencyString,
+      assignedTo: responsibleValue,
       status: 'ativo',
       createdAt: new Date().toISOString()
     };
@@ -506,8 +563,8 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     const newLog: AuditLog = {
       id: Math.random().toString(36).substr(2, 9),
       timestamp: new Date().toISOString(),
-      userId: 'current-user',
-      userName: 'Usuário Atual',
+      userId: currentUser?.id || 'current-user',
+      userName: currentUser?.name || 'Usuário Atual',
       action: 'Plano de Cuidado',
       details: `Criou plano: ${plan.title}`
     };
@@ -518,8 +575,54 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
       auditLogs: [newLog, ...(resident.auditLogs || [])]
     });
 
-    setNewPlan({ title: '', description: '', frequency: '', assignedTo: 'Enfermagem' });
+    setNewPlan({ title: '', description: '', frequency: '', assignedTo: '' });
+    setFrequencyDays({
+      segunda: { checked: false, times: 1 },
+      terca: { checked: false, times: 1 },
+      quarta: { checked: false, times: 1 },
+      quinta: { checked: false, times: 1 },
+      sexta: { checked: false, times: 1 },
+      sabado: { checked: false, times: 1 },
+      domingo: { checked: false, times: 1 }
+    });
     setShowPlanForm(false);
+  };
+
+  const handleSaveEvolutionNote = () => {
+    if (!newNoteText.trim() || !onUpdateResident) return;
+
+    const creatorRole = currentUser?.employeeRole || currentUser?.profile.type || 'Profissional';
+    const creatorName = currentUser?.name || 'Usuário Atual';
+    
+    // Formatar a assinatura de acordo com a função
+    let formattedSignature = creatorName;
+    if (creatorRole === 'Enfermeiro') {
+      formattedSignature = `Enf. ${creatorName}`;
+    } else if (creatorRole === 'Médico') {
+      formattedSignature = `Dr(a). ${creatorName}`;
+    } else if (creatorRole === 'Cuidador') {
+      formattedSignature = `Cuid. ${creatorName}`;
+    } else if (creatorRole === 'Nutricionista') {
+      formattedSignature = `Nutri. ${creatorName}`;
+    } else if (creatorRole === 'Fisioterapeuta') {
+      formattedSignature = `Fisio. ${creatorName}`;
+    }
+
+    const newLog: AuditLog = {
+      id: Math.random().toString(36).substr(2, 9),
+      timestamp: new Date().toISOString(),
+      userId: currentUser?.id || 'current-user',
+      userName: formattedSignature,
+      action: 'Evolução',
+      details: newNoteText.trim()
+    };
+
+    onUpdateResident({
+      ...resident,
+      auditLogs: [newLog, ...(resident.auditLogs || [])]
+    });
+
+    setNewNoteText('');
   };
 
   const handleChecklistToggle = (field: keyof DailyChecklist) => {
@@ -698,43 +801,8 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                 <Edit2 className="h-4 w-4 mr-2 text-violet-600" />
                 <span>Editar Perfil</span>
              </button>
-             {isSigned ? (
-               <div className="flex-1 md:flex-none flex justify-center items-center px-4 py-2 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-lg text-sm font-medium">
-                  <ShieldCheck className="h-4 w-4 mr-2" />
-                  Assinado
-               </div>
-             ) : (
-               <button 
-                onClick={handleSignature}
-                className="flex-1 md:flex-none flex justify-center items-center px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors shadow-sm"
-               >
-                  <PenTool className="h-4 w-4 mr-2" />
-                  <span className="hidden sm:inline">Assinar Prontuário</span>
-                  <span className="sm:hidden">Assinar</span>
-               </button>
-             )}
-             <button 
-              onClick={handleAiSummary}
-              disabled={loadingAi}
-              className="flex-1 md:flex-none flex justify-center items-center px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50 shadow-sm"
-             >
-                <Sparkles className="h-4 w-4 mr-2" />
-                {loadingAi ? '...' : 'Resumo IA'}
-             </button>
           </div>
         </div>
-
-        {/* AI Analysis Result */}
-        {aiAnalysis && (
-          <div className="p-4 md:p-6 bg-indigo-50 border-b border-indigo-100">
-            <h3 className="text-sm font-bold text-indigo-900 mb-2 flex items-center">
-              <BotIcon className="h-4 w-4 mr-2" /> Resumo Inteligente do Prontuário
-            </h3>
-            <p className="text-sm text-indigo-800 whitespace-pre-line leading-relaxed">
-              {aiAnalysis}
-            </p>
-          </div>
-        )}
 
         {/* Tabs Navigation - Improved Scroll */}
         <div className="border-b border-slate-200 bg-white sticky top-0 z-10">
@@ -2271,16 +2339,11 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                      </div>
                      <div>
                        <label className="block text-xs font-medium text-slate-700 mb-1">Responsável</label>
-                       <CustomSelect
-                         value={newPlan.assignedTo}
-                         onChange={v => setNewPlan({ ...newPlan, assignedTo: v })}
-                         options={[
-                           { value: 'Enfermagem', label: 'Enfermagem' },
-                           { value: 'Fisioterapia', label: 'Fisioterapia' },
-                           { value: 'Nutrição', label: 'Nutrição' },
-                           { value: 'Médico', label: 'Médico' },
-                           { value: 'Cuidadores', label: 'Cuidadores' },
-                         ]}
+                       <input
+                         type="text"
+                         readOnly
+                         value={`${currentUser?.employeeRole || currentUser?.profile.type || 'Profissional'}: ${currentUser?.name || 'Usuário Atual'}`}
+                         className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-md text-sm text-slate-500 outline-none cursor-not-allowed"
                        />
                      </div>
                    </div>
@@ -2288,13 +2351,96 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                      <label className="block text-xs font-medium text-slate-700 mb-1">Descrição / Intervenção</label>
                      <textarea required rows={2} value={newPlan.description} onChange={e => setNewPlan({...newPlan, description: e.target.value})} className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm" placeholder="Descreva as ações necessárias..." />
                    </div>
-                   <div className="flex justify-between items-center">
-                     <div className="w-1/2 pr-2">
-                        <label className="block text-xs font-medium text-slate-700 mb-1">Frequência</label>
-                        <input type="text" value={newPlan.frequency} onChange={e => setNewPlan({...newPlan, frequency: e.target.value})} className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm" placeholder="Ex: Diário, 2x ao dia" />
-                     </div>
-                     <button type="submit" className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary-700">Salvar Plano</button>
-                   </div>
+                    <div className="mb-4">
+                      <label className="block text-xs font-semibold text-slate-700 mb-2 uppercase tracking-wider">Frequência Semanal</label>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+                        {[
+                          { id: 'segunda', label: 'Segunda' },
+                          { id: 'terca', label: 'Terça' },
+                          { id: 'quarta', label: 'Quarta' },
+                          { id: 'quinta', label: 'Quinta' },
+                          { id: 'sexta', label: 'Sexta' },
+                          { id: 'sabado', label: 'Sábado' },
+                          { id: 'domingo', label: 'Domingo' }
+                        ].map(day => {
+                          const state = frequencyDays[day.id as keyof typeof frequencyDays];
+                          return (
+                            <div 
+                              key={day.id} 
+                              onClick={() => {
+                                setFrequencyDays(prev => ({
+                                  ...prev,
+                                  [day.id]: { checked: !state.checked, times: state.checked ? state.times : 1 }
+                                }));
+                              }}
+                              className={`flex flex-col items-center justify-between p-3 rounded-xl border-2 transition-all duration-200 cursor-pointer select-none ${
+                                state.checked 
+                                  ? 'border-violet-600 bg-violet-50/30 shadow-sm' 
+                                  : 'border-slate-200 bg-slate-50 hover:bg-slate-100 hover:border-slate-350 hover:scale-[1.02]'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2 mb-2 w-full justify-between">
+                                <span className="text-xs font-bold text-slate-700">{day.label}</span>
+                                <input 
+                                  type="checkbox" 
+                                  checked={state.checked}
+                                  onChange={(e) => {
+                                    e.stopPropagation();
+                                    setFrequencyDays(prev => ({
+                                      ...prev,
+                                      [day.id]: { ...state, checked: e.target.checked }
+                                    }));
+                                  }}
+                                  className="w-4 h-4 text-violet-600 border-slate-300 rounded focus:ring-violet-500 cursor-pointer"
+                                />
+                              </div>
+                              {state.checked ? (
+                                <div className="flex items-center gap-1.5 mt-1" onClick={e => e.stopPropagation()}>
+                                  <button 
+                                    type="button" 
+                                    onClick={() => {
+                                      if (state.times > 1) {
+                                        setFrequencyDays(prev => ({
+                                          ...prev,
+                                          [day.id]: { ...state, times: state.times - 1 }
+                                        }));
+                                      } else {
+                                        setFrequencyDays(prev => ({
+                                          ...prev,
+                                          [day.id]: { ...state, checked: false }
+                                        }));
+                                      }
+                                    }}
+                                    className="w-6 h-6 flex items-center justify-center bg-white border border-slate-300 hover:bg-slate-100 active:bg-slate-200 text-slate-750 font-bold rounded-lg text-xs transition-colors shadow-sm"
+                                  >
+                                    -
+                                  </button>
+                                  <span className="text-xs font-bold text-slate-800 w-4 text-center">{state.times}</span>
+                                  <button 
+                                    type="button" 
+                                    onClick={() => {
+                                      setFrequencyDays(prev => ({
+                                        ...prev,
+                                        [day.id]: { ...state, times: state.times + 1 }
+                                      }));
+                                    }}
+                                    className="w-6 h-6 flex items-center justify-center bg-white border border-slate-300 hover:bg-slate-100 active:bg-slate-200 text-slate-750 font-bold rounded-lg text-xs transition-colors shadow-sm"
+                                  >
+                                    +
+                                  </button>
+                                  <span className="text-[10px] text-slate-500 font-semibold ml-0.5">vez(es)</span>
+                                </div>
+                              ) : (
+                                <span className="text-[10px] text-slate-400 italic font-medium">Inativo</span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div className="flex justify-end mt-4">
+                      <button type="submit" className="bg-primary-600 text-white px-6 py-2 rounded-xl text-sm font-bold hover:bg-primary-700 hover:scale-[1.02] active:scale-95 transition-all shadow-sm">Salvar Plano</button>
+                    </div>
                 </form>
               )}
 
@@ -2307,7 +2453,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                      <h4 className="font-semibold text-slate-800 mb-1">{plan.title}</h4>
                      <p className="text-sm text-slate-600 mb-3">{plan.description}</p>
                      <div className="flex items-center gap-4 text-xs text-slate-500 border-t border-slate-100 pt-3">
-                        <div className="flex items-center"><Clock className="h-3 w-3 mr-1" /> {plan.frequency}</div>
+                        <div className="flex items-center"><Clock className="h-3 w-3 mr-1" /> {formatFrequency(plan.frequency)}</div>
                         <div className="flex items-center"><User className="h-3 w-3 mr-1" /> {plan.assignedTo}</div>
                         <div className="ml-auto">Criado em: {new Date(plan.createdAt).toLocaleDateString()}</div>
                      </div>
@@ -2348,30 +2494,64 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
             </div>
           )}
 
-          {activeTab === 'evolution' && (
-            <div className="space-y-4">
-               <div className="flex gap-2 mb-4">
-                 <textarea className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-sm" rows={3} placeholder="Nova anotação de enfermagem..."></textarea>
-                 <button className="bg-primary-600 text-white px-4 rounded-lg font-medium hover:bg-primary-700">Salvar</button>
-               </div>
-               <div className="space-y-6 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-slate-300 before:to-transparent">
-                  {[1, 2].map((_, i) => (
-                    <div key={i} className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
-                        <div className="flex items-center justify-center w-10 h-10 rounded-full border border-white bg-slate-300 group-[.is-active]:bg-emerald-500 text-slate-500 group-[.is-active]:text-white shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2">
-                            <CheckCircle className="w-5 h-5" />
-                        </div>
-                        <div className="w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] p-4 rounded bg-white border border-slate-200 shadow-sm">
-                            <div className="flex items-center justify-between space-x-2 mb-1">
-                                <div className="font-bold text-slate-900">Enf. Carlos</div>
-                                <time className="font-caveat font-medium text-slate-500 text-xs">Hoje, 09:30</time>
+          {activeTab === 'evolution' && (() => {
+            const evolutionLogs = (resident.auditLogs || [])
+              .filter(log => log.action === 'Evolução')
+              .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+            return (
+              <div className="space-y-4">
+                 <div className="flex gap-2 mb-4">
+                   <textarea 
+                     value={newNoteText}
+                     onChange={(e) => setNewNoteText(e.target.value)}
+                     className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-sm resize-none" 
+                     rows={3} 
+                     placeholder="Nova anotação de enfermagem..."
+                   />
+                   <button 
+                     onClick={handleSaveEvolutionNote}
+                     disabled={!newNoteText.trim()}
+                     className="bg-primary-600 text-white px-4 rounded-lg font-medium hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                   >
+                     Salvar
+                   </button>
+                 </div>
+                 {evolutionLogs.length > 0 ? (
+                   <div className="space-y-6 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-slate-300 before:to-transparent">
+                      {evolutionLogs.map((log, i) => (
+                        <div key={log.id} className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
+                            <div className="flex items-center justify-center w-10 h-10 rounded-full border border-white bg-slate-300 group-[.is-active]:bg-emerald-500 text-slate-500 group-[.is-active]:text-white shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2">
+                                <CheckCircle className="w-5 h-5" />
                             </div>
-                            <div className="text-slate-500 text-sm">Residente aceitou bem a dieta. Deambulou pelo jardim com auxílio. Sinais vitais estáveis.</div>
+                            <div className="w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] p-4 rounded bg-white border border-slate-200 shadow-sm hover:shadow transition-shadow">
+                                <div className="flex items-center justify-between space-x-2 mb-1">
+                                    <div className="font-bold text-slate-900">{log.userName}</div>
+                                    <time className="font-medium text-slate-550 text-xs">
+                                      {new Date(log.timestamp).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
+                                      {', '}
+                                      {new Date(log.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                                    </time>
+                                </div>
+                                <div className="text-slate-600 text-sm whitespace-pre-wrap">{log.details}</div>
+                            </div>
                         </div>
-                    </div>
-                  ))}
-               </div>
-            </div>
-          )}
+                      ))}
+                   </div>
+                 ) : (
+                   <div className="flex flex-col items-center justify-center py-12 px-4 border border-dashed border-slate-300 rounded-xl bg-slate-50/50 text-center gap-3">
+                     <div className="w-12 h-12 rounded-full bg-violet-50 flex items-center justify-center">
+                       <FileText className="h-6 w-6 text-violet-400" />
+                     </div>
+                     <div>
+                       <p className="text-sm font-semibold text-slate-700">Nenhuma evolução registrada</p>
+                       <p className="text-xs text-slate-400 mt-1">Escreva uma anotação acima para iniciar o prontuário evolutivo deste residente.</p>
+                     </div>
+                   </div>
+                 )}
+              </div>
+            );
+          })()}
 
           {activeTab === 'history' && (
              <div className="space-y-4">
@@ -3378,8 +3558,5 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   );
 };
 
-const BotIcon = ({ className }: { className?: string }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>
-);
 
 export default ResidentProfile;

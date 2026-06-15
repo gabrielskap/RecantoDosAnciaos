@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Users, Calendar, Award, Shield, Plus, X, Search, CheckCircle, AlertOctagon, UserCheck } from 'lucide-react';
+import { Users, Calendar, Award, Shield, Plus, X, Search, CheckCircle, AlertOctagon, UserCheck, Edit } from 'lucide-react';
 import { Employee, TrainingRecord, SystemAccessLog, UserRole, Resident, ViewState } from '../types';
 import ProfileManager from './ProfileManager';
 import { useAuth } from '../contexts/AuthContext';
@@ -11,6 +11,7 @@ interface TeamModuleProps {
   trainings: TrainingRecord[];
   accessLogs: SystemAccessLog[];
   onAddEmployee: (emp: Omit<Employee, 'id'>) => Promise<Employee>;
+  onUpdateEmployee: (emp: Employee) => Promise<Employee>;
   onAddTraining: (training: TrainingRecord) => void;
   residents: Resident[];
   onAddAccessLog: (log: SystemAccessLog) => void;
@@ -21,6 +22,7 @@ const TeamModule: React.FC<TeamModuleProps> = ({
   trainings, 
   accessLogs, 
   onAddEmployee, 
+  onUpdateEmployee,
   onAddTraining,
   residents,
   onAddAccessLog
@@ -34,6 +36,10 @@ const TeamModule: React.FC<TeamModuleProps> = ({
   });
   const [isTrainModalOpen, setIsTrainModalOpen] = useState(() => {
     return sessionStorage.getItem('modal_team_train_open') === 'true';
+  });
+
+  const [editingEmpId, setEditingEmpId] = useState<string | null>(() => {
+    return sessionStorage.getItem('modal_team_editing_emp_id') || null;
   });
 
   // New Employee Form State
@@ -56,9 +62,10 @@ const TeamModule: React.FC<TeamModuleProps> = ({
   const [accessProfileId, setAccessProfileId] = useState('');
 
   const employeeProfiles = profiles.filter(p => p.type !== 'Responsável');
-  const unlinkedUsers = users.filter(u => 
+  const currentEmpUserId = editingEmpId ? employees.find(e => e.id === editingEmpId)?.auth_user_id : undefined;
+  const linkableUsers = users.filter(u => 
     u.profile.type !== 'Responsável' && 
-    !employees.some(e => e.auth_user_id === u.id)
+    (!employees.some(e => e.auth_user_id === u.id) || u.id === currentEmpUserId)
   );
 
   // New Training Form State
@@ -77,11 +84,15 @@ const TeamModule: React.FC<TeamModuleProps> = ({
     if (isEmpModalOpen) {
       sessionStorage.setItem('modal_team_emp_open', 'true');
       sessionStorage.setItem('modal_team_new_emp', JSON.stringify(newEmp));
+      if (editingEmpId) {
+        sessionStorage.setItem('modal_team_editing_emp_id', editingEmpId);
+      }
     } else {
       sessionStorage.removeItem('modal_team_emp_open');
       sessionStorage.removeItem('modal_team_new_emp');
+      sessionStorage.removeItem('modal_team_editing_emp_id');
     }
-  }, [isEmpModalOpen, newEmp]);
+  }, [isEmpModalOpen, newEmp, editingEmpId]);
 
   React.useEffect(() => {
     if (isTrainModalOpen) {
@@ -92,6 +103,43 @@ const TeamModule: React.FC<TeamModuleProps> = ({
       sessionStorage.removeItem('modal_team_new_train');
     }
   }, [isTrainModalOpen, newTrain]);
+
+  const handleNewEmployeeClick = () => {
+    setEditingEmpId(null);
+    setNewEmp({
+      name: '',
+      role: 'Cuidador',
+      cpf: '',
+      email: '',
+      phone: '',
+      shift: 'Matutino',
+      isTechnicalLead: false,
+      status: 'Ativo'
+    });
+    setLinkUserMode('none');
+    setAccessPassword('');
+    setAccessProfileId('');
+    setIsEmpModalOpen(true);
+  };
+
+  const handleEditEmployee = (emp: Employee) => {
+    setEditingEmpId(emp.id);
+    setNewEmp({
+      name: emp.name,
+      role: emp.role,
+      cpf: emp.cpf,
+      email: emp.email,
+      phone: emp.phone,
+      registrationNumber: emp.registrationNumber || '',
+      shift: emp.shift,
+      isTechnicalLead: emp.isTechnicalLead,
+      status: emp.status
+    });
+    setLinkUserMode(emp.auth_user_id || 'none');
+    setAccessPassword('');
+    setAccessProfileId('');
+    setIsEmpModalOpen(true);
+  };
 
   const handleEmpSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -113,7 +161,7 @@ const TeamModule: React.FC<TeamModuleProps> = ({
     }
     
     try {
-      const employee: Omit<Employee, 'id'> = {
+      const employeeData = {
         name: newEmp.name!,
         role: newEmp.role as UserRole,
         cpf: newEmp.cpf!,
@@ -122,14 +170,22 @@ const TeamModule: React.FC<TeamModuleProps> = ({
         registrationNumber: newEmp.registrationNumber,
         isTechnicalLead: newEmp.isTechnicalLead || false,
         shift: newEmp.shift as any,
-        status: 'Ativo',
-        admissionDate: new Date().toISOString().split('T')[0],
+        status: (newEmp.status as any) || 'Ativo',
+        admissionDate: editingEmpId ? (employees.find(emp => emp.id === editingEmpId)?.admissionDate || new Date().toISOString().split('T')[0]) : new Date().toISOString().split('T')[0],
         auth_user_id: (linkUserMode !== 'none' && linkUserMode !== 'create') ? linkUserMode : undefined
       };
 
-      const createdEmp = await onAddEmployee(employee);
+      let savedEmp: Employee;
+      if (editingEmpId) {
+        savedEmp = await onUpdateEmployee({
+          id: editingEmpId,
+          ...employeeData
+        });
+      } else {
+        savedEmp = await onAddEmployee(employeeData);
+      }
 
-      if (linkUserMode === 'create' && createdEmp && createdEmp.id) {
+      if (linkUserMode === 'create' && savedEmp && savedEmp.id) {
         const profile = profiles.find(p => p.id === accessProfileId);
         if (profile) {
           await addUser({
@@ -137,19 +193,20 @@ const TeamModule: React.FC<TeamModuleProps> = ({
             email: newEmp.email!.trim().toLowerCase(),
             password: accessPassword,
             profile,
-            employeeId: createdEmp.id
+            employeeId: savedEmp.id
           } as any);
         }
       }
 
       setIsEmpModalOpen(false);
-      setNewEmp({ name: '', role: 'Cuidador', cpf: '', email: '', phone: '', shift: 'Matutino', isTechnicalLead: false });
+      setNewEmp({ name: '', role: 'Cuidador', cpf: '', email: '', phone: '', shift: 'Matutino', isTechnicalLead: false, status: 'Ativo' });
       setLinkUserMode('none');
       setAccessPassword('');
       setAccessProfileId('');
+      setEditingEmpId(null);
     } catch (err: any) {
       console.error(err);
-      alert(err.message || 'Erro ao adicionar colaborador.');
+      alert(err.message || 'Erro ao salvar colaborador.');
     }
   };
 
@@ -224,7 +281,7 @@ const TeamModule: React.FC<TeamModuleProps> = ({
                 />
               </div>
               <button 
-                onClick={() => setIsEmpModalOpen(true)}
+                onClick={handleNewEmployeeClick}
                 className="flex items-center justify-center bg-primary-600 text-white px-4 py-3 sm:py-2 rounded-lg text-sm font-medium hover:bg-primary-700 active:scale-95 transition-all shadow-sm"
               >
                 <Plus className="h-4 w-4 mr-2" />
@@ -247,11 +304,20 @@ const TeamModule: React.FC<TeamModuleProps> = ({
                         )}
                       </div>
                     </div>
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold shadow-sm ${
-                      emp.status === 'Ativo' ? 'bg-emerald-100 text-emerald-855 border border-emerald-200' : 'bg-amber-100 text-amber-855 border border-amber-200'
-                    }`}>
-                      {emp.status}
-                    </span>
+                    <div className="flex flex-col items-end gap-2">
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold shadow-sm ${
+                        emp.status === 'Ativo' ? 'bg-emerald-100 text-emerald-855 border border-emerald-200' : 'bg-amber-100 text-amber-855 border border-amber-200'
+                      }`}>
+                        {emp.status}
+                      </span>
+                      <button
+                        onClick={() => handleEditEmployee(emp)}
+                        className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100 transition-colors bg-white shadow-sm flex items-center justify-center"
+                        title="Editar colaborador"
+                      >
+                        <Edit className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   </div>
 
                   <div className="mt-3 grid grid-cols-2 gap-3 text-xs border-t border-slate-200 pt-3">
@@ -282,7 +348,8 @@ const TeamModule: React.FC<TeamModuleProps> = ({
                     <th className="px-4 py-3">Registro</th>
                     <th className="px-4 py-3">Contato</th>
                     <th className="px-4 py-3">Turno</th>
-                    <th className="px-4 py-3 text-center rounded-tr-lg">Status</th>
+                    <th className="px-4 py-3 text-center">Status</th>
+                    <th className="px-4 py-3 text-center rounded-tr-lg w-20">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -311,6 +378,15 @@ const TeamModule: React.FC<TeamModuleProps> = ({
                         }`}>
                           {emp.status}
                         </span>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <button
+                          onClick={() => handleEditEmployee(emp)}
+                          className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-800 transition-colors"
+                          title="Editar colaborador"
+                        >
+                          <Edit className="h-4 w-4" />
+                        </button>
                       </td>
                     </tr>
                   ))}
@@ -449,7 +525,7 @@ const TeamModule: React.FC<TeamModuleProps> = ({
         )}
       </div>
 
-      {/* Add Employee Modal - Sempre ativo (não fecha ao clicar no fundo/backdrop) */}
+      {/* Add/Edit Employee Modal */}
       {isEmpModalOpen && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/50 backdrop-blur-sm">
           <div 
@@ -458,8 +534,8 @@ const TeamModule: React.FC<TeamModuleProps> = ({
           >
              <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-[#F8F7FF] sticky top-0 z-10 shrink-0">
                <div>
-                 <h3 className="font-bold text-slate-800">Novo Colaborador</h3>
-                 <p className="text-xs text-slate-400 mt-0.5">Cadastre um novo colaborador na equipe</p>
+                 <h3 className="font-bold text-slate-800">{editingEmpId ? 'Editar Colaborador' : 'Novo Colaborador'}</h3>
+                 <p className="text-xs text-slate-400 mt-0.5">{editingEmpId ? 'Atualize as informações do colaborador' : 'Cadastre um novo colaborador na equipe'}</p>
                </div>
                <button 
                  onClick={() => setIsEmpModalOpen(false)}
@@ -508,7 +584,7 @@ const TeamModule: React.FC<TeamModuleProps> = ({
                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">Nº Registro (CRM/COREN)</label>
                      <input type="text" value={newEmp.registrationNumber} onChange={e => setNewEmp({...newEmp, registrationNumber: e.target.value})} className={inputClass} />
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                      <div>
                        <label className="block text-xs font-semibold text-slate-600 mb-1.5">Turno</label>
                        <CustomSelect
@@ -522,12 +598,24 @@ const TeamModule: React.FC<TeamModuleProps> = ({
                          ]}
                        />
                      </div>
-                     <div className="flex items-center pt-6">
-                       <label className="flex items-center space-x-2 cursor-pointer w-full min-h-[44px]">
-                         <input type="checkbox" checked={newEmp.isTechnicalLead} onChange={e => setNewEmp({...newEmp, isTechnicalLead: e.target.checked})} className="rounded text-primary-600 focus:ring-primary-500 h-5 w-5 sm:h-4 sm:w-4" />
-                         <span className="text-sm font-medium text-slate-700">Resp. Técnico</span>
-                       </label>
+                     <div>
+                       <label className="block text-xs font-semibold text-slate-600 mb-1.5">Status</label>
+                       <CustomSelect
+                         value={newEmp.status || 'Ativo'}
+                         onChange={v => setNewEmp({ ...newEmp, status: v as any })}
+                         options={[
+                           { value: 'Ativo', label: 'Ativo' },
+                           { value: 'Férias', label: 'Férias' },
+                           { value: 'Afastado', label: 'Afastado' },
+                         ]}
+                       />
                      </div>
+                  </div>
+                  <div className="flex items-center">
+                    <label className="flex items-center space-x-2 cursor-pointer w-full min-h-[44px]">
+                      <input type="checkbox" checked={newEmp.isTechnicalLead} onChange={e => setNewEmp({...newEmp, isTechnicalLead: e.target.checked})} className="rounded text-primary-600 focus:ring-primary-500 h-5 w-5 sm:h-4 sm:w-4" />
+                      <span className="text-sm font-medium text-slate-700">Resp. Técnico</span>
+                    </label>
                   </div>
                   <div className="pt-4 border-t border-slate-100 space-y-4">
                      <div>
@@ -539,7 +627,6 @@ const TeamModule: React.FC<TeamModuleProps> = ({
                            if (val === 'create' && employeeProfiles.length > 0 && !accessProfileId) {
                              setAccessProfileId(employeeProfiles[0].id);
                            }
-                           // Se for um usuário existente selecionado, podemos preencher automaticamente os campos de e-mail e nome
                            if (val !== 'none' && val !== 'create') {
                              const u = users.find(user => user.id === val);
                              if (u) {
@@ -554,7 +641,7 @@ const TeamModule: React.FC<TeamModuleProps> = ({
                          options={[
                            { value: 'none', label: 'Não vincular a nenhum usuário' },
                            { value: 'create', label: '➕ Criar Novo Usuário de Acesso...', desc: 'Criar novas credenciais de acesso' },
-                           ...unlinkedUsers.map(u => ({
+                           ...linkableUsers.map(u => ({
                              value: u.id,
                              label: `${u.name} (${u.profile.name})`,
                              desc: `E-mail: ${u.email}`
@@ -602,7 +689,7 @@ const TeamModule: React.FC<TeamModuleProps> = ({
                       type="submit"
                       className="flex-1 sm:flex-none px-6 py-2.5 bg-primary-600 hover:bg-primary-700 text-white rounded-xl font-semibold text-sm transition-colors shadow-sm"
                     >
-                      Salvar Colaborador
+                      {editingEmpId ? 'Salvar Alterações' : 'Salvar Colaborador'}
                     </button>
                   </div>
               </form>
