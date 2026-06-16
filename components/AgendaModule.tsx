@@ -60,7 +60,9 @@ const AgendaModule: React.FC<AgendaModuleProps> = ({ events, residents, onAddEve
     if (!newEvent.title || !newEvent.start) return;
     onAddEvent({
       id: Math.random().toString(36).substr(2, 9),
-      title: newEvent.title!, start: newEvent.start!, end: newEvent.end,
+      title: newEvent.title!,
+      start: new Date(newEvent.start).toISOString(),
+      end: newEvent.end ? new Date(newEvent.end).toISOString() : undefined,
       type: newEvent.type as EventType,
       residentId: newEvent.residentId, location: newEvent.location,
       description: newEvent.description, createdBy: 'Usuário Atual',
