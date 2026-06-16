@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   HeartPulse, LogOut, User, CalendarDays, ClipboardList, Activity,
   CheckCircle2, Circle, Thermometer, Heart, Wind, Droplets,
@@ -19,6 +19,10 @@ const ResidentPortal: React.FC<ResidentPortalProps> = ({ resident, events }) => 
   const { currentUser, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<TabId>('today');
   const [portalShift, setPortalShift] = useState<'diurno' | 'noturno'>('diurno');
+
+  useEffect(() => {
+    document.title = 'Portal do Responsável | Recanto dos Anciãos';
+  }, []);
 
   if (!resident) {
     return (

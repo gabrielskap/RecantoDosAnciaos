@@ -12,7 +12,7 @@ interface AgendaModuleProps {
 const eventConfig: Record<EventType | 'outro', { label: string; bg: string; text: string; dot: string }> = {
   medico:    { label: 'Médico',     bg: 'bg-rose-50',    text: 'text-rose-700',    dot: 'bg-rose-400' },
   visita:    { label: 'Visita',     bg: 'bg-blue-50',    text: 'text-blue-700',    dot: 'bg-blue-400' },
-  terapia:   { label: 'Terapia',    bg: 'bg-violet-50',  text: 'text-violet-700',  dot: 'bg-violet-400' },
+  terapia:   { label: 'Terapia',    bg: 'bg-blue-50',  text: 'text-blue-700',  dot: 'bg-blue-400' },
   atividade: { label: 'Atividade',  bg: 'bg-emerald-50', text: 'text-emerald-700', dot: 'bg-emerald-400' },
   reuniao:   { label: 'Reunião',    bg: 'bg-amber-50',   text: 'text-amber-700',   dot: 'bg-amber-400' },
   outro:     { label: 'Outro',      bg: 'bg-slate-50',   text: 'text-slate-600',   dot: 'bg-slate-400' },
@@ -25,12 +25,12 @@ const AgendaModule: React.FC<AgendaModuleProps> = ({ events, residents, onAddEve
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [isModalOpen, setIsModalOpen] = useState(() => {
-    return sessionStorage.getItem('modal_agenda_open') === 'true';
+    return localStorage.getItem('modal_agenda_open') === 'true';
   });
   const [filterType, setFilterType] = useState<EventType | 'all'>('all');
 
   const [newEvent, setNewEvent] = useState<Partial<CalendarEvent>>(() => {
-    const saved = sessionStorage.getItem('modal_agenda_new_event');
+    const saved = localStorage.getItem('modal_agenda_new_event');
     return saved ? JSON.parse(saved) : {
       title: '', type: 'atividade', start: '', end: '', residentId: '', location: '', description: '',
     };
@@ -38,11 +38,11 @@ const AgendaModule: React.FC<AgendaModuleProps> = ({ events, residents, onAddEve
 
   React.useEffect(() => {
     if (isModalOpen) {
-      sessionStorage.setItem('modal_agenda_open', 'true');
-      sessionStorage.setItem('modal_agenda_new_event', JSON.stringify(newEvent));
+      localStorage.setItem('modal_agenda_open', 'true');
+      localStorage.setItem('modal_agenda_new_event', JSON.stringify(newEvent));
     } else {
-      sessionStorage.removeItem('modal_agenda_open');
-      sessionStorage.removeItem('modal_agenda_new_event');
+      localStorage.removeItem('modal_agenda_open');
+      localStorage.removeItem('modal_agenda_new_event');
     }
   }, [isModalOpen, newEvent]);
 
@@ -67,7 +67,6 @@ const AgendaModule: React.FC<AgendaModuleProps> = ({ events, residents, onAddEve
       residentId: newEvent.residentId, location: newEvent.location,
       description: newEvent.description, createdBy: 'Usuário Atual',
     });
-    setIsModalOpen(false);
     setNewEvent({ title: '', type: 'atividade', start: '', end: '', residentId: '', location: '', description: '' });
   };
 
@@ -79,20 +78,20 @@ const AgendaModule: React.FC<AgendaModuleProps> = ({ events, residents, onAddEve
     })
     .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
 
-  const inputClass = 'w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500';
+  const inputClass = 'w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500';
 
   return (
     <div className="space-y-6">
 
       {/* Header */}
-      <div className="bg-white rounded-2xl shadow-sm shadow-violet-100/40 p-5 flex items-center justify-between">
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">Agenda e Atividades</h1>
+          <h1 className="text-xl font-bold text-slate-900">Agenda e Atividades</h1>
           <p className="text-slate-500 text-sm mt-0.5">Consultas, visitas e rotinas</p>
         </div>
         <button
           onClick={() => setIsModalOpen(true)}
-          className="flex items-center gap-2 bg-violet-600 hover:bg-violet-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors shadow-sm shadow-violet-200"
+          className="flex items-center gap-2 bg-amber-400 hover:bg-amber-300 text-slate-900 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors shadow-sm"
         >
           <Plus className="h-4 w-4" /> Novo Evento
         </button>
@@ -101,7 +100,7 @@ const AgendaModule: React.FC<AgendaModuleProps> = ({ events, residents, onAddEve
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
 
         {/* Calendar */}
-        <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm shadow-violet-100/40 overflow-hidden">
+        <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm shadow-blue-100/40 overflow-hidden">
           <div className="px-5 py-4 flex justify-between items-center border-b border-slate-100">
             <button onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1))} className="w-9 h-9 rounded-xl hover:bg-slate-100 flex items-center justify-center transition-colors">
               <ChevronLeft className="h-5 w-5 text-slate-500" />
@@ -132,9 +131,9 @@ const AgendaModule: React.FC<AgendaModuleProps> = ({ events, residents, onAddEve
                 <div
                   key={day}
                   onClick={() => setSelectedDate(new Date(currentDate.getFullYear(), currentDate.getMonth(), day))}
-                  className={`border-b border-r border-slate-50 p-2 cursor-pointer hover:bg-violet-50/40 transition-colors ${isSelected ? 'bg-violet-50' : ''}`}
+                  className={`border-b border-r border-slate-50 p-2 cursor-pointer hover:bg-blue-50/40 transition-colors ${isSelected ? 'bg-blue-50' : ''}`}
                 >
-                  <span className={`text-sm font-semibold flex items-center justify-center w-6 h-6 rounded-full mb-1 ${isToday ? 'bg-violet-600 text-white' : isSelected ? 'text-violet-600' : 'text-slate-600'}`}>
+                  <span className={`text-sm font-semibold flex items-center justify-center w-6 h-6 rounded-full mb-1 ${isToday ? 'bg-blue-600 text-white' : isSelected ? 'text-blue-600' : 'text-slate-600'}`}>
                     {day}
                   </span>
                   <div className="space-y-0.5 overflow-hidden">
@@ -155,7 +154,7 @@ const AgendaModule: React.FC<AgendaModuleProps> = ({ events, residents, onAddEve
         </div>
 
         {/* Day detail */}
-        <div className="bg-white rounded-2xl shadow-sm shadow-violet-100/40 flex flex-col overflow-hidden max-h-[600px] lg:max-h-none">
+        <div className="bg-white rounded-2xl shadow-sm shadow-blue-100/40 flex flex-col overflow-hidden max-h-[600px] lg:max-h-none">
           <div className="px-5 py-4 border-b border-slate-100">
             <p className="font-bold text-slate-800">
               {selectedDate.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}
@@ -168,7 +167,7 @@ const AgendaModule: React.FC<AgendaModuleProps> = ({ events, residents, onAddEve
                   { value: 'all', label: 'Todos os tipos' },
                   { value: 'medico', label: 'Médico', badge: { label: 'Médico', bg: 'bg-rose-50', text: 'text-rose-700', dot: 'bg-rose-400' } },
                   { value: 'visita', label: 'Visita', badge: { label: 'Visita', bg: 'bg-blue-50', text: 'text-blue-700', dot: 'bg-blue-400' } },
-                  { value: 'terapia', label: 'Terapia', badge: { label: 'Terapia', bg: 'bg-violet-50', text: 'text-violet-700', dot: 'bg-violet-400' } },
+                  { value: 'terapia', label: 'Terapia', badge: { label: 'Terapia', bg: 'bg-blue-50', text: 'text-blue-700', dot: 'bg-blue-400' } },
                   { value: 'atividade', label: 'Atividade', badge: { label: 'Atividade', bg: 'bg-emerald-50', text: 'text-emerald-700', dot: 'bg-emerald-400' } },
                   { value: 'reuniao', label: 'Reunião', badge: { label: 'Reunião', bg: 'bg-amber-50', text: 'text-amber-700', dot: 'bg-amber-400' } },
                 ]}
@@ -207,8 +206,8 @@ const AgendaModule: React.FC<AgendaModuleProps> = ({ events, residents, onAddEve
               );
             }) : (
               <div className="flex flex-col items-center justify-center py-10 gap-3 text-center">
-                <div className="w-12 h-12 rounded-2xl bg-violet-50 flex items-center justify-center">
-                  <CalendarDays className="h-6 w-6 text-violet-200" />
+                <div className="w-12 h-12 rounded-2xl bg-blue-50 flex items-center justify-center">
+                  <CalendarDays className="h-6 w-6 text-blue-200" />
                 </div>
                 <p className="text-sm text-slate-400">Nenhum evento neste dia.</p>
               </div>
@@ -224,12 +223,12 @@ const AgendaModule: React.FC<AgendaModuleProps> = ({ events, residents, onAddEve
             onClick={(e) => e.stopPropagation()} 
             className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden"
           >
-            <div className="px-6 py-4 border-b border-slate-100 bg-[#F8F7FF] flex justify-between items-center">
+            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-white">
               <div>
-                <h3 className="font-bold text-slate-800">Novo Agendamento</h3>
-                <p className="text-xs text-slate-400 mt-0.5">Preencha os dados do evento</p>
+                <h3 className="font-bold text-slate-900">Novo Agendamento</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Preencha os dados do evento</p>
               </div>
-              <button onClick={() => setIsModalOpen(false)} className="w-9 h-9 rounded-xl hover:bg-slate-200 flex items-center justify-center transition-colors">
+              <button onClick={() => setIsModalOpen(false)} className="w-9 h-9 rounded-xl hover:bg-slate-100 flex items-center justify-center transition-colors">
                 <X className="h-5 w-5 text-slate-400" />
               </button>
             </div>
@@ -247,7 +246,7 @@ const AgendaModule: React.FC<AgendaModuleProps> = ({ events, residents, onAddEve
                     options={[
                       { value: 'medico', label: 'Médico', badge: { label: 'Médico', bg: 'bg-rose-50', text: 'text-rose-700', dot: 'bg-rose-400' } },
                       { value: 'visita', label: 'Visita Familiar', badge: { label: 'Visita', bg: 'bg-blue-50', text: 'text-blue-700', dot: 'bg-blue-400' } },
-                      { value: 'terapia', label: 'Terapia', badge: { label: 'Terapia', bg: 'bg-violet-50', text: 'text-violet-700', dot: 'bg-violet-400' } },
+                      { value: 'terapia', label: 'Terapia', badge: { label: 'Terapia', bg: 'bg-blue-50', text: 'text-blue-700', dot: 'bg-blue-400' } },
                       { value: 'atividade', label: 'Atividade Social', badge: { label: 'Atividade', bg: 'bg-emerald-50', text: 'text-emerald-700', dot: 'bg-emerald-400' } },
                       { value: 'reuniao', label: 'Reunião', badge: { label: 'Reunião', bg: 'bg-amber-50', text: 'text-amber-700', dot: 'bg-amber-400' } },
                     ]}
@@ -282,7 +281,7 @@ const AgendaModule: React.FC<AgendaModuleProps> = ({ events, residents, onAddEve
                 <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 py-2.5 border border-slate-200 rounded-xl text-slate-600 font-semibold text-sm hover:bg-slate-50 transition-colors">
                   Cancelar
                 </button>
-                <button type="submit" className="flex-1 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl font-semibold text-sm transition-colors">
+                <button type="submit" className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold text-sm transition-colors">
                   Salvar
                 </button>
               </div>

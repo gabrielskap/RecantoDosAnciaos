@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Utensils, AlertTriangle, CheckCircle2, PieChart as PieIcon, FileText, Droplets, Plus, X } from 'lucide-react';
 import { Resident, DietPlan, DietConsistency, DietType, MealTime, NutritionalLog } from '../types';
 import { PieChart as RechartPie, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
@@ -9,19 +9,98 @@ interface NutritionModuleProps {
 }
 
 const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateResident }) => {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'daily' | 'plans'>('dashboard');
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
-  const [selectedMeal, setSelectedMeal] = useState<MealTime>('Almoço');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'daily' | 'plans'>(() => {
+    return (localStorage.getItem('recanto_nutrition_active_tab') as any) || 'dashboard';
+  });
+  const [selectedDate, setSelectedDate] = useState(() => {
+    return localStorage.getItem('recanto_nutrition_selected_date') || new Date().toISOString().split('T')[0];
+  });
+  const [selectedMeal, setSelectedMeal] = useState<MealTime>(() => {
+    return (localStorage.getItem('recanto_nutrition_selected_meal') as MealTime) || 'Almoço';
+  });
 
   // New plan modal state
-  const [showNewPlanModal, setShowNewPlanModal] = useState(false);
-  const [newPlanResidentId, setNewPlanResidentId] = useState('');
-  const [newPlanConsistency, setNewPlanConsistency] = useState<DietConsistency>('Geral');
-  const [newPlanType, setNewPlanType] = useState<DietType>('Livre');
-  const [newPlanFluidRestriction, setNewPlanFluidRestriction] = useState('');
-  const [newPlanRestrictions, setNewPlanRestrictions] = useState<string[]>([]);
-  const [newPlanRestrictionInput, setNewPlanRestrictionInput] = useState('');
-  const [newPlanObservations, setNewPlanObservations] = useState('');
+  const [showNewPlanModal, setShowNewPlanModal] = useState(() => {
+    return localStorage.getItem('recanto_nutrition_show_modal') === 'true';
+  });
+  const [newPlanResidentId, setNewPlanResidentId] = useState(() => {
+    return localStorage.getItem('recanto_nutrition_new_plan_resident_id') || '';
+  });
+  const [newPlanConsistency, setNewPlanConsistency] = useState<DietConsistency>(() => {
+    return (localStorage.getItem('recanto_nutrition_new_plan_consistency') as DietConsistency) || 'Geral';
+  });
+  const [newPlanType, setNewPlanType] = useState<DietType>(() => {
+    return (localStorage.getItem('recanto_nutrition_new_plan_type') as DietType) || 'Livre';
+  });
+  const [newPlanFluidRestriction, setNewPlanFluidRestriction] = useState(() => {
+    return localStorage.getItem('recanto_nutrition_new_plan_fluid_restriction') || '';
+  });
+  const [newPlanRestrictions, setNewPlanRestrictions] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('recanto_nutrition_new_plan_restrictions');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [newPlanRestrictionInput, setNewPlanRestrictionInput] = useState(() => {
+    return localStorage.getItem('recanto_nutrition_new_plan_restriction_input') || '';
+  });
+  const [newPlanObservations, setNewPlanObservations] = useState(() => {
+    return localStorage.getItem('recanto_nutrition_new_plan_observations') || '';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('recanto_nutrition_active_tab', activeTab);
+  }, [activeTab]);
+
+  useEffect(() => {
+    localStorage.setItem('recanto_nutrition_selected_date', selectedDate);
+  }, [selectedDate]);
+
+  useEffect(() => {
+    localStorage.setItem('recanto_nutrition_selected_meal', selectedMeal);
+  }, [selectedMeal]);
+
+  useEffect(() => {
+    localStorage.setItem('recanto_nutrition_show_modal', showNewPlanModal.toString());
+    localStorage.setItem('recanto_nutrition_new_plan_resident_id', newPlanResidentId);
+    localStorage.setItem('recanto_nutrition_new_plan_consistency', newPlanConsistency);
+    localStorage.setItem('recanto_nutrition_new_plan_type', newPlanType);
+    localStorage.setItem('recanto_nutrition_new_plan_fluid_restriction', newPlanFluidRestriction);
+    localStorage.setItem('recanto_nutrition_new_plan_restrictions', JSON.stringify(newPlanRestrictions));
+    localStorage.setItem('recanto_nutrition_new_plan_restriction_input', newPlanRestrictionInput);
+    localStorage.setItem('recanto_nutrition_new_plan_observations', newPlanObservations);
+  }, [
+    showNewPlanModal,
+    newPlanResidentId,
+    newPlanConsistency,
+    newPlanType,
+    newPlanFluidRestriction,
+    newPlanRestrictions,
+    newPlanRestrictionInput,
+    newPlanObservations
+  ]);
+
+  const clearNewPlanForm = () => {
+    localStorage.removeItem('recanto_nutrition_show_modal');
+    localStorage.removeItem('recanto_nutrition_new_plan_resident_id');
+    localStorage.removeItem('recanto_nutrition_new_plan_consistency');
+    localStorage.removeItem('recanto_nutrition_new_plan_type');
+    localStorage.removeItem('recanto_nutrition_new_plan_fluid_restriction');
+    localStorage.removeItem('recanto_nutrition_new_plan_restrictions');
+    localStorage.removeItem('recanto_nutrition_new_plan_restriction_input');
+    localStorage.removeItem('recanto_nutrition_new_plan_observations');
+
+    setShowNewPlanModal(false);
+    setNewPlanResidentId('');
+    setNewPlanConsistency('Geral');
+    setNewPlanType('Livre');
+    setNewPlanFluidRestriction('');
+    setNewPlanRestrictions([]);
+    setNewPlanRestrictionInput('');
+    setNewPlanObservations('');
+  };
 
   const dietsCount = residents.reduce((acc, r) => {
     const type = r.dietPlan?.type || 'Não Definido';
@@ -29,7 +108,7 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
     return acc;
   }, {} as Record<string, number>);
   const dietChartData = Object.entries(dietsCount).map(([name, value]) => ({ name, value }));
-  const COLORS = ['#7c3aed', '#10b981', '#f59e0b', '#f43f5e', '#6366f1'];
+  const COLORS = ['#1d4ed8', '#10b981', '#f59e0b', '#f43f5e', '#6366f1'];
 
   const lowAcceptanceAlerts = residents.flatMap(r => {
     const cutoff = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
@@ -62,14 +141,7 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
       updatedAt: new Date().toISOString(),
     };
     onUpdateResident({ ...resident, dietPlan: plan });
-    setShowNewPlanModal(false);
-    setNewPlanResidentId('');
-    setNewPlanConsistency('Geral');
-    setNewPlanType('Livre');
-    setNewPlanFluidRestriction('');
-    setNewPlanRestrictions([]);
-    setNewPlanRestrictionInput('');
-    setNewPlanObservations('');
+    clearNewPlanForm();
   };
 
   const handleDietUpdate = (residentId: string, newPlan: Partial<DietPlan>) => {
@@ -86,7 +158,7 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
     onUpdateResident({ ...resident, dietPlan: updated });
   };
 
-  const inputClass = 'w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500';
+  const inputClass = 'w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500';
 
   const tabs = [
     { id: 'dashboard', label: 'Visão Geral',    icon: PieIcon   },
@@ -98,24 +170,23 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
     <div className="space-y-6">
 
       {/* Header */}
-      <div className="bg-white rounded-2xl shadow-sm shadow-violet-100/40 p-5 flex items-center justify-between">
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">Alimentação e Nutrição</h1>
+          <h1 className="text-xl font-bold text-slate-900">Alimentação e Nutrição</h1>
           <p className="text-slate-500 text-sm mt-0.5">Dietas, aceitação alimentar e relatórios</p>
         </div>
-        <div className="w-11 h-11 rounded-2xl bg-teal-500 flex items-center justify-center shadow-md shadow-teal-200">
-          <Utensils className="h-5 w-5 text-white" />
+        <div className="w-11 h-11 rounded-2xl bg-blue-50 flex items-center justify-center"> <Utensils className="h-5 w-5 text-blue-600" />
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="bg-white rounded-2xl shadow-sm shadow-violet-100/40 p-1.5 flex gap-1">
+      <div className="bg-white rounded-2xl shadow-sm shadow-blue-100/40 p-1.5 flex gap-1">
         {tabs.map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id as any)}
             className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-sm font-semibold transition-all ${
-              activeTab === tab.id ? 'bg-violet-600 text-white' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+              activeTab === tab.id ? 'bg-blue-600 text-white' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
             }`}
           >
             <tab.icon className="h-4 w-4" /> {tab.label}
@@ -128,7 +199,7 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
 
           {/* Low acceptance alerts */}
-          <div className="bg-white rounded-2xl shadow-sm shadow-violet-100/40 overflow-hidden">
+          <div className="bg-white rounded-2xl shadow-sm shadow-blue-100/40 overflow-hidden">
             <div className="px-5 pt-5 pb-3 flex items-center gap-2">
               <div className="w-8 h-8 rounded-xl bg-rose-50 flex items-center justify-center">
                 <AlertTriangle className="h-4 w-4 text-rose-500" />
@@ -157,10 +228,10 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
           </div>
 
           {/* Diet distribution pie */}
-          <div className="bg-white rounded-2xl shadow-sm shadow-violet-100/40 p-6">
+          <div className="bg-white rounded-2xl shadow-sm shadow-blue-100/40 p-6">
             <div className="flex items-center gap-2 mb-5">
-              <div className="w-8 h-8 rounded-xl bg-violet-50 flex items-center justify-center">
-                <PieIcon className="h-4 w-4 text-violet-600" />
+              <div className="w-8 h-8 rounded-xl bg-blue-50 flex items-center justify-center">
+                <PieIcon className="h-4 w-4 text-blue-600" />
               </div>
               <h3 className="font-bold text-slate-800 text-sm">Distribuição de Dietas</h3>
             </div>
@@ -181,7 +252,7 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
 
       {/* DAILY RECORD */}
       {activeTab === 'daily' && (
-        <div className="bg-white rounded-2xl shadow-sm shadow-violet-100/40 overflow-hidden">
+        <div className="bg-white rounded-2xl shadow-sm shadow-blue-100/40 overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-100 flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
             <div className="flex gap-3 flex-wrap">
               <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className={inputClass + ' w-auto'} />
@@ -189,7 +260,7 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
                 {['Café da Manhã', 'Colação', 'Almoço', 'Lanche da Tarde', 'Jantar', 'Ceia'].map(m => <option key={m} value={m}>{m}</option>)}
               </select>
             </div>
-            <p className="text-xs text-slate-400 flex items-center gap-1.5"><Utensils className="h-3.5 w-3.5 text-violet-400" /> Registro em lote</p>
+            <p className="text-xs text-slate-400 flex items-center gap-1.5"><Utensils className="h-3.5 w-3.5 text-blue-400" /> Registro em lote</p>
           </div>
 
           {/* Mobile cards */}
@@ -210,14 +281,14 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
                   </div>
                   {r.dietPlan && (
                     <div className="flex flex-wrap gap-1.5">
-                      <span className="text-xs font-semibold bg-violet-50 text-violet-700 px-2 py-0.5 rounded-full">{r.dietPlan.consistency}</span>
+                      <span className="text-xs font-semibold bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">{r.dietPlan.consistency}</span>
                       <span className="text-xs font-semibold bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">{r.dietPlan.type}</span>
                       {r.dietPlan.fluidRestriction && <span className="text-xs font-semibold bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full flex items-center gap-1"><Droplets className="h-3 w-3" /> Restrição Hídrica</span>}
                     </div>
                   )}
                   <div className="grid grid-cols-5 gap-1.5">
                     {[0, 25, 50, 75, 100].map(val => (
-                      <button key={val} onClick={() => handleBatchUpdate(r.id, val)} className={`min-h-[44px] rounded-xl text-xs font-bold border transition-all ${acceptance === val ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-slate-600 border-slate-200 hover:border-violet-300'}`}>
+                      <button key={val} onClick={() => handleBatchUpdate(r.id, val)} className={`min-h-[44px] rounded-xl text-xs font-bold border transition-all ${acceptance === val ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'}`}>
                         {val}%
                       </button>
                     ))}
@@ -245,7 +316,7 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
                       <td className="px-6 py-4">
                         {r.dietPlan ? (
                           <div className="flex flex-wrap gap-1.5">
-                            <span className="text-xs font-semibold bg-violet-50 text-violet-700 px-2 py-0.5 rounded-full">{r.dietPlan.consistency}</span>
+                            <span className="text-xs font-semibold bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">{r.dietPlan.consistency}</span>
                             <span className="text-xs font-semibold bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">{r.dietPlan.type}</span>
                             {r.dietPlan.fluidRestriction && <span className="text-xs font-semibold bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full flex items-center gap-1"><Droplets className="h-3 w-3" /> Restrição</span>}
                           </div>
@@ -254,7 +325,7 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
                       <td className="px-6 py-4">
                         <div className="flex gap-1.5">
                           {[0, 25, 50, 75, 100].map(val => (
-                            <button key={val} onClick={() => handleBatchUpdate(r.id, val)} className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${acceptance === val ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-slate-600 border-slate-200 hover:border-violet-300'}`}>
+                            <button key={val} onClick={() => handleBatchUpdate(r.id, val)} className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${acceptance === val ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'}`}>
                               {val}%
                             </button>
                           ))}
@@ -280,16 +351,16 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
           <div className="flex justify-end">
             <button
               onClick={() => setShowNewPlanModal(true)}
-              className="flex items-center gap-2 bg-violet-600 hover:bg-violet-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors shadow-sm shadow-violet-200"
+              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors shadow-sm shadow-blue-200"
             >
               <Plus className="h-4 w-4" /> Novo Plano Alimentar
             </button>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {residents.map(r => (
-            <div key={r.id} className="bg-white rounded-2xl shadow-sm shadow-violet-100/40 p-5">
+            <div key={r.id} className="bg-white rounded-2xl shadow-sm shadow-blue-100/40 p-5">
               <div className="flex items-center gap-3 mb-4">
-                <img src={r.photoUrl} alt="" className="w-10 h-10 rounded-xl object-cover border-2 border-violet-100" />
+                <img src={r.photoUrl} alt="" className="w-10 h-10 rounded-xl object-cover border-2 border-blue-100" />
                 <div className="min-w-0">
                   <h3 className="font-bold text-slate-800 text-sm truncate">{r.name}</h3>
                   <p className="text-xs text-slate-400">Quarto {r.room}</p>
@@ -339,7 +410,7 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between p-5 border-b border-slate-100">
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-violet-600 flex items-center justify-center">
+                <div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center">
                   <FileText className="h-5 w-5 text-white" />
                 </div>
                 <div>
@@ -347,7 +418,7 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
                   <p className="text-xs text-slate-400">Preencha os dados e vincule a um residente</p>
                 </div>
               </div>
-              <button onClick={() => setShowNewPlanModal(false)} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
+              <button onClick={clearNewPlanForm} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
                 <X className="h-5 w-5" />
               </button>
             </div>
@@ -418,7 +489,7 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
                         setNewPlanRestrictionInput('');
                       }
                     }}
-                    className="px-3 py-2 bg-violet-50 text-violet-700 rounded-xl text-sm font-semibold hover:bg-violet-100 transition-colors border border-violet-200"
+                    className="px-3 py-2 bg-blue-50 text-blue-700 rounded-xl text-sm font-semibold hover:bg-blue-100 transition-colors border border-blue-200"
                   >
                     <Plus className="h-4 w-4" />
                   </button>
@@ -451,7 +522,7 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
 
             <div className="flex gap-3 p-5 border-t border-slate-100">
               <button
-                onClick={() => setShowNewPlanModal(false)}
+                onClick={clearNewPlanForm}
                 className="flex-1 py-2.5 px-4 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
               >
                 Cancelar
@@ -459,7 +530,7 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
               <button
                 onClick={handleCreatePlan}
                 disabled={!newPlanResidentId}
-                className="flex-1 py-2.5 px-4 rounded-xl bg-violet-600 text-white text-sm font-semibold hover:bg-violet-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                className="flex-1 py-2.5 px-4 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 Salvar Plano
               </button>

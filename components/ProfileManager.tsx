@@ -13,9 +13,9 @@ const MODULE_LABELS: Record<ViewState, string> = {
   [ViewState.FINANCE]: 'Financeiro',
   [ViewState.STOCK]: 'Estoque',
   [ViewState.REPORTS]: 'Relatórios',
-  [ViewState.AI_ASSISTANT]: 'Assistente IA',
-  [ViewState.USERS]: 'Contas de Acesso',
+[ViewState.USERS]: 'Contas de Acesso',
   [ViewState.ROOMS]: 'Quartos',
+  [ViewState.SETTINGS]: 'Configurações',
 };
 
 const EDITABLE_MODULES = [

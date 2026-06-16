@@ -51,18 +51,18 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
 }) => {
   // Session storage state persistence for persistent modal open
   const [isRoomModalOpen, setIsRoomModalOpen] = useState(() => {
-    return sessionStorage.getItem('modal_rooms_open') === 'true';
+    return localStorage.getItem('modal_rooms_open') === 'true';
   });
   const [editingRoom, setEditingRoom] = useState<Room | null>(() => {
-    const saved = sessionStorage.getItem('modal_rooms_editing');
+    const saved = localStorage.getItem('modal_rooms_editing');
     return saved ? JSON.parse(saved) : null;
   });
 
   const [isLinkModalOpen, setIsLinkModalOpen] = useState(() => {
-    return sessionStorage.getItem('modal_link_resident_open') === 'true';
+    return localStorage.getItem('modal_link_resident_open') === 'true';
   });
   const [linkingRoom, setLinkingRoom] = useState<Room | null>(() => {
-    const saved = sessionStorage.getItem('modal_link_room');
+    const saved = localStorage.getItem('modal_link_room');
     return saved ? JSON.parse(saved) : null;
   });
 
@@ -72,20 +72,29 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
   const [statusFilter, setStatusFilter] = useState<string>('Todos');
 
   // Room Form State
-  const [roomNumber, setRoomNumber] = useState('');
-  const [roomType, setRoomType] = useState<'Individual' | 'Compartilhado'>('Individual');
-  const [roomCapacity, setRoomCapacity] = useState(1);
-  const [selectedAssets, setSelectedAssets] = useState<string[]>([]);
-  const [customAsset, setCustomAsset] = useState('');
-  const [manualStatus, setManualStatus] = useState<RoomStatus | ''>('');
+  const [roomNumber, setRoomNumber] = useState(() => localStorage.getItem('modal_rooms_number') || '');
+  const [roomType, setRoomType] = useState<'Individual' | 'Compartilhado'>(() => (localStorage.getItem('modal_rooms_type') as any) || 'Individual');
+  const [roomCapacity, setRoomCapacity] = useState(() => Number(localStorage.getItem('modal_rooms_capacity')) || 1);
+  const [selectedAssets, setSelectedAssets] = useState<string[]>(() => {
+    const saved = localStorage.getItem('modal_rooms_selected_assets');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [customAsset, setCustomAsset] = useState(() => localStorage.getItem('modal_rooms_custom_asset') || '');
+  const [manualStatus, setManualStatus] = useState<RoomStatus | ''>(() => (localStorage.getItem('modal_rooms_manual_status') as any) || '');
 
   // Save states to session storage to comply with modal persistence
   useEffect(() => {
-    sessionStorage.setItem('modal_rooms_open', isRoomModalOpen.toString());
-    sessionStorage.setItem('modal_rooms_editing', editingRoom ? JSON.stringify(editingRoom) : '');
-    sessionStorage.setItem('modal_link_resident_open', isLinkModalOpen.toString());
-    sessionStorage.setItem('modal_link_room', linkingRoom ? JSON.stringify(linkingRoom) : '');
-  }, [isRoomModalOpen, editingRoom, isLinkModalOpen, linkingRoom]);
+    localStorage.setItem('modal_rooms_open', isRoomModalOpen.toString());
+    localStorage.setItem('modal_rooms_editing', editingRoom ? JSON.stringify(editingRoom) : '');
+    localStorage.setItem('modal_link_resident_open', isLinkModalOpen.toString());
+    localStorage.setItem('modal_link_room', linkingRoom ? JSON.stringify(linkingRoom) : '');
+    localStorage.setItem('modal_rooms_number', roomNumber);
+    localStorage.setItem('modal_rooms_type', roomType);
+    localStorage.setItem('modal_rooms_capacity', roomCapacity.toString());
+    localStorage.setItem('modal_rooms_selected_assets', JSON.stringify(selectedAssets));
+    localStorage.setItem('modal_rooms_custom_asset', customAsset);
+    localStorage.setItem('modal_rooms_manual_status', manualStatus);
+  }, [isRoomModalOpen, editingRoom, isLinkModalOpen, linkingRoom, roomNumber, roomType, roomCapacity, selectedAssets, customAsset, manualStatus]);
 
   // Sync capacity when room type is changed to individual
   useEffect(() => {
@@ -95,6 +104,24 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
       setRoomCapacity(2);
     }
   }, [roomType]);
+
+  // Clean form state
+  const clearForm = () => {
+    setRoomNumber('');
+    setRoomType('Individual');
+    setRoomCapacity(1);
+    setSelectedAssets([]);
+    setCustomAsset('');
+    setManualStatus('');
+    localStorage.removeItem('modal_rooms_number');
+    localStorage.removeItem('modal_rooms_type');
+    localStorage.removeItem('modal_rooms_capacity');
+    localStorage.removeItem('modal_rooms_selected_assets');
+    localStorage.removeItem('modal_rooms_custom_asset');
+    localStorage.removeItem('modal_rooms_manual_status');
+    localStorage.removeItem('modal_rooms_open');
+    localStorage.removeItem('modal_rooms_editing');
+  };
 
   // Load editing room data into form
   const handleEditRoomClick = (room: Room) => {
@@ -120,6 +147,7 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
   const handleCloseRoomModal = () => {
     setIsRoomModalOpen(false);
     setEditingRoom(null);
+    clearForm();
   };
 
   // Submit Room handler
@@ -155,7 +183,7 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
         }
         await onAddRoom(roomData);
       }
-      handleCloseRoomModal();
+      setEditingRoom(null);
     } catch (err) {
       console.error(err);
       alert('Erro ao salvar o quarto.');
@@ -219,7 +247,6 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
           status: 'Ocupado'
         });
       }
-      setIsLinkModalOpen(false);
       setLinkingRoom(null);
     } catch (err) {
       console.error(err);
@@ -302,15 +329,15 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="bg-white rounded-2xl shadow-sm shadow-violet-100/40 p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">Gerenciamento de Quartos</h1>
+          <h1 className="text-xl font-bold text-slate-900">Gerenciamento de Quartos</h1>
           <p className="text-slate-500 text-sm mt-0.5">Gestão de leitos, patrimônio e alocação de residentes</p>
         </div>
         <button
           id="btn-new-room"
           onClick={handleCreateRoomClick}
-          className="flex items-center gap-2 bg-violet-600 hover:bg-violet-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors shadow-sm shadow-violet-200 w-full sm:w-auto justify-center"
+          className="flex items-center gap-2 bg-amber-400 hover:bg-amber-300 text-slate-900 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors shadow-sm w-full sm:w-auto justify-center"
         >
           <Plus className="h-4 w-4" /> Novo Quarto
         </button>
@@ -318,8 +345,8 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white rounded-2xl shadow-sm shadow-violet-100/40 p-5 border border-slate-50 flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-violet-50 flex items-center justify-center text-violet-600">
+        <div className="bg-white rounded-2xl shadow-sm shadow-blue-100/40 p-5 border border-slate-50 flex items-center gap-4">
+          <div className="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600">
             <Bed className="h-6 w-6" />
           </div>
           <div>
@@ -328,7 +355,7 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-sm shadow-violet-100/40 p-5 border border-slate-50 flex items-center gap-4">
+        <div className="bg-white rounded-2xl shadow-sm shadow-blue-100/40 p-5 border border-slate-50 flex items-center gap-4">
           <div className="w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-600">
             <Users className="h-6 w-6" />
           </div>
@@ -340,7 +367,7 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-sm shadow-violet-100/40 p-5 border border-slate-50 flex items-center gap-4">
+        <div className="bg-white rounded-2xl shadow-sm shadow-blue-100/40 p-5 border border-slate-50 flex items-center gap-4">
           <div className="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600">
             <Check className="h-6 w-6" />
           </div>
@@ -350,7 +377,7 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-sm shadow-violet-100/40 p-5 border border-slate-50 flex items-center gap-4">
+        <div className="bg-white rounded-2xl shadow-sm shadow-blue-100/40 p-5 border border-slate-50 flex items-center gap-4">
           <div className="w-12 h-12 rounded-xl bg-rose-50 flex items-center justify-center text-rose-600">
             <AlertCircle className="h-6 w-6" />
           </div>
@@ -364,7 +391,7 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
       </div>
 
       {/* Filters Toolbar */}
-      <div className="bg-white rounded-2xl shadow-sm shadow-violet-100/40 p-4 border border-slate-100/50 flex flex-col md:flex-row gap-4 items-center">
+      <div className="bg-white rounded-2xl shadow-sm shadow-blue-100/40 p-4 border border-slate-100/50 flex flex-col md:flex-row gap-4 items-center">
         {/* Search */}
         <div className="relative w-full md:flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
@@ -374,7 +401,7 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             placeholder="Buscar por número, residente ou patrimônio..."
-            className="w-full pl-9 pr-4 py-2 bg-slate-50 border-0 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+            className="w-full pl-9 pr-4 py-2 bg-slate-50 border-0 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
 
@@ -475,7 +502,7 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
                         setLinkingRoom(room);
                         setIsLinkModalOpen(true);
                       }}
-                      className="flex items-center gap-1 text-[11px] font-bold text-violet-600 hover:text-white border border-dashed border-violet-200 hover:border-violet-600 hover:bg-violet-600 rounded-xl px-3 py-1.5 w-full justify-center transition-all select-none"
+                      className="flex items-center gap-1 text-[11px] font-bold text-blue-600 hover:text-white border border-dashed border-blue-200 hover:border-blue-600 hover:bg-blue-600 rounded-xl px-3 py-1.5 w-full justify-center transition-all select-none"
                     >
                       <UserPlus className="h-3.5 w-3.5" /> Alocar Residente
                     </button>
@@ -492,7 +519,7 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
                       {room.assets.map((asset, i) => (
                         <span
                           key={i}
-                          className="inline-flex items-center gap-1 bg-violet-50 text-violet-700 text-[10px] font-semibold px-2 py-1 rounded-lg border border-violet-100/60"
+                          className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 text-[10px] font-semibold px-2 py-1 rounded-lg border border-blue-100/60"
                         >
                           {getAssetIcon(asset)}
                           {asset}
@@ -509,7 +536,7 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => handleEditRoomClick(room)}
-                    className="p-1.5 text-slate-500 hover:text-violet-600 hover:bg-violet-50 rounded-lg transition-colors border border-transparent hover:border-violet-100 bg-white shadow-sm"
+                    className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors border border-transparent hover:border-blue-100 bg-white shadow-sm"
                     title="Editar Quarto"
                   >
                     <Edit3 className="h-4 w-4" />
@@ -539,8 +566,8 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
 
         {filteredRooms.length === 0 && (
           <div className="col-span-full bg-white rounded-2xl shadow-sm border border-slate-100 p-12 flex flex-col items-center gap-3 text-center">
-            <div className="w-14 h-14 rounded-2xl bg-violet-50 flex items-center justify-center">
-              <Bed className="h-7 w-7 text-violet-300" />
+            <div className="w-14 h-14 rounded-2xl bg-blue-50 flex items-center justify-center">
+              <Bed className="h-7 w-7 text-blue-300" />
             </div>
             <p className="text-sm font-semibold text-slate-600">Nenhum quarto encontrado</p>
             <p className="text-xs text-slate-400">Tente ajustar a busca ou os filtros aplicados.</p>
@@ -555,13 +582,13 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
             onClick={e => e.stopPropagation()}
             className="bg-white w-full h-full sm:h-auto sm:rounded-2xl shadow-2xl sm:max-w-xl overflow-hidden flex flex-col max-h-[100vh] sm:max-h-[90vh]"
           >
-            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-[#F8F7FF] shrink-0">
+            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center shrink-0 bg-white">
               <div>
-                <h3 className="font-bold text-slate-800">{editingRoom ? 'Editar Quarto' : 'Novo Quarto'}</h3>
-                <p className="text-xs text-slate-400 mt-0.5">Preencha as informações básicas do quarto</p>
+                <h3 className="font-bold text-slate-900">{editingRoom ? 'Editar Quarto' : 'Novo Quarto'}</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Preencha as informações básicas do quarto</p>
               </div>
-              <button onClick={handleCloseRoomModal} className="w-9 h-9 rounded-xl hover:bg-slate-200 flex items-center justify-center transition-colors">
-                <X className="h-5 w-5 text-slate-500" />
+              <button onClick={handleCloseRoomModal} className="w-9 h-9 rounded-xl hover:bg-slate-100 flex items-center justify-center transition-colors">
+                <X className="h-5 w-5 text-slate-400" />
               </button>
             </div>
 
@@ -575,7 +602,7 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
                     value={roomNumber}
                     onChange={e => setRoomNumber(e.target.value)}
                     placeholder="Ex: 101"
-                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
                 <div>
@@ -600,7 +627,7 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
                     max={10}
                     value={roomCapacity}
                     onChange={e => setRoomCapacity(Math.max(2, parseInt(e.target.value) || 2))}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
               )}
@@ -633,7 +660,7 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
                         type="checkbox"
                         checked={selectedAssets.includes(asset)}
                         onChange={() => toggleAsset(asset)}
-                        className="rounded text-violet-600 focus:ring-violet-500 h-4.5 w-4.5 border-slate-300"
+                        className="rounded text-blue-600 focus:ring-blue-500 h-4.5 w-4.5 border-slate-300"
                       />
                       <span className="text-xs text-slate-700 font-medium">{asset}</span>
                     </label>
@@ -647,7 +674,7 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
                     placeholder="Outro patrimônio... Ex: Frigobar"
                     value={customAsset}
                     onChange={e => setCustomAsset(e.target.value)}
-                    className="flex-1 px-3 py-2 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-violet-500"
+                    className="flex-1 px-3 py-2 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
                     onKeyDown={e => {
                       if (e.key === 'Enter') {
                         e.preventDefault();
@@ -690,7 +717,7 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 sm:flex-none px-6 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl font-semibold text-sm transition-colors"
+                  className="flex-1 sm:flex-none px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold text-sm transition-colors"
                 >
                   Salvar Quarto
                 </button>
@@ -707,19 +734,19 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
             onClick={e => e.stopPropagation()}
             className="bg-white w-full h-full sm:h-auto sm:rounded-2xl shadow-2xl sm:max-w-md overflow-hidden flex flex-col max-h-[100vh] sm:max-h-[85vh]"
           >
-            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-[#F8F7FF] shrink-0">
+            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center shrink-0 bg-white">
               <div>
-                <h3 className="font-bold text-slate-800">Alocar Residente no Quarto {linkingRoom.number}</h3>
-                <p className="text-xs text-slate-400 mt-0.5">Selecione o residente para vincular ao leito</p>
+                <h3 className="font-bold text-slate-900">Alocar Residente no Quarto {linkingRoom.number}</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Selecione o residente para vincular ao leito</p>
               </div>
               <button
                 onClick={() => {
                   setIsLinkModalOpen(false);
                   setLinkingRoom(null);
                 }}
-                className="w-9 h-9 rounded-xl hover:bg-slate-200 flex items-center justify-center transition-colors"
+                className="w-9 h-9 rounded-xl hover:bg-white/10 flex items-center justify-center transition-colors"
               >
-                <X className="h-5 w-5 text-slate-500" />
+                <X className="h-5 w-5 text-slate-400" />
               </button>
             </div>
 
@@ -733,7 +760,7 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
                     return (
                       <div
                         key={res.id}
-                        className="flex items-center justify-between p-3 bg-slate-50 hover:bg-slate-100 rounded-2xl border border-slate-100 hover:border-violet-100 transition-all group"
+                        className="flex items-center justify-between p-3 bg-slate-50 hover:bg-slate-100 rounded-2xl border border-slate-100 hover:border-blue-100 transition-all group"
                       >
                         <div className="flex items-center gap-3">
                           <img
@@ -752,7 +779,7 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
 
                         <button
                           onClick={() => handleLinkResidentSubmit(res.id)}
-                          className="flex items-center gap-1 text-[11px] font-bold text-violet-600 bg-white hover:bg-violet-600 hover:text-white border border-violet-100 hover:border-violet-600 rounded-xl px-3 py-1.5 transition-all shadow-sm"
+                          className="flex items-center gap-1 text-[11px] font-bold text-blue-600 bg-white hover:bg-blue-600 hover:text-white border border-blue-100 hover:border-blue-600 rounded-xl px-3 py-1.5 transition-all shadow-sm"
                         >
                           Vincular
                         </button>

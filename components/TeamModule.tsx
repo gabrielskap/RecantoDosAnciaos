@@ -32,19 +32,19 @@ const TeamModule: React.FC<TeamModuleProps> = ({
   const showUsersTab = hasPermission(ViewState.USERS, 'view');
   const [activeTab, setActiveTab] = useState<'employees' | 'users' | 'schedule' | 'training' | 'logs' | 'profiles'>('employees');
   const [isEmpModalOpen, setIsEmpModalOpen] = useState(() => {
-    return sessionStorage.getItem('modal_team_emp_open') === 'true';
+    return localStorage.getItem('modal_team_emp_open') === 'true';
   });
   const [isTrainModalOpen, setIsTrainModalOpen] = useState(() => {
-    return sessionStorage.getItem('modal_team_train_open') === 'true';
+    return localStorage.getItem('modal_team_train_open') === 'true';
   });
 
   const [editingEmpId, setEditingEmpId] = useState<string | null>(() => {
-    return sessionStorage.getItem('modal_team_editing_emp_id') || null;
+    return localStorage.getItem('modal_team_editing_emp_id') || null;
   });
 
   // New Employee Form State
   const [newEmp, setNewEmp] = useState<Partial<Employee>>(() => {
-    const saved = sessionStorage.getItem('modal_team_new_emp');
+    const saved = localStorage.getItem('modal_team_new_emp');
     return saved ? JSON.parse(saved) : {
       name: '',
       role: 'Cuidador',
@@ -70,7 +70,7 @@ const TeamModule: React.FC<TeamModuleProps> = ({
 
   // New Training Form State
   const [newTrain, setNewTrain] = useState<Partial<TrainingRecord>>(() => {
-    const saved = sessionStorage.getItem('modal_team_new_train');
+    const saved = localStorage.getItem('modal_team_new_train');
     return saved ? JSON.parse(saved) : {
       title: '',
       instructor: '',
@@ -82,25 +82,25 @@ const TeamModule: React.FC<TeamModuleProps> = ({
 
   React.useEffect(() => {
     if (isEmpModalOpen) {
-      sessionStorage.setItem('modal_team_emp_open', 'true');
-      sessionStorage.setItem('modal_team_new_emp', JSON.stringify(newEmp));
+      localStorage.setItem('modal_team_emp_open', 'true');
+      localStorage.setItem('modal_team_new_emp', JSON.stringify(newEmp));
       if (editingEmpId) {
-        sessionStorage.setItem('modal_team_editing_emp_id', editingEmpId);
+        localStorage.setItem('modal_team_editing_emp_id', editingEmpId);
       }
     } else {
-      sessionStorage.removeItem('modal_team_emp_open');
-      sessionStorage.removeItem('modal_team_new_emp');
-      sessionStorage.removeItem('modal_team_editing_emp_id');
+      localStorage.removeItem('modal_team_emp_open');
+      localStorage.removeItem('modal_team_new_emp');
+      localStorage.removeItem('modal_team_editing_emp_id');
     }
   }, [isEmpModalOpen, newEmp, editingEmpId]);
 
   React.useEffect(() => {
     if (isTrainModalOpen) {
-      sessionStorage.setItem('modal_team_train_open', 'true');
-      sessionStorage.setItem('modal_team_new_train', JSON.stringify(newTrain));
+      localStorage.setItem('modal_team_train_open', 'true');
+      localStorage.setItem('modal_team_new_train', JSON.stringify(newTrain));
     } else {
-      sessionStorage.removeItem('modal_team_train_open');
-      sessionStorage.removeItem('modal_team_new_train');
+      localStorage.removeItem('modal_team_train_open');
+      localStorage.removeItem('modal_team_new_train');
     }
   }, [isTrainModalOpen, newTrain]);
 
@@ -198,7 +198,6 @@ const TeamModule: React.FC<TeamModuleProps> = ({
         }
       }
 
-      setIsEmpModalOpen(false);
       setNewEmp({ name: '', role: 'Cuidador', cpf: '', email: '', phone: '', shift: 'Matutino', isTechnicalLead: false, status: 'Ativo' });
       setLinkUserMode('none');
       setAccessPassword('');
@@ -225,7 +224,6 @@ const TeamModule: React.FC<TeamModuleProps> = ({
     };
 
     onAddTraining(training);
-    setIsTrainModalOpen(false);
     setNewTrain({ title: '', instructor: '', date: '', description: '', validUntil: '' });
   };
 
@@ -233,10 +231,12 @@ const TeamModule: React.FC<TeamModuleProps> = ({
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">Equipe e Acessos</h1>
-          <p className="text-slate-500">Colaboradores, Escalas e Controle de Acesso</p>
+          <h1 className="text-xl font-bold text-slate-900">Equipe e Acessos</h1>
+          <p className="text-slate-500 text-sm mt-0.5">Colaboradores, Escalas e Controle de Acesso</p>
+        </div>
+        <div className="w-11 h-11 rounded-2xl bg-blue-50 flex items-center justify-center"> <Users className="h-5 w-5 text-blue-600" />
         </div>
       </div>
 
@@ -532,17 +532,17 @@ const TeamModule: React.FC<TeamModuleProps> = ({
             onClick={(e) => e.stopPropagation()} 
             className="bg-white w-full h-full sm:h-auto sm:rounded-2xl shadow-2xl sm:max-w-lg overflow-hidden flex flex-col max-h-[100vh] sm:max-h-[90vh]"
           >
-             <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-[#F8F7FF] sticky top-0 z-10 shrink-0">
+             <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center sticky top-0 z-10 shrink-0 bg-white">
                <div>
-                 <h3 className="font-bold text-slate-800">{editingEmpId ? 'Editar Colaborador' : 'Novo Colaborador'}</h3>
-                 <p className="text-xs text-slate-400 mt-0.5">{editingEmpId ? 'Atualize as informações do colaborador' : 'Cadastre um novo colaborador na equipe'}</p>
+                 <h3 className="font-bold text-slate-900">{editingEmpId ? 'Editar Colaborador' : 'Novo Colaborador'}</h3>
+                 <p className="text-xs text-slate-500 mt-0.5">{editingEmpId ? 'Atualize as informações do colaborador' : 'Cadastre um novo colaborador na equipe'}</p>
                </div>
-               <button 
+               <button
                  onClick={() => setIsEmpModalOpen(false)}
-                 className="w-9 h-9 rounded-xl hover:bg-slate-200 flex items-center justify-center transition-colors"
+                 className="w-9 h-9 rounded-xl hover:bg-white/10 flex items-center justify-center transition-colors"
                  aria-label="Close"
                >
-                 <X className="h-5 w-5 text-slate-500" />
+                 <X className="h-5 w-5 text-slate-400" />
                </button>
              </div>
              <form onSubmit={handleEmpSubmit} className="p-6 space-y-4 flex-1 overflow-y-auto">
@@ -704,17 +704,17 @@ const TeamModule: React.FC<TeamModuleProps> = ({
             onClick={(e) => e.stopPropagation()} 
             className="bg-white w-full h-full sm:h-auto sm:rounded-2xl shadow-2xl sm:max-w-lg overflow-hidden flex flex-col max-h-[100vh] sm:max-h-[90vh]"
           >
-             <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-[#F8F7FF] sticky top-0 z-10 shrink-0">
+             <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center sticky top-0 z-10 shrink-0 bg-white">
                <div>
-                 <h3 className="font-bold text-slate-800">Registrar Treinamento</h3>
-                 <p className="text-xs text-slate-400 mt-0.5">Registre uma nova capacitação para a equipe</p>
+                 <h3 className="font-bold text-slate-900">Registrar Treinamento</h3>
+                 <p className="text-xs text-slate-500 mt-0.5">Registre uma nova capacitação para a equipe</p>
                </div>
-               <button 
+               <button
                  onClick={() => setIsTrainModalOpen(false)}
-                 className="w-9 h-9 rounded-xl hover:bg-slate-200 flex items-center justify-center transition-colors"
+                 className="w-9 h-9 rounded-xl hover:bg-white/10 flex items-center justify-center transition-colors"
                  aria-label="Close"
                >
-                 <X className="h-5 w-5 text-slate-500" />
+                 <X className="h-5 w-5 text-slate-400" />
                </button>
              </div>
              <form onSubmit={handleTrainSubmit} className="p-6 space-y-4 flex-1 overflow-y-auto">

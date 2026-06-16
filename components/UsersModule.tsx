@@ -1,8 +1,12 @@
 import React, { useState } from 'react';
-import { Plus, X, Search, Trash2, Mail, Lock, User, UserPlus, AlertCircle, Check, ShieldAlert, Edit } from 'lucide-react';
+import {
+  Plus, X, Search, Trash2, Mail, Lock, User, UserPlus, AlertCircle, ShieldAlert,
+  Edit, Key, CheckCircle, Clock,
+} from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { AuthUser, Resident, SystemAccessLog, Profile, Employee } from '../types';
+import { AuthUser, Resident, SystemAccessLog, Profile, Employee, DigitalCertificate } from '../types';
 import CustomSelect from './CustomSelect';
+import CertificateSection from './CertificateSection';
 
 interface UsersModuleProps {
   residents: Resident[];
@@ -11,86 +15,150 @@ interface UsersModuleProps {
   onAddAccessLog: (log: SystemAccessLog) => void;
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function certDaysRemaining(expDate: string): number {
+  const exp = new Date(expDate + 'T00:00:00');
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.ceil((exp.getTime() - today.getTime()) / 86400000);
+}
+
+function certFilterMatch(cert: DigitalCertificate | undefined, filter: string): boolean {
+  if (filter === 'all') return true;
+  if (filter === 'none') return !cert;
+  if (!cert) return false;
+  const days = certDaysRemaining(cert.certificate_expiration_date);
+  if (filter === 'valid') return days > 30;
+  if (filter === 'expiring_soon') return days >= 0 && days <= 30;
+  if (filter === 'expired') return days < 0;
+  return true;
+}
+
+// Inline certificate status badge shown in the user list
+const CertBadge: React.FC<{ cert?: DigitalCertificate }> = ({ cert }) => {
+  if (!cert) {
+    return <span className="text-xs text-slate-400 italic">—</span>;
+  }
+  const days = certDaysRemaining(cert.certificate_expiration_date);
+  const isExpired = days < 0;
+  const isExpiring = days >= 0 && days <= 30;
+
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span
+        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+          isExpired
+            ? 'bg-rose-100 text-rose-700 border-rose-200'
+            : isExpiring
+            ? 'bg-amber-100 text-amber-700 border-amber-200'
+            : 'bg-emerald-100 text-emerald-700 border-emerald-200'
+        }`}
+      >
+        {isExpired ? (
+          <AlertCircle className="h-3 w-3 shrink-0" />
+        ) : isExpiring ? (
+          <Clock className="h-3 w-3 shrink-0" />
+        ) : (
+          <CheckCircle className="h-3 w-3 shrink-0" />
+        )}
+        {isExpired ? 'Expirado' : isExpiring ? 'Expira em breve' : 'Válido'}
+      </span>
+      <span className="text-[10px] text-slate-400 pl-0.5">
+        {isExpired
+          ? `há ${Math.abs(days)}d`
+          : days === 0
+          ? 'Expira hoje'
+          : `${days}d restantes`}
+      </span>
+    </div>
+  );
+};
+
+// ── Component ─────────────────────────────────────────────────────────────────
+
 const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEmployee, onAddAccessLog }) => {
-  const { users, profiles, addUser, deleteUser, currentUser, updateUser } = useAuth();
+  const { users, profiles, addUser, deleteUser, currentUser, updateUser, updateUserCertificate } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
+  const [certFilter, setCertFilter] = useState('all');
   const [isModalOpen, setIsModalOpen] = useState(() => {
-    return sessionStorage.getItem('modal_users_create_open') === 'true';
+    return localStorage.getItem('modal_users_create_open') === 'true';
   });
   const [userToDelete, setUserToDelete] = useState<AuthUser | null>(() => {
-    const saved = sessionStorage.getItem('modal_users_delete_user');
+    const saved = localStorage.getItem('modal_users_delete_user');
     return saved ? JSON.parse(saved) : null;
   });
 
   const [editingUserId, setEditingUserId] = useState<string | null>(() => {
-    return sessionStorage.getItem('modal_users_editing_user_id') || null;
+    return localStorage.getItem('modal_users_editing_user_id') || null;
   });
+
+  // Certificate modal state
+  const [certModalUserId, setCertModalUserId] = useState<string | null>(null);
+  const certModalUser = certModalUserId ? users.find(u => u.id === certModalUserId) : null;
 
   // Form State
-  const [name, setName] = useState(() => {
-    return sessionStorage.getItem('modal_users_form_name') || '';
-  });
-  const [email, setEmail] = useState(() => {
-    return sessionStorage.getItem('modal_users_form_email') || '';
-  });
-  const [password, setPassword] = useState(() => {
-    return sessionStorage.getItem('modal_users_form_password') || '';
-  });
-  const [selectedProfileId, setSelectedProfileId] = useState(() => {
-    return sessionStorage.getItem('modal_users_form_profile_id') || '';
-  });
-  const [selectedResidentId, setSelectedResidentId] = useState(() => {
-    return sessionStorage.getItem('modal_users_form_resident_id') || '';
-  });
-  const [formError, setFormError] = useState(() => {
-    return sessionStorage.getItem('modal_users_form_error') || '';
-  });
-
-
+  const [name, setName] = useState(() => localStorage.getItem('modal_users_form_name') || '');
+  const [email, setEmail] = useState(() => localStorage.getItem('modal_users_form_email') || '');
+  const [password, setPassword] = useState(() => localStorage.getItem('modal_users_form_password') || '');
+  const [selectedProfileId, setSelectedProfileId] = useState(() => localStorage.getItem('modal_users_form_profile_id') || '');
+  const [selectedResidentId, setSelectedResidentId] = useState(() => localStorage.getItem('modal_users_form_resident_id') || '');
+  const [formError, setFormError] = useState(() => localStorage.getItem('modal_users_form_error') || '');
 
   React.useEffect(() => {
     if (isModalOpen) {
-      sessionStorage.setItem('modal_users_create_open', 'true');
-      sessionStorage.setItem('modal_users_form_name', name);
-      sessionStorage.setItem('modal_users_form_email', email);
-      sessionStorage.setItem('modal_users_form_password', password);
-      sessionStorage.setItem('modal_users_form_profile_id', selectedProfileId);
-      sessionStorage.setItem('modal_users_form_resident_id', selectedResidentId);
-      sessionStorage.setItem('modal_users_form_error', formError);
-      if (editingUserId) {
-        sessionStorage.setItem('modal_users_editing_user_id', editingUserId);
-      }
+      localStorage.setItem('modal_users_create_open', 'true');
+      localStorage.setItem('modal_users_form_name', name);
+      localStorage.setItem('modal_users_form_email', email);
+      localStorage.setItem('modal_users_form_password', password);
+      localStorage.setItem('modal_users_form_profile_id', selectedProfileId);
+      localStorage.setItem('modal_users_form_resident_id', selectedResidentId);
+      localStorage.setItem('modal_users_form_error', formError);
+      if (editingUserId) localStorage.setItem('modal_users_editing_user_id', editingUserId);
     } else {
-      sessionStorage.removeItem('modal_users_create_open');
-      sessionStorage.removeItem('modal_users_form_name');
-      sessionStorage.removeItem('modal_users_form_email');
-      sessionStorage.removeItem('modal_users_form_password');
-      sessionStorage.removeItem('modal_users_form_profile_id');
-      sessionStorage.removeItem('modal_users_form_resident_id');
-      sessionStorage.removeItem('modal_users_form_error');
-      sessionStorage.removeItem('modal_users_editing_user_id');
+      localStorage.removeItem('modal_users_create_open');
+      localStorage.removeItem('modal_users_form_name');
+      localStorage.removeItem('modal_users_form_email');
+      localStorage.removeItem('modal_users_form_password');
+      localStorage.removeItem('modal_users_form_profile_id');
+      localStorage.removeItem('modal_users_form_resident_id');
+      localStorage.removeItem('modal_users_form_error');
+      localStorage.removeItem('modal_users_editing_user_id');
     }
   }, [isModalOpen, name, email, password, selectedProfileId, selectedResidentId, formError, editingUserId]);
 
   React.useEffect(() => {
     if (userToDelete) {
-      sessionStorage.setItem('modal_users_delete_user', JSON.stringify(userToDelete));
+      localStorage.setItem('modal_users_delete_user', JSON.stringify(userToDelete));
     } else {
-      sessionStorage.removeItem('modal_users_delete_user');
+      localStorage.removeItem('modal_users_delete_user');
     }
   }, [userToDelete]);
 
-  // Search Filter
-  const filteredUsers = users.filter(u =>
-    u.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    u.email.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Derived counts for certificate summary chips
+  const certCounts = React.useMemo(() => {
+    let valid = 0, expiring = 0, expired = 0, none = 0;
+    users.forEach(u => {
+      if (!u.certificate) { none++; return; }
+      const days = certDaysRemaining(u.certificate.certificate_expiration_date);
+      if (days < 0) expired++;
+      else if (days <= 30) expiring++;
+      else valid++;
+    });
+    return { valid, expiring, expired, none };
+  }, [users]);
+
+  // Filtered users (search + certificate filter)
+  const filteredUsers = users
+    .filter(u =>
+      u.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      u.email.toLowerCase().includes(searchTerm.toLowerCase())
+    )
+    .filter(u => certFilterMatch(u.certificate, certFilter));
 
   const handleOpenModal = () => {
     setEditingUserId(null);
-    if (profiles.length > 0) {
-      setSelectedProfileId(profiles[0].id);
-    }
+    if (profiles.length > 0) setSelectedProfileId(profiles[0].id);
     setName('');
     setEmail('');
     setPassword('');
@@ -117,7 +185,7 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
     if (!name.trim()) return setFormError('O nome completo é obrigatório.');
     if (!email.trim()) return setFormError('O e-mail é obrigatório.');
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return setFormError('Digite um e-mail válido.');
-    
+
     if (!editingUserId && password.length < 4) {
       return setFormError('A senha deve conter pelo menos 4 caracteres.');
     }
@@ -194,7 +262,6 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
         }
       }
 
-      setIsModalOpen(false);
       setEditingUserId(null);
     } catch (err: any) {
       console.error(err);
@@ -205,7 +272,6 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
   const handleDeleteUser = () => {
     if (!userToDelete) return;
 
-    // Prevent deleting oneself
     if (currentUser && currentUser.id === userToDelete.id) {
       alert('Você não pode excluir o seu próprio usuário enquanto está logado.');
       setUserToDelete(null);
@@ -214,7 +280,6 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
 
     deleteUser(userToDelete.id);
 
-    // Create system access audit log
     if (currentUser) {
       const logEntry: SystemAccessLog = {
         id: Math.random().toString(36).substr(2, 9),
@@ -224,7 +289,7 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
         role: currentUser.profile.type as any || 'Admin',
         action: 'Exclusão de Usuário',
         resource: `Usuário: ${userToDelete.name} (${userToDelete.email})`,
-        ipAddress: '192.168.1.50' // mock client IP
+        ipAddress: '192.168.1.50'
       };
       onAddAccessLog(logEntry);
     }
@@ -234,34 +299,24 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
 
   const getProfileBadgeClass = (type: string) => {
     switch (type) {
-      case 'Administrador':
-        return 'bg-rose-50 text-rose-700 border border-rose-200';
-      case 'Médico':
-        return 'bg-blue-50 text-blue-700 border border-blue-200';
-      case 'Cuidador':
-        return 'bg-emerald-50 text-emerald-700 border border-emerald-200';
-      case 'Responsável':
-        return 'bg-purple-50 text-purple-700 border border-purple-200';
-      default:
-        return 'bg-slate-50 text-slate-700 border border-slate-200';
+      case 'Administrador': return 'bg-rose-50 text-rose-700 border border-rose-200';
+      case 'Médico':        return 'bg-blue-50 text-blue-700 border border-blue-200';
+      case 'Cuidador':      return 'bg-emerald-50 text-emerald-700 border border-emerald-200';
+      case 'Responsável':   return 'bg-purple-50 text-purple-700 border border-purple-200';
+      default:              return 'bg-slate-50 text-slate-700 border border-slate-200';
     }
   };
 
   const getResidentName = (residentId?: string) => {
-    if (!residentId) return '-';
+    if (!residentId) return '—';
     const res = residents.find(r => r.id === residentId);
     return res ? res.name : 'Residente não encontrado';
   };
 
   const getLinkedEmployeeInfo = (userEmail: string, userId: string) => {
     const emp = employees.find(e => e.auth_user_id === userId || e.email.toLowerCase() === userEmail.toLowerCase());
-    if (emp) {
-      return `${emp.name} (${emp.role})`;
-    }
-    return null;
+    return emp ? `${emp.name} (${emp.role})` : null;
   };
-
-
 
   const selectedProfile = profiles.find(p => p.id === selectedProfileId);
   const inputClass = 'w-full pr-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white';
@@ -282,13 +337,13 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
         </button>
       </div>
 
-      {/* Users Count Cards Summary */}
+      {/* Summary cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: 'Total de Usuários', count: users.length, color: 'border-l-primary-500' },
-          { label: 'Administradores', count: users.filter(u => u.profile.type === 'Administrador').length, color: 'border-l-rose-500' },
-          { label: 'Profissionais de Saúde', count: users.filter(u => u.profile.type === 'Médico' || u.profile.type === 'Cuidador').length, color: 'border-l-emerald-500' },
-          { label: 'Responsáveis', count: users.filter(u => u.profile.type === 'Responsável').length, color: 'border-l-purple-500' },
+          { label: 'Total de Usuários',         count: users.length,                                                              color: 'border-l-primary-500' },
+          { label: 'Administradores',            count: users.filter(u => u.profile.type === 'Administrador').length,             color: 'border-l-rose-500' },
+          { label: 'Profissionais de Saúde',     count: users.filter(u => u.profile.type === 'Médico' || u.profile.type === 'Cuidador').length, color: 'border-l-emerald-500' },
+          { label: 'Responsáveis',               count: users.filter(u => u.profile.type === 'Responsável').length,               color: 'border-l-purple-500' },
         ].map((card, idx) => (
           <div key={idx} className={`bg-white p-4 border border-slate-200 border-l-4 ${card.color} rounded-xl shadow-sm`}>
             <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">{card.label}</p>
@@ -297,9 +352,38 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
         ))}
       </div>
 
+      {/* Certificate status summary chips */}
+      {users.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider mr-1">Certificados:</span>
+          {[
+            { label: `${certCounts.valid} válido${certCounts.valid !== 1 ? 's' : ''}`,              color: 'text-emerald-700 bg-emerald-50 border-emerald-200', filter: 'valid' },
+            { label: `${certCounts.expiring} expirando`,                                            color: 'text-amber-700 bg-amber-50 border-amber-200',    filter: 'expiring_soon' },
+            { label: `${certCounts.expired} expirado${certCounts.expired !== 1 ? 's' : ''}`,        color: 'text-rose-700 bg-rose-50 border-rose-200',       filter: 'expired' },
+            { label: `${certCounts.none} sem certificado`,                                          color: 'text-slate-600 bg-slate-50 border-slate-200',    filter: 'none' },
+          ].map(chip => (
+            <button
+              key={chip.filter}
+              onClick={() => setCertFilter(f => f === chip.filter ? 'all' : chip.filter)}
+              className={`px-2.5 py-1 rounded-full text-xs font-semibold border transition-all ${chip.color} ${certFilter === chip.filter ? 'ring-2 ring-offset-1 ring-current' : 'hover:opacity-80'}`}
+            >
+              {chip.label}
+            </button>
+          ))}
+          {certFilter !== 'all' && (
+            <button
+              onClick={() => setCertFilter('all')}
+              className="text-xs text-slate-400 hover:text-slate-600 underline"
+            >
+              limpar filtro
+            </button>
+          )}
+        </div>
+      )}
+
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 sm:p-6 min-h-[400px]">
-        {/* Search */}
-        <div className="flex items-center gap-4 mb-6">
+        {/* Search + certificate filter */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 mb-6">
           <div className="relative flex-1 max-w-md">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
             <input
@@ -310,6 +394,17 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
               className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 transition-all"
             />
           </div>
+          <select
+            value={certFilter}
+            onChange={e => setCertFilter(e.target.value)}
+            className="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 text-slate-600"
+          >
+            <option value="all">Todos os certificados</option>
+            <option value="valid">Certificado válido</option>
+            <option value="expiring_soon">Expirando em breve</option>
+            <option value="expired">Expirado</option>
+            <option value="none">Sem certificado</option>
+          </select>
         </div>
 
         {/* Desktop View */}
@@ -320,14 +415,15 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
                 <th className="px-4 py-3 rounded-tl-lg">Nome completo</th>
                 <th className="px-4 py-3">E-mail de acesso</th>
                 <th className="px-4 py-3">Perfil / Nível</th>
+                <th className="px-4 py-3">Certificado Digital</th>
                 <th className="px-4 py-3">Residente Vinculado</th>
-                <th className="px-4 py-3 text-center rounded-tr-lg w-20">Ações</th>
+                <th className="px-4 py-3 text-center rounded-tr-lg">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filteredUsers.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="text-center py-10 text-slate-400 italic">
+                  <td colSpan={6} className="text-center py-10 text-slate-400 italic">
                     Nenhum usuário encontrado com os termos de busca.
                   </td>
                 </tr>
@@ -342,7 +438,7 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
                         <div>
                           <p className="font-semibold text-slate-800">{user.name}</p>
                           {currentUser?.id === user.id && (
-                            <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.2 rounded border border-slate-200 font-medium">Você</span>
+                            <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded border border-slate-200 font-medium">Você</span>
                           )}
                         </div>
                       </div>
@@ -352,6 +448,9 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
                       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold shadow-sm ${getProfileBadgeClass(user.profile.type)}`}>
                         {user.profile.name}
                       </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <CertBadge cert={user.certificate} />
                     </td>
                     <td className="px-4 py-3">
                       {user.profile.type === 'Responsável' ? (
@@ -377,7 +476,18 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
                       )}
                     </td>
                     <td className="px-4 py-3 text-center">
-                      <div className="flex items-center justify-center gap-2">
+                      <div className="flex items-center justify-center gap-1.5">
+                        <button
+                          onClick={() => setCertModalUserId(user.id)}
+                          className={`p-1.5 rounded-lg border transition-colors ${
+                            user.certificate
+                              ? 'border-blue-200 text-blue-600 hover:bg-blue-50'
+                              : 'border-slate-200 text-slate-500 hover:bg-slate-100'
+                          }`}
+                          title="Gerenciar certificado digital"
+                        >
+                          <Key className="h-4 w-4" />
+                        </button>
                         <button
                           onClick={() => handleEditUser(user)}
                           className="p-1.5 rounded-lg border border-slate-200 text-slate-650 hover:bg-slate-100 hover:text-slate-800 transition-colors"
@@ -388,10 +498,11 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
                         <button
                           onClick={() => setUserToDelete(user)}
                           disabled={currentUser?.id === user.id}
-                          className={`p-1.5 rounded-lg border transition-colors ${currentUser?.id === user.id
+                          className={`p-1.5 rounded-lg border transition-colors ${
+                            currentUser?.id === user.id
                               ? 'text-slate-300 border-slate-100 cursor-not-allowed'
                               : 'text-rose-500 border-rose-100 hover:bg-rose-50 hover:text-rose-600'
-                            }`}
+                          }`}
                           title={currentUser?.id === user.id ? 'Você não pode se auto-excluir' : 'Excluir usuário'}
                         >
                           <Trash2 className="h-4 w-4" />
@@ -414,7 +525,7 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
               <div key={user.id} className="bg-slate-50 p-4 border border-slate-200 rounded-xl relative shadow-sm space-y-3">
                 <div className="flex justify-between items-start">
                   <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-full bg-slate-200 flex items-center justify-center font-bold text-slate-800 text-xs select-none">
+                    <div className="w-9 h-9 rounded-full bg-slate-200 flex items-center justify-center font-bold text-slate-800 text-xs select-none shrink-0">
                       {user.name.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()}
                     </div>
                     <div>
@@ -425,6 +536,14 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
                   <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold shadow-sm ${getProfileBadgeClass(user.profile.type)}`}>
                     {user.profile.name}
                   </span>
+                </div>
+
+                {/* Certificate status in mobile card */}
+                <div className="flex items-center justify-between bg-white p-2.5 rounded-lg border border-slate-100 shadow-sm text-xs">
+                  <span className="text-slate-400 font-medium flex items-center gap-1">
+                    <Key className="h-3.5 w-3.5" /> Certificado A1:
+                  </span>
+                  <CertBadge cert={user.certificate} />
                 </div>
 
                 {user.profile.type === 'Responsável' ? (
@@ -453,6 +572,17 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
                     ) : (
                       <>
                         <button
+                          onClick={() => setCertModalUserId(user.id)}
+                          className={`flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg font-medium transition-colors border ${
+                            user.certificate
+                              ? 'text-blue-600 bg-blue-50 hover:bg-blue-100 border-blue-200'
+                              : 'text-slate-600 bg-slate-50 hover:bg-slate-100 border-slate-200'
+                          }`}
+                        >
+                          <Key className="h-3.5 w-3.5" />
+                          Certificado
+                        </button>
+                        <button
                           onClick={() => handleEditUser(user)}
                           className="flex items-center gap-1.5 text-xs text-slate-600 bg-slate-50 hover:bg-slate-100 border border-slate-200 px-2.5 py-1.5 rounded-lg font-medium transition-colors"
                         >
@@ -476,7 +606,23 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
         </div>
       </div>
 
-      {/* Creation Modal - Sempre ativo (não fecha ao clicar no fundo/backdrop) */}
+      {/* ── Certificate Modal ──────────────────────────────────────────────── */}
+      {certModalUser && (
+        <CertificateSection
+          user={certModalUser}
+          onClose={() => setCertModalUserId(null)}
+          onSave={async (cert) => {
+            await updateUserCertificate(certModalUser.id, cert);
+            setCertModalUserId(null);
+          }}
+          onRemove={async () => {
+            await updateUserCertificate(certModalUser.id, null);
+            setCertModalUserId(null);
+          }}
+        />
+      )}
+
+      {/* ── Create / Edit User Modal ───────────────────────────────────────── */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/50 backdrop-blur-sm">
           <div
@@ -515,7 +661,6 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
                     value={selectedProfileId}
                     onChange={(val) => {
                       setSelectedProfileId(val);
-                      // Don't wipe name/email unless we are linking
                       const prof = profiles.find(p => p.id === val);
                       if (prof && prof.type === 'Responsável') {
                         setName('');
@@ -592,6 +737,26 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
                 </div>
               )}
 
+              {/* Certificate note on edit */}
+              {editingUserId && (() => {
+                const editUser = users.find(u => u.id === editingUserId);
+                return editUser?.certificate ? (
+                  <div className="bg-blue-50 border border-blue-100 rounded-xl p-3.5 flex items-center gap-2.5 text-xs text-blue-700">
+                    <Key className="h-4 w-4 shrink-0" />
+                    <span>
+                      Este usuário possui um certificado digital A1 configurado.{' '}
+                      <button
+                        type="button"
+                        onClick={() => { setIsModalOpen(false); setCertModalUserId(editingUserId); }}
+                        className="font-semibold underline"
+                      >
+                        Gerenciar certificado
+                      </button>
+                    </span>
+                  </div>
+                ) : null;
+              })()}
+
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 shrink-0">
                 <button
                   type="button"
@@ -612,7 +777,7 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
         </div>
       )}
 
-      {/* Deletion Confirmation Modal - Sempre ativo (não fecha ao clicar no fundo/backdrop) */}
+      {/* ── Delete Confirmation Modal ──────────────────────────────────────── */}
       {userToDelete && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/50 backdrop-blur-sm">
           <div
@@ -627,7 +792,9 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
             </div>
 
             <p className="text-sm text-slate-650">
-              Tem certeza que deseja excluir o usuário <span className="font-semibold text-slate-800">{userToDelete.name}</span> (<span className="font-mono text-xs">{userToDelete.email}</span>)?
+              Tem certeza que deseja excluir o usuário{' '}
+              <span className="font-semibold text-slate-800">{userToDelete.name}</span> (
+              <span className="font-mono text-xs">{userToDelete.email}</span>)?
             </p>
             <p className="text-xs text-slate-400 italic">
               Esta ação é irreversível e revogará imediatamente o acesso desse usuário ao sistema.

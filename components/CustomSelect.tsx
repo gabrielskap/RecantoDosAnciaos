@@ -61,7 +61,7 @@ const CustomSelect: React.FC<CustomSelectProps> = ({
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
-        className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-violet-500 flex items-center justify-between gap-2 text-left"
+        className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 flex items-center justify-between gap-2 text-left"
       >
         <span className="flex items-center gap-2 min-w-0 flex-1">
           {selected ? (
@@ -95,7 +95,7 @@ const CustomSelect: React.FC<CustomSelectProps> = ({
                     onChange(opt.value);
                     setOpen(false);
                   }}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-violet-50 transition-colors ${isSelected ? 'bg-violet-50' : ''}`}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-blue-50 transition-colors ${isSelected ? 'bg-blue-50' : ''}`}
                 >
                   <span className="flex-1 min-w-0">
                     <span className="flex items-center gap-2">
@@ -109,7 +109,7 @@ const CustomSelect: React.FC<CustomSelectProps> = ({
                     </span>
                     {opt.desc && <span className="block text-xs text-slate-400 mt-0.5">{opt.desc}</span>}
                   </span>
-                  {isSelected && <Check className="h-4 w-4 text-violet-600 shrink-0" />}
+                  {isSelected && <Check className="h-4 w-4 text-blue-600 shrink-0" />}
                 </button>
               );
             })}

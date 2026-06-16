@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  ArrowLeft, Activity, Pill, FileText, Sparkles,
+  ArrowLeft, Activity, Pill, FileText,
   Thermometer, Heart, CheckCircle, PenTool, ShieldCheck,
   ClipboardList, History, Plus, User, Clock, File, Paperclip, CalendarCheck, AlertOctagon,
   BedDouble, Home, Wrench, PaintRoller, Edit2, X, Phone, FileHeart, Trash2, Users, Camera, Sun, Moon
@@ -90,7 +90,15 @@ interface ResidentProfileProps {
 }
 
 const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBack, onUpdateResident }) => {
-  const [activeTab, setActiveTab] = useState<'info' | 'meds' | 'vitals' | 'routine' | 'care_plan' | 'visits' | 'docs' | 'evolution' | 'history'>('vitals');
+  const [activeTab, setActiveTab] = useState<'info' | 'meds' | 'vitals' | 'routine' | 'care_plan' | 'visits' | 'docs' | 'evolution' | 'history'>(() => {
+    const saved = localStorage.getItem(`recanto_resident_profile_active_tab_${resident.id}`);
+    return (saved as any) || 'vitals';
+  });
+
+  React.useEffect(() => {
+    localStorage.setItem(`recanto_resident_profile_active_tab_${resident.id}`, activeTab);
+  }, [activeTab, resident.id]);
+
   const [isEditingStatus, setIsEditingStatus] = useState(false);
 
   const { currentUser } = useAuth();
@@ -147,7 +155,6 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
       auditLogs: [newLog, ...(resident.auditLogs || [])]
     });
 
-    setIsVisitModalOpen(false);
     setVisitData({
       visitorName: '',
       relation: '',
@@ -157,6 +164,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
       temperature: '',
       observations: ''
     });
+    setIsVisitModalOpen(false);
   };
 
   const handleDeleteVisit = (visitId: string) => {
@@ -378,6 +386,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   const [selectedShift, setSelectedShift] = useState<'diurno' | 'noturno'>('diurno');
   const [isAllChecklistsModalOpen, setIsAllChecklistsModalOpen] = useState(false);
   const [isSignConfirmModalOpen, setIsSignConfirmModalOpen] = useState(false);
+  const [isNoSignatureModalOpen, setIsNoSignatureModalOpen] = useState(false);
   const [signConfirmContext, setSignConfirmContext] = useState<'read' | 'edit'>('read');
 
   const selectedChecklist = resident.dailyChecklists?.find(
@@ -396,15 +405,242 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
 
   const [checklistDraft, setChecklistDraft] = useState<DailyChecklist | null>(null);
 
+  // Keep track of the current key we have loaded/saved to prevent race conditions on mount/change
+  const lastLoadedChecklistKeyRef = React.useRef<string | null>(null);
+
+  // Sync checklist draft with localStorage
+  React.useEffect(() => {
+    const key = `recanto_checklist_draft_${resident.id}_${selectedChecklistDate}_${selectedShift}`;
+    
+    // If the key has changed (e.g. date, shift, or resident changed), load the corresponding draft
+    if (lastLoadedChecklistKeyRef.current !== key) {
+      lastLoadedChecklistKeyRef.current = key;
+      const saved = localStorage.getItem(key);
+      if (saved) {
+        try {
+          setChecklistDraft(JSON.parse(saved));
+        } catch (e) {
+          setChecklistDraft(null);
+        }
+      } else {
+        setChecklistDraft(null);
+      }
+      return;
+    }
+
+    // Otherwise, this is a change to the current checklistDraft state (e.g. user typed something)
+    if (checklistDraft) {
+      localStorage.setItem(key, JSON.stringify(checklistDraft));
+    } else {
+      localStorage.removeItem(key);
+    }
+  }, [checklistDraft, resident.id, selectedChecklistDate, selectedShift]);
+
+  // Keep track of the loaded edit resident key to prevent race conditions
+  const lastLoadedEditResidentKeyRef = React.useRef<string | null>(null);
+
+  React.useEffect(() => {
+    const keyPrefix = `recanto_edit_resident_${resident.id}`;
+    const openKey = `${keyPrefix}_open`;
+    const tabKey = `${keyPrefix}_tab`;
+    const formKey = `${keyPrefix}_form`;
+    const contactKey = `${keyPrefix}_contact`;
+
+    if (lastLoadedEditResidentKeyRef.current !== resident.id) {
+      lastLoadedEditResidentKeyRef.current = resident.id;
+      
+      const savedOpen = localStorage.getItem(openKey) === 'true';
+      setIsEditModalOpen(savedOpen);
+
+      const savedTab = localStorage.getItem(tabKey) as any || 'personal';
+      setModalActiveTab(savedTab);
+
+      const savedForm = localStorage.getItem(formKey);
+      setFormData(savedForm ? JSON.parse(savedForm) : {});
+
+      const savedContact = localStorage.getItem(contactKey);
+      setContactTemp(savedContact ? JSON.parse(savedContact) : { name: '', relation: '', phone: '' });
+      return;
+    }
+
+    if (isEditModalOpen) {
+      localStorage.setItem(openKey, 'true');
+      localStorage.setItem(tabKey, modalActiveTab);
+      localStorage.setItem(formKey, JSON.stringify(formData));
+      localStorage.setItem(contactKey, JSON.stringify(contactTemp));
+    } else {
+      localStorage.removeItem(openKey);
+      localStorage.removeItem(tabKey);
+      localStorage.removeItem(formKey);
+      localStorage.removeItem(contactKey);
+    }
+  }, [isEditModalOpen, modalActiveTab, formData, contactTemp, resident.id]);
+
+  // Keep track of the loaded visit key to prevent race conditions
+  const lastLoadedVisitKeyRef = React.useRef<string | null>(null);
+
+  React.useEffect(() => {
+    const openKey = `recanto_visit_open_${resident.id}`;
+    const dataKey = `recanto_visit_data_${resident.id}`;
+
+    if (lastLoadedVisitKeyRef.current !== resident.id) {
+      lastLoadedVisitKeyRef.current = resident.id;
+
+      const savedOpen = localStorage.getItem(openKey) === 'true';
+      setIsVisitModalOpen(savedOpen);
+
+      const savedData = localStorage.getItem(dataKey);
+      setVisitData(savedData ? JSON.parse(savedData) : {
+        visitorName: '',
+        relation: '',
+        cpf: '',
+        phone: '',
+        date: new Date().toLocaleString('sv-SE').replace(' ', 'T').slice(0, 16),
+        temperature: '',
+        observations: ''
+      });
+      return;
+    }
+
+    if (isVisitModalOpen) {
+      localStorage.setItem(openKey, 'true');
+      localStorage.setItem(dataKey, JSON.stringify(visitData));
+    } else {
+      localStorage.removeItem(openKey);
+      localStorage.removeItem(dataKey);
+    }
+  }, [isVisitModalOpen, visitData, resident.id]);
+
+  // Prescription Form Modal States
+  const [isPrescriptionModalOpen, setIsPrescriptionModalOpen] = useState(false);
+  const [prescriptionData, setPrescriptionData] = useState({
+    name: '',
+    dosage: '',
+    route: 'Oral',
+    frequency: '12h em 12h',
+    nextDose: '08:00',
+    startDate: new Date().toISOString().split('T')[0],
+    endDate: ''
+  });
+
+  // Keep track of the loaded prescription key to prevent race conditions
+  const lastLoadedPrescriptionKeyRef = React.useRef<string | null>(null);
+
+  React.useEffect(() => {
+    const openKey = `recanto_prescription_open_${resident.id}`;
+    const dataKey = `recanto_prescription_data_${resident.id}`;
+
+    if (lastLoadedPrescriptionKeyRef.current !== resident.id) {
+      lastLoadedPrescriptionKeyRef.current = resident.id;
+
+      const savedOpen = localStorage.getItem(openKey) === 'true';
+      setIsPrescriptionModalOpen(savedOpen);
+
+      const savedData = localStorage.getItem(dataKey);
+      setPrescriptionData(savedData ? JSON.parse(savedData) : {
+        name: '',
+        dosage: '',
+        route: 'Oral',
+        frequency: '12h em 12h',
+        nextDose: '08:00',
+        startDate: new Date().toISOString().split('T')[0],
+        endDate: ''
+      });
+      return;
+    }
+
+    if (isPrescriptionModalOpen) {
+      localStorage.setItem(openKey, 'true');
+      localStorage.setItem(dataKey, JSON.stringify(prescriptionData));
+    } else {
+      localStorage.removeItem(openKey);
+      localStorage.removeItem(dataKey);
+    }
+  }, [isPrescriptionModalOpen, prescriptionData, resident.id]);
+
+  // Keep track of the loaded care plan key to prevent race conditions
+  const lastLoadedCarePlanKeyRef = React.useRef<string | null>(null);
+
+  React.useEffect(() => {
+    const openKey = `recanto_careplan_open_${resident.id}`;
+    const dataKey = `recanto_careplan_data_${resident.id}`;
+    const freqKey = `recanto_careplan_freq_${resident.id}`;
+
+    if (lastLoadedCarePlanKeyRef.current !== resident.id) {
+      lastLoadedCarePlanKeyRef.current = resident.id;
+
+      const savedOpen = localStorage.getItem(openKey) === 'true';
+      setShowPlanForm(savedOpen);
+
+      const savedData = localStorage.getItem(dataKey);
+      setNewPlan(savedData ? JSON.parse(savedData) : { title: '', description: '', frequency: '', assignedTo: '' });
+
+      const savedFreq = localStorage.getItem(freqKey);
+      setFrequencyDays(savedFreq ? JSON.parse(savedFreq) : {
+        segunda: { checked: false, times: 1 },
+        terca: { checked: false, times: 1 },
+        quarta: { checked: false, times: 1 },
+        quinta: { checked: false, times: 1 },
+        sexta: { checked: false, times: 1 },
+        sabado: { checked: false, times: 1 },
+        domingo: { checked: false, times: 1 }
+      });
+      return;
+    }
+
+    if (showPlanForm) {
+      localStorage.setItem(openKey, 'true');
+      localStorage.setItem(dataKey, JSON.stringify(newPlan));
+      localStorage.setItem(freqKey, JSON.stringify(frequencyDays));
+    } else {
+      localStorage.removeItem(openKey);
+      localStorage.removeItem(dataKey);
+      localStorage.removeItem(freqKey);
+    }
+  }, [showPlanForm, newPlan, frequencyDays, resident.id]);
+
+  // Keep track of the loaded clinical note key to prevent race conditions
+  const lastLoadedClinicalNoteKeyRef = React.useRef<string | null>(null);
+
+  React.useEffect(() => {
+    const key = `recanto_clinical_note_${resident.id}`;
+
+    if (lastLoadedClinicalNoteKeyRef.current !== resident.id) {
+      lastLoadedClinicalNoteKeyRef.current = resident.id;
+
+      const saved = localStorage.getItem(key);
+      setNewNoteText(saved || '');
+      return;
+    }
+
+    if (newNoteText) {
+      localStorage.setItem(key, newNoteText);
+    } else {
+      localStorage.removeItem(key);
+    }
+  }, [newNoteText, resident.id]);
+
   const handleRequestSign = (context: 'read' | 'edit') => {
+    if (!currentUser?.signatureImage) {
+      setIsNoSignatureModalOpen(true);
+      return;
+    }
     setSignConfirmContext(context);
     setIsSignConfirmModalOpen(true);
   };
 
   const handleConfirmSign = () => {
-    const signedBy = currentUser?.profile.name || 'Usuário';
+    const rolePrefix: Record<string, string> = {
+      Enfermeiro: 'Enf.',
+      Médico: 'Dr(a).',
+      Cuidador: 'Cuid.',
+      Nutricionista: 'Nutri.',
+      Fisioterapeuta: 'Fisio.',
+    };
+    const prefix = currentUser?.employeeRole ? rolePrefix[currentUser.employeeRole] ?? '' : '';
+    const userName = currentUser?.name || 'Usuário';
+    const signedBy = prefix ? `${prefix} ${userName}` : userName;
     const signedAt = new Date().toISOString();
-    setIsSignConfirmModalOpen(false);
 
     if (signConfirmContext === 'edit' && checklistDraft && onUpdateResident) {
       const signedDraft = { ...checklistDraft, signedBy, signedAt, shift: selectedShift };
@@ -421,6 +657,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
       ) || [];
       onUpdateResident({ ...resident, dailyChecklists: [updatedChecklist, ...otherChecklists] });
     }
+    setIsSignConfirmModalOpen(false);
   };
 
   const handleStartEditChecklist = () => {
@@ -462,18 +699,6 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     setChecklistDraft(null);
   };
 
-  // Prescription Form Modal States
-  const [isPrescriptionModalOpen, setIsPrescriptionModalOpen] = useState(false);
-  const [prescriptionData, setPrescriptionData] = useState({
-    name: '',
-    dosage: '',
-    route: 'Oral',
-    frequency: '12h em 12h',
-    nextDose: '08:00',
-    startDate: new Date().toISOString().split('T')[0],
-    endDate: ''
-  });
-
   const handleSavePrescription = (e: React.FormEvent) => {
     e.preventDefault();
     if (!onUpdateResident || !prescriptionData.name || !prescriptionData.dosage || !prescriptionData.frequency) return;
@@ -495,8 +720,6 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
       medications: [...(resident.medications || []), newMed]
     });
 
-    setIsPrescriptionModalOpen(false);
-    // Reset form
     setPrescriptionData({
       name: '',
       dosage: '',
@@ -506,6 +729,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
       startDate: new Date().toISOString().split('T')[0],
       endDate: ''
     });
+    setIsPrescriptionModalOpen(false);
   };
 
   const handleDeleteMedication = (medId: string) => {
@@ -727,21 +951,21 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   return (
     <div className="space-y-6">
       {/* Header Back Button */}
-      <button onClick={onBack} className="flex items-center text-slate-500 hover:text-slate-800 transition-colors p-2 md:p-0">
-        <ArrowLeft className="h-4 w-4 mr-1" /> Voltar
+      <button onClick={onBack} className="flex items-center text-slate-500 hover:text-[#1e40af] transition-colors p-2 md:p-0 font-medium">
+        <ArrowLeft className="h-4 w-4 mr-1" /> Voltar aos Residentes
       </button>
 
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
         {/* Profile Header */}
-        <div className="p-4 md:p-6 flex flex-col md:flex-row justify-between items-start gap-4 bg-slate-50 border-b border-slate-200">
+        <div className="p-4 md:p-6 flex flex-col md:flex-row justify-between items-start gap-4 bg-gradient-to-r from-blue-500 to-blue-600">
           <div className="flex items-center w-full md:w-auto">
-            <img 
-              src={resident.photoUrl} 
-              alt={resident.name} 
-              className="h-16 w-16 md:h-20 md:w-20 rounded-full object-cover border-4 border-white shadow-sm"
+            <img
+              src={resident.photoUrl}
+              alt={resident.name}
+              className="h-16 w-16 md:h-20 md:w-20 rounded-2xl object-cover border-4 border-white/30 shadow-md"
             />
             <div className="ml-4 md:ml-5">
-              <h1 className="text-xl md:text-2xl font-bold text-slate-800 flex flex-wrap items-center gap-2">
+              <h1 className="text-xl md:text-2xl font-bold text-white flex flex-wrap items-center gap-2">
                 {resident.name}
                 <span className={`text-xs font-normal px-2 py-0.5 rounded-full border ${
                   resident.careLevel === 'III' ? 'bg-rose-100 text-rose-700 border-rose-200' :
@@ -752,12 +976,12 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                 </span>
               </h1>
               <div className="flex flex-wrap items-center gap-2 md:gap-3 mt-1">
-                 <p className="text-slate-500 text-xs md:text-sm">
+                 <p className="text-blue-200 text-xs md:text-sm">
                    {resident.age} anos
                  </p>
-                 <span className="text-slate-300">•</span>
+                 <span className="text-blue-300">•</span>
                  <div className="flex items-center group">
-                   <span className="text-slate-500 text-xs md:text-sm mr-2">Quarto: {resident.room}</span>
+                   <span className="text-blue-200 text-xs md:text-sm mr-2">Quarto: {resident.room}</span>
                    
                    {isEditingStatus ? (
                      <select 
@@ -788,7 +1012,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
               </div>
               
               {resident.legalGuardian && (
-                 <p className="text-xs text-slate-400 mt-1 truncate max-w-[200px] md:max-w-none">Resp: {resident.legalGuardian.name}</p>
+                 <p className="text-xs text-blue-300 mt-1 truncate max-w-[200px] md:max-w-none">Resp: {resident.legalGuardian.name}</p>
               )}
             </div>
           </div>
@@ -796,9 +1020,9 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
           <div className="flex w-full md:w-auto gap-2 mt-2 md:mt-0">
              <button
                onClick={handleStartEditResident}
-               className="flex-1 md:flex-none flex justify-center items-center px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors shadow-sm"
+               className="flex-1 md:flex-none flex justify-center items-center px-4 py-2 bg-white/20 border border-white/30 text-white rounded-xl text-sm font-semibold hover:bg-white/30 transition-colors"
              >
-                <Edit2 className="h-4 w-4 mr-2 text-violet-600" />
+                <Edit2 className="h-4 w-4 mr-2" />
                 <span>Editar Perfil</span>
              </button>
           </div>
@@ -832,7 +1056,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
               <div className="flex justify-end">
                 <button
                   onClick={handleStartEditResident}
-                  className="flex items-center gap-1.5 text-xs font-semibold text-violet-650 hover:text-violet-750 bg-violet-50 hover:bg-violet-100 px-4 py-2 rounded-xl border border-violet-200 transition-colors shadow-sm"
+                  className="flex items-center gap-1.5 text-xs font-semibold text-blue-700 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-4 py-2 rounded-xl border border-blue-200 transition-colors shadow-sm"
                 >
                   <Edit2 className="h-3.5 w-3.5" /> Editar Cadastro & Plano de Rotina
                 </button>
@@ -873,13 +1097,13 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                   <div className="border-t border-slate-200/60 pt-3">
                     <span className="block text-xs font-bold text-slate-750 mb-2">Cuidados Diários Programados:</span>
                     <div className="flex flex-wrap gap-2">
-                      {resident.reqHygiene && <span className="bg-violet-50 text-violet-750 px-2.5 py-1 rounded-lg text-xs font-bold border border-violet-100">Auxílio Banho/Higiene</span>}
-                      {resident.reqOralCare && <span className="bg-violet-50 text-violet-750 px-2.5 py-1 rounded-lg text-xs font-bold border border-violet-100">Higiene Oral assistida</span>}
-                      {resident.reqFeeding && <span className="bg-violet-50 text-violet-750 px-2.5 py-1 rounded-lg text-xs font-bold border border-violet-100">Auxílio Alimentação</span>}
-                      {resident.reqHydration && <span className="bg-violet-50 text-violet-750 px-2.5 py-1 rounded-lg text-xs font-bold border border-violet-100">Hidratação assistida</span>}
-                      {resident.reqMobility && <span className="bg-violet-50 text-violet-750 px-2.5 py-1 rounded-lg text-xs font-bold border border-violet-100">Mobilização/Mudança decúbito</span>}
-                      {resident.reqDressings && <span className="bg-violet-50 text-violet-750 px-2.5 py-1 rounded-lg text-xs font-bold border border-violet-100">Realização de Curativos</span>}
-                      {resident.reqLeisure && <span className="bg-violet-50 text-violet-750 px-2.5 py-1 rounded-lg text-xs font-bold border border-violet-100">Atividade Lazer/Social</span>}
+                      {resident.reqHygiene && <span className="bg-blue-50 text-blue-800 px-2.5 py-1 rounded-lg text-xs font-bold border border-blue-100">Auxílio Banho/Higiene</span>}
+                      {resident.reqOralCare && <span className="bg-blue-50 text-blue-800 px-2.5 py-1 rounded-lg text-xs font-bold border border-blue-100">Higiene Oral assistida</span>}
+                      {resident.reqFeeding && <span className="bg-blue-50 text-blue-800 px-2.5 py-1 rounded-lg text-xs font-bold border border-blue-100">Auxílio Alimentação</span>}
+                      {resident.reqHydration && <span className="bg-blue-50 text-blue-800 px-2.5 py-1 rounded-lg text-xs font-bold border border-blue-100">Hidratação assistida</span>}
+                      {resident.reqMobility && <span className="bg-blue-50 text-blue-800 px-2.5 py-1 rounded-lg text-xs font-bold border border-blue-100">Mobilização/Mudança decúbito</span>}
+                      {resident.reqDressings && <span className="bg-blue-50 text-blue-800 px-2.5 py-1 rounded-lg text-xs font-bold border border-blue-100">Realização de Curativos</span>}
+                      {resident.reqLeisure && <span className="bg-blue-50 text-blue-800 px-2.5 py-1 rounded-lg text-xs font-bold border border-blue-100">Atividade Lazer/Social</span>}
                       {!resident.reqHygiene && !resident.reqOralCare && !resident.reqFeeding && !resident.reqHydration && !resident.reqMobility && !resident.reqDressings && !resident.reqLeisure && (
                         <span className="text-slate-400 text-xs italic font-medium">Nenhum cuidado diário programado.</span>
                       )}
@@ -1062,10 +1286,6 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                   </tbody>
                 </table>
               </div>
-              <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-800 flex items-start">
-                 <Sparkles className="h-5 w-5 mr-2 flex-shrink-0" />
-                 <p>Sugestão IA: Verifique interações medicamentosas entre Omeprazol e Clopidogrel.</p>
-              </div>
             </div>
           )}
 
@@ -1195,8 +1415,8 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                         </div>
                         <div className="flex items-center gap-2 w-full sm:w-auto justify-end flex-wrap">
                           {selectedChecklist.signedBy ? (
-                            <span className="text-xs bg-violet-100 text-violet-800 border border-violet-200 px-3 py-1.5 rounded-full font-medium flex items-center shadow-sm gap-1.5">
-                              <ShieldCheck className="h-3.5 w-3.5 text-violet-600" />
+                            <span className="text-xs bg-blue-100 text-blue-800 border border-blue-200 px-3 py-1.5 rounded-full font-medium flex items-center shadow-sm gap-1.5">
+                              <ShieldCheck className="h-3.5 w-3.5 text-blue-600" />
                               Assinado por {selectedChecklist.signedBy}
                             </span>
                           ) : (
@@ -1207,7 +1427,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                               </span>
                               <button
                                 onClick={() => handleRequestSign('read')}
-                                className="flex items-center px-4 py-2 bg-violet-600 text-white border border-violet-700 rounded-xl text-xs font-semibold hover:bg-violet-700 transition-all shadow-sm"
+                                className="flex items-center px-4 py-2 bg-blue-600 text-white border border-blue-700 rounded-xl text-xs font-semibold hover:bg-blue-700 transition-all shadow-sm"
                               >
                                 <PenTool className="h-3.5 w-3.5 mr-1.5" />
                                 Assinar Digitalmente
@@ -1576,7 +1796,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                         <button
                           type="button"
                           onClick={() => handleRequestSign('edit')}
-                          className="flex items-center px-4 py-2 bg-violet-600 text-white border border-violet-700 rounded-xl text-xs font-semibold hover:bg-violet-700 transition-all shadow-md hover:shadow-lg"
+                          className="flex items-center px-4 py-2 bg-blue-600 text-white border border-blue-700 rounded-xl text-xs font-semibold hover:bg-blue-700 transition-all shadow-md hover:shadow-lg"
                         >
                           <PenTool className="h-3.5 w-3.5 mr-1.5" />
                           Assinar e Salvar
@@ -2010,7 +2230,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                                               handleChecklistFieldChange('medicacoesAdministradas', JSON.stringify(updated));
                                             }}
                                             disabled={med.status === 'nao_tomou'}
-                                            className="px-2 py-1 border border-slate-200 rounded-lg text-xs focus:ring-1 focus:ring-violet-500 outline-none bg-white w-20 text-center"
+                                            className="px-2 py-1 border border-slate-200 rounded-lg text-xs focus:ring-1 focus:ring-blue-500 outline-none bg-white w-20 text-center"
                                           />
                                         </div>
                                       </div>
@@ -2054,7 +2274,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                                         }));
                                         handleChecklistFieldChange('medicacoesAdministradas', JSON.stringify(initialMeds));
                                       }}
-                                      className="text-xs text-violet-600 hover:text-violet-850 font-bold flex items-center gap-1"
+                                      className="text-xs text-blue-600 hover:text-blue-900 font-bold flex items-center gap-1"
                                     >
                                       <Plus className="w-3.5 h-3.5" /> Gerar lista a partir das prescrições do residente
                                     </button>
@@ -2302,7 +2522,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                         <button
                           type="button"
                           onClick={() => handleRequestSign('edit')}
-                          className="flex items-center px-6 py-2.5 bg-violet-600 text-white rounded-xl text-xs font-bold hover:bg-violet-700 transition-all shadow-md hover:shadow-lg"
+                          className="flex items-center px-6 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-all shadow-md hover:shadow-lg"
                         >
                           <PenTool className="h-4 w-4 mr-2" />
                           Assinar e Salvar Boletim {selectedShift === 'diurno' ? 'Diurno' : 'Noturno'}
@@ -2375,7 +2595,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                               }}
                               className={`flex flex-col items-center justify-between p-3 rounded-xl border-2 transition-all duration-200 cursor-pointer select-none ${
                                 state.checked 
-                                  ? 'border-violet-600 bg-violet-50/30 shadow-sm' 
+                                  ? 'border-blue-600 bg-blue-50/30 shadow-sm' 
                                   : 'border-slate-200 bg-slate-50 hover:bg-slate-100 hover:border-slate-350 hover:scale-[1.02]'
                               }`}
                             >
@@ -2391,7 +2611,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                                       [day.id]: { ...state, checked: e.target.checked }
                                     }));
                                   }}
-                                  className="w-4 h-4 text-violet-600 border-slate-300 rounded focus:ring-violet-500 cursor-pointer"
+                                  className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer"
                                 />
                               </div>
                               {state.checked ? (
@@ -2540,8 +2760,8 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                    </div>
                  ) : (
                    <div className="flex flex-col items-center justify-center py-12 px-4 border border-dashed border-slate-300 rounded-xl bg-slate-50/50 text-center gap-3">
-                     <div className="w-12 h-12 rounded-full bg-violet-50 flex items-center justify-center">
-                       <FileText className="h-6 w-6 text-violet-400" />
+                     <div className="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center">
+                       <FileText className="h-6 w-6 text-blue-400" />
                      </div>
                      <div>
                        <p className="text-sm font-semibold text-slate-700">Nenhuma evolução registrada</p>
@@ -2616,7 +2836,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                         });
                         setIsVisitModalOpen(true);
                       }}
-                      className="flex items-center text-xs font-semibold text-violet-650 hover:text-violet-755 bg-violet-50 hover:bg-violet-100 px-4 py-2 rounded-xl border border-violet-200 transition-colors shadow-sm cursor-pointer"
+                      className="flex items-center text-xs font-semibold text-blue-700 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-4 py-2 rounded-xl border border-blue-200 transition-colors shadow-sm cursor-pointer"
                     >
                       <Plus className="h-3.5 w-3.5 mr-1" /> Registrar Visita
                     </button>
@@ -2632,7 +2852,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                             <div className="space-y-2 flex-1">
                               <div className="flex items-center gap-2">
                                 <span className="font-bold text-slate-800 text-sm">{visit.visitorName}</span>
-                                <span className="text-xs px-2.5 py-0.5 rounded-full bg-violet-50 text-violet-750 font-bold border border-violet-100">
+                                <span className="text-xs px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-800 font-bold border border-blue-100">
                                   {visit.relation}
                                 </span>
                               </div>
@@ -2675,7 +2895,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                     </div>
                   ) : (
                     <div className="text-center py-12 text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-300">
-                      <Users size={40} className="mx-auto mb-3 opacity-30 text-violet-500" />
+                      <Users size={40} className="mx-auto mb-3 opacity-30 text-blue-500" />
                       <p className="font-medium text-slate-600">Nenhuma visita registrada.</p>
                       <p className="text-xs text-slate-400 mt-1">Clique em "Registrar Visita" para adicionar uma nova visita para este residente.</p>
                     </div>
@@ -2714,7 +2934,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                   key={tab.id}
                   type="button"
                   onClick={() => setModalActiveTab(tab.id)}
-                  className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-xs font-semibold transition-all ${modalActiveTab === tab.id ? 'bg-violet-600 text-white' : 'text-slate-500 hover:bg-slate-100'
+                  className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-xs font-semibold transition-all ${modalActiveTab === tab.id ? 'bg-blue-600 text-white' : 'text-slate-500 hover:bg-slate-100'
                     }`}
                 >
                   <tab.icon className="h-3.5 w-3.5" /> {tab.label}
@@ -2732,10 +2952,10 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                         <img
                           src={formData.photoUrl}
                           alt="Preview"
-                          className="w-20 h-20 rounded-2xl object-cover border-2 border-violet-100"
+                          className="w-20 h-20 rounded-2xl object-cover border-2 border-blue-100"
                         />
                       ) : (
-                        <div className="w-20 h-20 rounded-2xl bg-violet-50 border-2 border-dashed border-violet-200 flex items-center justify-center text-violet-400">
+                        <div className="w-20 h-20 rounded-2xl bg-blue-50 border-2 border-dashed border-blue-200 flex items-center justify-center text-blue-400">
                           <User className="w-8 h-8" />
                         </div>
                       )}
@@ -2751,7 +2971,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                       <span className="block text-xs text-slate-400 mt-0.5">Imagem quadrada de até 5MB. Ajustada automaticamente.</span>
                       
                       <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 mt-3">
-                        <label className="relative flex items-center gap-1.5 bg-violet-50 hover:bg-violet-100 text-violet-700 px-3.5 py-2 rounded-xl text-xs font-semibold cursor-pointer transition-colors border border-violet-100">
+                        <label className="relative flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 px-3.5 py-2 rounded-xl text-xs font-semibold cursor-pointer transition-colors border border-blue-100">
                           <Camera className="w-3.5 h-3.5" />
                           {formData.photoUrl ? 'Alterar Foto' : 'Carregar Foto'}
                           <input
@@ -2777,16 +2997,16 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-600 mb-1.5">Nome Completo</label>
-                    <input required type="text" value={formData.name || ''} onChange={e => setFormData({ ...formData, name: e.target.value })} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white" />
+                    <input required type="text" value={formData.name || ''} onChange={e => setFormData({ ...formData, name: e.target.value })} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-semibold text-slate-600 mb-1.5">CPF</label>
-                      <input type="text" value={formData.cpf || ''} onChange={e => setFormData({ ...formData, cpf: e.target.value })} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white" />
+                      <input type="text" value={formData.cpf || ''} onChange={e => setFormData({ ...formData, cpf: e.target.value })} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
                     </div>
                     <div>
                       <label className="block text-xs font-semibold text-slate-600 mb-1.5">RG</label>
-                      <input type="text" value={formData.rg || ''} onChange={e => setFormData({ ...formData, rg: e.target.value })} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white" />
+                      <input type="text" value={formData.rg || ''} onChange={e => setFormData({ ...formData, rg: e.target.value })} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
                     </div>
                   </div>
                   <div className="grid grid-cols-3 gap-3">
@@ -2803,12 +3023,12 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                             age: dateVal ? calculateAge(dateVal) : (formData.age || 0)
                           });
                         }}
-                        className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+                        className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                       />
                     </div>
                     <div>
                       <label className="block text-xs font-semibold text-slate-600 mb-1.5">Idade</label>
-                      <input required type="number" value={formData.age || ''} onChange={e => setFormData({ ...formData, age: parseInt(e.target.value) })} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white" />
+                      <input required type="number" value={formData.age || ''} onChange={e => setFormData({ ...formData, age: parseInt(e.target.value) })} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
                     </div>
                     <div>
                       <label className="block text-xs font-semibold text-slate-600 mb-1.5">Quarto</label>
@@ -2817,7 +3037,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                           required
                           value={formData.room || ''}
                           onChange={e => setFormData({ ...formData, room: e.target.value })}
-                          className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+                          className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                         >
                           <option value="">Selecione...</option>
                           {rooms.map(r => (
@@ -2832,7 +3052,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                           type="text"
                           value={formData.room || ''}
                           onChange={e => setFormData({ ...formData, room: e.target.value })}
-                          className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+                          className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                         />
                       )}
                     </div>
@@ -2853,7 +3073,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                   {/* Endereço do Residente */}
                   <div className="border-t border-slate-100 pt-4 mt-4 space-y-3">
                     <h4 className="font-bold text-slate-700 text-sm flex items-center gap-1.5">
-                      <Home className="h-4 w-4 text-violet-500" />
+                      <Home className="h-4 w-4 text-blue-500" />
                       Endereço do Residente
                     </h4>
 
@@ -2861,7 +3081,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                       <div>
                         <label className="block text-xs font-semibold text-slate-600 mb-1.5 flex items-center justify-between">
                           <span>CEP</span>
-                          {loadingCep && <span className="text-[10px] text-violet-500 font-semibold animate-pulse">...</span>}
+                          {loadingCep && <span className="text-[10px] text-blue-500 font-semibold animate-pulse">...</span>}
                           {cepError && <span className="text-[10px] text-rose-500 font-semibold">{cepError}</span>}
                         </label>
                         <input
@@ -2870,7 +3090,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                           maxLength={9}
                           value={formData.addressCep || ''}
                           onChange={e => handleCepChange(e.target.value)}
-                          className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+                          className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                         />
                       </div>
                       <div className="col-span-2">
@@ -2880,7 +3100,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                           placeholder="Ex: Av. Brasil"
                           value={formData.addressStreet || ''}
                           onChange={e => setFormData({ ...formData, addressStreet: e.target.value })}
-                          className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+                          className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                         />
                       </div>
                     </div>
@@ -2893,7 +3113,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                           placeholder="Nº"
                           value={formData.addressNumber || ''}
                           onChange={e => setFormData({ ...formData, addressNumber: e.target.value })}
-                          className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+                          className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                         />
                       </div>
                       <div className="col-span-2">
@@ -2903,7 +3123,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                           placeholder="Ex: Apto 101, Bloco B"
                           value={formData.addressComplement || ''}
                           onChange={e => setFormData({ ...formData, addressComplement: e.target.value })}
-                          className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+                          className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                         />
                       </div>
                     </div>
@@ -2916,7 +3136,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                           placeholder="Bairro"
                           value={formData.addressNeighborhood || ''}
                           onChange={e => setFormData({ ...formData, addressNeighborhood: e.target.value })}
-                          className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+                          className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                         />
                       </div>
                       <div>
@@ -2926,7 +3146,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                           placeholder="Cidade"
                           value={formData.addressCity || ''}
                           onChange={e => setFormData({ ...formData, addressCity: e.target.value })}
-                          className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+                          className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                         />
                       </div>
                       <div>
@@ -2937,7 +3157,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                           maxLength={2}
                           value={formData.addressState || ''}
                           onChange={e => setFormData({ ...formData, addressState: e.target.value.toUpperCase() })}
-                          className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+                          className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                         />
                       </div>
                     </div>
@@ -2947,7 +3167,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
 
               {modalActiveTab === 'contacts' && (
                 <div className="space-y-5">
-                  <div className="bg-violet-50 border border-violet-100 rounded-2xl p-4">
+                  <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4">
                     <h4 className="font-bold text-slate-700 text-sm mb-3">Responsável Legal</h4>
                     <div className="grid grid-cols-2 gap-3">
                       {[
@@ -2961,7 +3181,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                           placeholder={f.placeholder}
                           value={(formData.legalGuardian as any)?.[f.key] || ''}
                           onChange={e => setFormData({ ...formData, legalGuardian: { ...formData.legalGuardian!, [f.key]: e.target.value } })}
-                          className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+                          className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                         />
                       ))}
                     </div>
@@ -2989,7 +3209,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                   ].map(f => (
                     <div key={f.key}>
                       <label className="block text-xs font-semibold text-slate-600 mb-1.5">{f.label}</label>
-                      <textarea rows={3} placeholder={f.placeholder} value={(formData as any)[f.key] || ''} onChange={e => setFormData({ ...formData, [f.key]: e.target.value })} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white resize-none" />
+                      <textarea rows={3} placeholder={f.placeholder} value={(formData as any)[f.key] || ''} onChange={e => setFormData({ ...formData, [f.key]: e.target.value })} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white resize-none" />
                     </div>
                   ))}
                 </div>
@@ -2998,7 +3218,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
               {modalActiveTab === 'routine' && (
                 <div className="space-y-4">
                   <h4 className="font-bold text-slate-700 text-sm border-b border-slate-100 pb-2 flex items-center gap-1.5">
-                    <ClipboardList className="h-4 w-4 text-violet-500" />
+                    <ClipboardList className="h-4 w-4 text-blue-500" />
                     Plano de Rotina Usual & Cuidados
                   </h4>
                   
@@ -3008,7 +3228,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                       <select
                         value={formData.usoFraldas || 'nao'}
                         onChange={e => setFormData({ ...formData, usoFraldas: e.target.value as any })}
-                        className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+                        className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                       >
                         <option value="nao">Não usa fraldas</option>
                         <option value="sim">Sim, usa fraldas</option>
@@ -3020,7 +3240,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                       <select
                         value={formData.mobilidadeSet || 'independente'}
                         onChange={e => setFormData({ ...formData, mobilidadeSet: e.target.value as any })}
-                        className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+                        className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                       >
                         <option value="independente">Independente</option>
                         <option value="auxilio">Necessita de Auxílio</option>
@@ -3035,7 +3255,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                       <select
                         value={formData.higieneCorporal || 'independente'}
                         onChange={e => setFormData({ ...formData, higieneCorporal: e.target.value as any })}
-                        className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+                        className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                       >
                         <option value="independente">Independente</option>
                         <option value="auxilio">Necessita de Auxílio</option>
@@ -3047,7 +3267,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                       <select
                         value={formData.higieneOralVestir || 'independente'}
                         onChange={e => setFormData({ ...formData, higieneOralVestir: e.target.value as any })}
-                        className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+                        className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                       >
                         <option value="independente">Independente</option>
                         <option value="auxilio">Necessita de Auxílio</option>
@@ -3055,7 +3275,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                     </div>
                   </div>
 
-                  <div className="bg-[#F8F7FF] border border-violet-100 rounded-2xl p-4 mt-2">
+                  <div className="bg-[#F8F7FF] border border-blue-100 rounded-2xl p-4 mt-2">
                     <span className="block text-xs font-bold text-slate-700 mb-3">
                       Necessidades de Cuidado Diário Programado (Plano):
                     </span>
@@ -3069,12 +3289,12 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                         { key: 'reqDressings', label: 'Realização de Curativos' },
                         { key: 'reqLeisure', label: 'Atividade Lazer/Social' },
                       ].map(item => (
-                        <label key={item.key} className="flex items-center gap-2.5 p-2 bg-white rounded-xl border border-slate-100 hover:bg-violet-50 cursor-pointer select-none transition-colors">
+                        <label key={item.key} className="flex items-center gap-2.5 p-2 bg-white rounded-xl border border-slate-100 hover:bg-blue-50 cursor-pointer select-none transition-colors">
                           <input
                             type="checkbox"
                             checked={!!(formData as any)[item.key]}
                             onChange={e => setFormData({ ...formData, [item.key]: e.target.checked })}
-                            className="rounded text-violet-600 focus:ring-violet-500 h-4 w-4"
+                            className="rounded text-blue-600 focus:ring-blue-500 h-4 w-4"
                           />
                           <span className="text-xs text-slate-600 font-semibold">{item.label}</span>
                         </label>
@@ -3091,7 +3311,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                 <button
                   type="submit"
                   disabled={photoUploading}
-                  className={`flex-1 sm:flex-none px-6 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl font-semibold text-sm transition-colors ${
+                  className={`flex-1 sm:flex-none px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold text-sm transition-colors ${
                     photoUploading ? 'opacity-50 cursor-not-allowed' : ''
                   }`}
                 >
@@ -3113,7 +3333,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
             <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-[#F8F7FF] shrink-0">
               <div>
                 <h3 className="font-bold text-slate-800 flex items-center gap-1.5">
-                  <Pill className="h-5 w-5 text-violet-600" /> Nova Prescrição de Medicamento
+                  <Pill className="h-5 w-5 text-blue-600" /> Nova Prescrição de Medicamento
                 </h3>
                 <p className="text-xs text-slate-400 mt-0.5">Insira as informações da receita médica</p>
               </div>
@@ -3133,7 +3353,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                   type="text" 
                   value={prescriptionData.name} 
                   onChange={e => setPrescriptionData({ ...prescriptionData, name: e.target.value })} 
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                   placeholder="Ex: Dipirona Gotas, Losartana Potássica" 
                 />
               </div>
@@ -3146,7 +3366,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                     type="text" 
                     value={prescriptionData.dosage} 
                     onChange={e => setPrescriptionData({ ...prescriptionData, dosage: e.target.value })} 
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                     placeholder="Ex: 500mg, 1 comprimido, 20 gotas" 
                   />
                 </div>
@@ -3155,7 +3375,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                   <select 
                     value={prescriptionData.route} 
                     onChange={e => setPrescriptionData({ ...prescriptionData, route: e.target.value })} 
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                   >
                     <option value="Oral">Oral</option>
                     <option value="Sublingual">Sublingual</option>
@@ -3179,7 +3399,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                     type="text" 
                     value={prescriptionData.frequency} 
                     onChange={e => setPrescriptionData({ ...prescriptionData, frequency: e.target.value })} 
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                     placeholder="Ex: 12h em 12h, Uma vez ao dia" 
                   />
                 </div>
@@ -3189,7 +3409,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                     type="time" 
                     value={prescriptionData.nextDose} 
                     onChange={e => setPrescriptionData({ ...prescriptionData, nextDose: e.target.value })} 
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                   />
                 </div>
               </div>
@@ -3202,7 +3422,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                     type="date" 
                     value={prescriptionData.startDate} 
                     onChange={e => setPrescriptionData({ ...prescriptionData, startDate: e.target.value })} 
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                   />
                 </div>
                 <div>
@@ -3211,7 +3431,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                     type="date" 
                     value={prescriptionData.endDate} 
                     onChange={e => setPrescriptionData({ ...prescriptionData, endDate: e.target.value })} 
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                   />
                 </div>
               </div>
@@ -3226,7 +3446,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                 </button>
                 <button 
                   type="submit" 
-                  className="flex-1 sm:flex-none px-6 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl font-semibold text-sm transition-colors"
+                  className="flex-1 sm:flex-none px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold text-sm transition-colors"
                 >
                   Cadastrar Prescrição
                 </button>
@@ -3414,7 +3634,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                   type="text" 
                   value={visitData.visitorName} 
                   onChange={e => setVisitData(prev => ({ ...prev, visitorName: e.target.value }))} 
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white" 
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" 
                   placeholder="Ex: Maria da Silva"
                 />
               </div>
@@ -3426,7 +3646,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                   type="text" 
                   value={visitData.relation} 
                   onChange={e => setVisitData(prev => ({ ...prev, relation: e.target.value }))} 
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white" 
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" 
                   placeholder="Ex: Filho(a), Sobrinho(a), Amigo(a)"
                 />
               </div>
@@ -3438,7 +3658,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                     type="text" 
                     value={visitData.cpf} 
                     onChange={e => setVisitData(prev => ({ ...prev, cpf: e.target.value }))} 
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white" 
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" 
                     placeholder="000.000.000-00"
                   />
                 </div>
@@ -3448,7 +3668,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                     type="text" 
                     value={visitData.phone} 
                     onChange={e => setVisitData(prev => ({ ...prev, phone: e.target.value }))} 
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white" 
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" 
                     placeholder="(00) 00000-0000"
                   />
                 </div>
@@ -3462,7 +3682,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                     type="datetime-local" 
                     value={visitData.date} 
                     onChange={e => setVisitData(prev => ({ ...prev, date: e.target.value }))} 
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white" 
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" 
                   />
                 </div>
                 <div>
@@ -3472,7 +3692,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                     step="0.1" 
                     value={visitData.temperature} 
                     onChange={e => setVisitData(prev => ({ ...prev, temperature: e.target.value }))} 
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white" 
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" 
                     placeholder="36.5"
                   />
                 </div>
@@ -3484,7 +3704,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                   rows={3} 
                   value={visitData.observations} 
                   onChange={e => setVisitData(prev => ({ ...prev, observations: e.target.value }))} 
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white resize-none" 
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white resize-none" 
                   placeholder="Ex: Residente ficou muito feliz; Visitante trouxe frutas; etc."
                 />
               </div>
@@ -3499,7 +3719,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                 </button>
                 <button 
                   type="submit" 
-                  className="flex-1 px-6 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl font-semibold text-sm transition-colors cursor-pointer"
+                  className="flex-1 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold text-sm transition-colors cursor-pointer"
                 >
                   Confirmar Registro
                 </button>
@@ -3508,13 +3728,45 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
           </div>
         </div>
       )}
+      {/* Modal: usuário sem assinatura cadastrada */}
+      {isNoSignatureModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden">
+            <div className="px-6 py-5 border-b border-slate-100 bg-amber-50 flex items-center gap-3">
+              <div className="p-2.5 bg-amber-100 rounded-xl">
+                <AlertOctagon className="h-6 w-6 text-amber-600" />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-800 text-base">Assinatura não cadastrada</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Necessário cadastrar antes de assinar</p>
+              </div>
+            </div>
+            <div className="px-6 py-5">
+              <p className="text-sm text-slate-700 leading-relaxed">
+                Você ainda não possui uma <strong>assinatura digital cadastrada</strong> no sistema.
+                Para assinar documentos, acesse <strong>Configurações → Minha Assinatura</strong> e desenhe sua assinatura.
+              </p>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setIsNoSignatureModalOpen(false)}
+                className="px-6 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 transition-all shadow-md"
+              >
+                Entendido
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal de Confirmação de Assinatura Digital */}
       {isSignConfirmModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
           <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden">
-            <div className="px-6 py-5 border-b border-slate-100 bg-violet-50 flex items-center gap-3">
-              <div className="p-2.5 bg-violet-100 rounded-xl">
-                <ShieldCheck className="h-6 w-6 text-violet-600" />
+            <div className="px-6 py-5 border-b border-slate-100 bg-blue-50 flex items-center gap-3">
+              <div className="p-2.5 bg-blue-100 rounded-xl">
+                <ShieldCheck className="h-6 w-6 text-blue-600" />
               </div>
               <div>
                 <h3 className="font-bold text-slate-800 text-base">Assinatura Digital do Boletim</h3>
@@ -3528,9 +3780,18 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                   Atenção: após assinar digitalmente, o boletim <strong>não poderá sofrer nenhuma alteração</strong>. Esta ação é irreversível.
                 </p>
               </div>
-              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5">
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
                 <p className="text-xs text-slate-500 font-medium uppercase tracking-wider">Assinatura de</p>
-                <p className="text-sm font-bold text-slate-800">{currentUser?.profile.name || 'Usuário'}</p>
+                <p className="text-sm font-bold text-slate-800">{currentUser?.name || 'Usuário'}</p>
+                {currentUser?.signatureImage && (
+                  <div className="mt-2 p-2 bg-white border border-slate-200 rounded-lg">
+                    <img
+                      src={currentUser.signatureImage}
+                      alt="Assinatura"
+                      className="max-h-16 max-w-full object-contain"
+                    />
+                  </div>
+                )}
                 <p className="text-xs text-slate-500">{new Date().toLocaleString('pt-BR')}</p>
               </div>
             </div>
@@ -3545,7 +3806,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
               <button
                 type="button"
                 onClick={handleConfirmSign}
-                className="flex items-center px-6 py-2.5 bg-violet-600 text-white rounded-xl text-sm font-bold hover:bg-violet-700 transition-all shadow-md"
+                className="flex items-center px-6 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 transition-all shadow-md"
               >
                 <PenTool className="h-4 w-4 mr-2" />
                 Confirmar Assinatura

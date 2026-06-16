@@ -12,7 +12,7 @@ interface StockModuleProps {
 
 const categoryConfig: Record<string, { bg: string; text: string; label: string }> = {
   medicamento: { bg: 'bg-blue-50',   text: 'text-blue-700',   label: 'Medicamento' },
-  insumo:      { bg: 'bg-violet-50', text: 'text-violet-700', label: 'Insumo' },
+  insumo:      { bg: 'bg-blue-50', text: 'text-blue-700', label: 'Insumo' },
   alimento:    { bg: 'bg-amber-50',  text: 'text-amber-700',  label: 'Alimento' },
 };
 
@@ -28,32 +28,32 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
   const [residentSearch, setResidentSearch] = useState('');
   
   const [isModalOpen, setIsModalOpen] = useState(() => {
-    return sessionStorage.getItem('modal_stock_item_open') === 'true';
+    return localStorage.getItem('modal_stock_item_open') === 'true';
   });
   const [selectedHistoryItem, setSelectedHistoryItem] = useState<StockItem | null>(() => {
-    const saved = sessionStorage.getItem('modal_stock_history_item');
+    const saved = localStorage.getItem('modal_stock_history_item');
     return saved ? JSON.parse(saved) : null;
   });
   const [newItem, setNewItem] = useState(() => {
-    const saved = sessionStorage.getItem('modal_stock_new_item');
+    const saved = localStorage.getItem('modal_stock_new_item');
     return saved ? JSON.parse(saved) : { name: '', category: 'medicamento', quantity: '', unit: '', minThreshold: '10', residentId: undefined };
   });
 
   React.useEffect(() => {
     if (isModalOpen) {
-      sessionStorage.setItem('modal_stock_item_open', 'true');
-      sessionStorage.setItem('modal_stock_new_item', JSON.stringify(newItem));
+      localStorage.setItem('modal_stock_item_open', 'true');
+      localStorage.setItem('modal_stock_new_item', JSON.stringify(newItem));
     } else {
-      sessionStorage.removeItem('modal_stock_item_open');
-      sessionStorage.removeItem('modal_stock_new_item');
+      localStorage.removeItem('modal_stock_item_open');
+      localStorage.removeItem('modal_stock_new_item');
     }
   }, [isModalOpen, newItem]);
 
   React.useEffect(() => {
     if (selectedHistoryItem) {
-      sessionStorage.setItem('modal_stock_history_item', JSON.stringify(selectedHistoryItem));
+      localStorage.setItem('modal_stock_history_item', JSON.stringify(selectedHistoryItem));
     } else {
-      sessionStorage.removeItem('modal_stock_history_item');
+      localStorage.removeItem('modal_stock_history_item');
     }
   }, [selectedHistoryItem]);
 
@@ -82,7 +82,6 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
       residentId: newItem.residentId,
       history: [],
     });
-    setIsModalOpen(false);
     setNewItem({ name: '', category: 'medicamento', quantity: '', unit: '', minThreshold: '10', residentId: undefined });
   };
 
@@ -107,29 +106,28 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
   const residentItems = selectedResident ? items.filter(item => item.residentId === selectedResident.id) : [];
   const residentLowCount = residentItems.filter(i => i.quantity < i.minThreshold).length;
 
-  const inputClass = 'w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white';
+  const inputClass = 'w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white';
 
   return (
     <div className="space-y-6">
       
       {/* Page Header */}
-      <div className="bg-white rounded-2xl shadow-sm shadow-violet-100/40 p-5 flex items-center justify-between">
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">Estoque e Insumos</h1>
+          <h1 className="text-xl font-bold text-slate-900">Estoque e Insumos</h1>
           <p className="text-slate-500 text-sm mt-0.5">Gerenciamento de insumos gerais e controle individual por residente</p>
         </div>
-        <div className="w-11 h-11 rounded-2xl bg-violet-600 flex items-center justify-center shadow-md shadow-violet-200">
-          <Package className="h-5 w-5 text-white" />
+        <div className="w-11 h-11 rounded-2xl bg-blue-50 flex items-center justify-center"> <Package className="h-5 w-5 text-blue-600" />
         </div>
       </div>
 
       {/* Tabs Selector */}
-      <div className="bg-white rounded-2xl shadow-sm shadow-violet-100/40 p-1.5 flex gap-1">
+      <div className="bg-white rounded-2xl shadow-sm shadow-blue-100/40 p-1.5 flex gap-1">
         <button
           onClick={() => setActiveTab('general')}
           className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-sm font-bold transition-all ${
             activeTab === 'general'
-              ? 'bg-violet-600 text-white shadow-sm shadow-violet-200'
+              ? 'bg-blue-600 text-white shadow-sm shadow-blue-200'
               : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
           }`}
         >
@@ -139,7 +137,7 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
           onClick={() => setActiveTab('residents')}
           className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-sm font-bold transition-all ${
             activeTab === 'residents'
-              ? 'bg-violet-600 text-white shadow-sm shadow-violet-200'
+              ? 'bg-blue-600 text-white shadow-sm shadow-blue-200'
               : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
           }`}
         >
@@ -164,7 +162,7 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
               )}
               <button
                 onClick={() => handleOpenModal()}
-                className="flex items-center gap-2 bg-violet-600 hover:bg-violet-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors shadow-sm shadow-violet-250"
+                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors shadow-sm shadow-blue-200"
               >
                 <Plus className="h-4 w-4" /> Novo Item Geral
               </button>
@@ -177,7 +175,7 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
               const isLow = item.quantity < item.minThreshold;
               const cat = categoryConfig[item.category] ?? categoryConfig.insumo;
               return (
-                <div key={item.id} className={`bg-white rounded-2xl shadow-sm shadow-violet-100/40 p-4 ${isLow ? 'ring-1 ring-rose-200' : ''}`}>
+                <div key={item.id} className={`bg-white rounded-2xl shadow-sm shadow-blue-100/40 p-4 ${isLow ? 'ring-1 ring-rose-200' : ''}`}>
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex items-center gap-3">
                       <div className={`w-10 h-10 rounded-xl ${cat.bg} flex items-center justify-center shrink-0`}>
@@ -205,7 +203,7 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
                       <button onClick={() => onUpdateStock(item.id, item.quantity - 1)} className="w-11 h-11 flex items-center justify-center rounded-xl bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 transition-colors shadow-sm">
                         <Minus className="h-4 w-4" />
                       </button>
-                      <button onClick={() => onUpdateStock(item.id, item.quantity + 1)} className="w-11 h-11 flex items-center justify-center rounded-xl bg-violet-50 border border-violet-100 text-violet-600 hover:bg-violet-100 transition-colors shadow-sm">
+                      <button onClick={() => onUpdateStock(item.id, item.quantity + 1)} className="w-11 h-11 flex items-center justify-center rounded-xl bg-blue-50 border border-blue-100 text-blue-600 hover:bg-blue-100 transition-colors shadow-sm">
                         <Plus className="h-4 w-4" />
                       </button>
                     </div>
@@ -226,7 +224,7 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
           </div>
 
           {/* General Stock Desktop Table */}
-          <div className="hidden md:block bg-white rounded-2xl shadow-sm shadow-violet-100/40 overflow-hidden border border-slate-100">
+          <div className="hidden md:block bg-white rounded-2xl shadow-sm shadow-blue-100/40 overflow-hidden border border-slate-100">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50/50">
@@ -265,8 +263,8 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
                           <button onClick={() => onUpdateStock(item.id, item.quantity - 1)} className="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition-colors">
                             <Minus className="h-3.5 w-3.5 text-slate-600" />
                           </button>
-                          <button onClick={() => onUpdateStock(item.id, item.quantity + 1)} className="w-8 h-8 rounded-lg bg-violet-50 hover:bg-violet-100 flex items-center justify-center transition-colors">
-                            <Plus className="h-3.5 w-3.5 text-violet-600" />
+                          <button onClick={() => onUpdateStock(item.id, item.quantity + 1)} className="w-8 h-8 rounded-lg bg-blue-50 hover:bg-blue-100 flex items-center justify-center transition-colors">
+                            <Plus className="h-3.5 w-3.5 text-blue-600" />
                           </button>
                         </div>
                       </td>
@@ -287,8 +285,8 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
             </table>
             {generalItems.length === 0 && (
               <div className="py-16 flex flex-col items-center gap-3 bg-white">
-                <div className="w-14 h-14 rounded-2xl bg-violet-50 flex items-center justify-center">
-                  <PackageSearch className="h-7 w-7 text-violet-200" />
+                <div className="w-14 h-14 rounded-2xl bg-blue-50 flex items-center justify-center">
+                  <PackageSearch className="h-7 w-7 text-blue-200" />
                 </div>
                 <p className="text-sm text-slate-400">Nenhum item geral no estoque.</p>
               </div>
@@ -302,7 +300,7 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
           
           {/* Left Panel: Residents Search and List */}
-          <div className="bg-white rounded-2xl shadow-sm shadow-violet-100/40 border border-slate-100 p-4 space-y-4 lg:col-span-1">
+          <div className="bg-white rounded-2xl shadow-sm shadow-blue-100/40 border border-slate-100 p-4 space-y-4 lg:col-span-1">
             <h3 className="font-bold text-slate-800 text-sm">Pesquisa de Residentes</h3>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
@@ -311,7 +309,7 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
                 placeholder="Buscar residente ou quarto..."
                 value={residentSearch}
                 onChange={e => setResidentSearch(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 bg-slate-50 border-0 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+                className="w-full pl-9 pr-3 py-2 bg-slate-50 border-0 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
 
@@ -327,7 +325,7 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
                     onClick={() => setSelectedResident(resident)}
                     className={`w-full flex items-center justify-between p-3 rounded-xl border transition-all text-left group ${
                       isSelected
-                        ? 'bg-violet-600 border-violet-600 text-white'
+                        ? 'bg-blue-600 border-blue-600 text-white'
                         : 'bg-white border-slate-100 hover:bg-slate-50 text-slate-700'
                     }`}
                   >
@@ -336,14 +334,14 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
                         src={resident.photoUrl}
                         alt=""
                         className={`w-10 h-10 rounded-xl object-cover shrink-0 border ${
-                          isSelected ? 'border-violet-400' : 'border-slate-100'
+                          isSelected ? 'border-blue-400' : 'border-slate-100'
                         }`}
                       />
                       <div className="min-w-0">
                         <p className={`font-semibold text-sm truncate ${isSelected ? 'text-white' : 'text-slate-800'}`}>
                           {resident.name}
                         </p>
-                        <p className={`text-xs mt-0.5 ${isSelected ? 'text-violet-200' : 'text-slate-400'}`}>
+                        <p className={`text-xs mt-0.5 ${isSelected ? 'text-blue-200' : 'text-slate-400'}`}>
                           Quarto {resident.room}
                         </p>
                       </div>
@@ -358,7 +356,7 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
                         </span>
                       )}
                       <ChevronRight className={`h-4 w-4 transition-transform group-hover:translate-x-0.5 ${
-                        isSelected ? 'text-violet-250' : 'text-slate-400'
+                        isSelected ? 'text-blue-200' : 'text-slate-400'
                       }`} />
                     </div>
                   </button>
@@ -376,7 +374,7 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
           {/* Right Panel: Resident Stock Items */}
           <div className="lg:col-span-2 space-y-4">
             {selectedResident ? (
-              <div className="bg-white rounded-2xl shadow-sm shadow-violet-100/40 border border-slate-100 overflow-hidden">
+              <div className="bg-white rounded-2xl shadow-sm shadow-blue-100/40 border border-slate-100 overflow-hidden">
                 
                 {/* Selected Resident Mini Profile & Header */}
                 <div className="p-4 bg-slate-50 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -402,7 +400,7 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
                   </div>
                   <button
                     onClick={() => handleOpenModal(selectedResident.id)}
-                    className="flex items-center justify-center gap-2 bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors shadow-sm shadow-violet-200 self-start sm:self-center"
+                    className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors shadow-sm shadow-blue-200 self-start sm:self-center"
                   >
                     <Plus className="h-4 w-4" /> Adicionar Insumo
                   </button>
@@ -442,7 +440,7 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
                             <button onClick={() => onUpdateStock(item.id, item.quantity - 1)} className="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-50 border border-slate-200 text-slate-650 hover:bg-slate-100 transition-colors shadow-sm">
                               <Minus className="h-4 w-4" />
                             </button>
-                            <button onClick={() => onUpdateStock(item.id, item.quantity + 1)} className="w-10 h-10 flex items-center justify-center rounded-xl bg-violet-50 border border-violet-100 text-violet-650 hover:bg-violet-100 transition-colors shadow-sm">
+                            <button onClick={() => onUpdateStock(item.id, item.quantity + 1)} className="w-10 h-10 flex items-center justify-center rounded-xl bg-blue-50 border border-blue-100 text-blue-700 hover:bg-blue-100 transition-colors shadow-sm">
                               <Plus className="h-4 w-4" />
                             </button>
                           </div>
@@ -503,8 +501,8 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
                                 <button onClick={() => onUpdateStock(item.id, item.quantity - 1)} className="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition-colors">
                                   <Minus className="h-3.5 w-3.5 text-slate-650" />
                                 </button>
-                                <button onClick={() => onUpdateStock(item.id, item.quantity + 1)} className="w-8 h-8 rounded-lg bg-violet-50 hover:bg-violet-100 flex items-center justify-center transition-colors">
-                                  <Plus className="h-3.5 w-3.5 text-violet-650" />
+                                <button onClick={() => onUpdateStock(item.id, item.quantity + 1)} className="w-8 h-8 rounded-lg bg-blue-50 hover:bg-blue-100 flex items-center justify-center transition-colors">
+                                  <Plus className="h-3.5 w-3.5 text-blue-700" />
                                 </button>
                               </div>
                             </td>
@@ -525,8 +523,8 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
                   </table>
                   {residentItems.length === 0 && (
                     <div className="py-16 flex flex-col items-center gap-3 bg-white text-center">
-                      <div className="w-14 h-14 rounded-2xl bg-violet-50 flex items-center justify-center">
-                        <PackageSearch className="h-7 w-7 text-violet-200" />
+                      <div className="w-14 h-14 rounded-2xl bg-blue-50 flex items-center justify-center">
+                        <PackageSearch className="h-7 w-7 text-blue-200" />
                       </div>
                       <p className="text-sm font-semibold text-slate-500">Nenhum insumo associado.</p>
                       <p className="text-xs text-slate-400 max-w-sm">Clique no botão "Adicionar Insumo" no topo direito para vincular o primeiro insumo personalizado a este residente.</p>
@@ -537,8 +535,8 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
               </div>
             ) : (
               // Empty State when no resident is selected
-              <div className="bg-white rounded-2xl shadow-sm shadow-violet-100/40 border border-slate-100 py-24 flex flex-col items-center justify-center gap-4 text-center p-6 h-full min-h-[350px]">
-                <div className="w-16 h-16 rounded-2xl bg-violet-50 flex items-center justify-center text-violet-400 animate-bounce">
+              <div className="bg-white rounded-2xl shadow-sm shadow-blue-100/40 border border-slate-100 py-24 flex flex-col items-center justify-center gap-4 text-center p-6 h-full min-h-[350px]">
+                <div className="w-16 h-16 rounded-2xl bg-blue-50 flex items-center justify-center text-blue-400 animate-bounce">
                   <User className="h-8 w-8" />
                 </div>
                 <div>
@@ -561,18 +559,18 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
             onClick={(e) => e.stopPropagation()} 
             className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden"
           >
-            <div className="px-6 py-4 border-b border-slate-100 bg-[#F8F7FF] flex justify-between items-center">
+            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-white">
               <div>
-                <h3 className="font-bold text-slate-800">
+                <h3 className="font-bold text-slate-900">
                   {newItem.residentId ? 'Novo Insumo de Residente' : 'Novo Item de Estoque Geral'}
                 </h3>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  {newItem.residentId 
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {newItem.residentId
                     ? `Vincular suprimento a ${residents.find(r => r.id === newItem.residentId)?.name || 'Residente'}`
                     : 'Preencha as informações do item geral'}
                 </p>
               </div>
-              <button onClick={() => setIsModalOpen(false)} className="w-9 h-9 rounded-xl hover:bg-slate-200 flex items-center justify-center transition-colors">
+              <button onClick={() => setIsModalOpen(false)} className="w-9 h-9 rounded-xl hover:bg-slate-100 flex items-center justify-center transition-colors">
                 <X className="h-5 w-5 text-slate-400" />
               </button>
             </div>
@@ -588,7 +586,7 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
                   onChange={v => setNewItem({ ...newItem, category: v })}
                   options={[
                     { value: 'medicamento', label: 'Medicamento', badge: { label: 'Medicamento', bg: 'bg-blue-50', text: 'text-blue-700' } },
-                    { value: 'insumo', label: 'Insumo', badge: { label: 'Insumo', bg: 'bg-violet-50', text: 'text-violet-700' } },
+                    { value: 'insumo', label: 'Insumo', badge: { label: 'Insumo', bg: 'bg-blue-50', text: 'text-blue-700' } },
                     { value: 'alimento', label: 'Alimento', badge: { label: 'Alimento', bg: 'bg-amber-50', text: 'text-amber-700' } },
                   ]}
                 />
@@ -609,7 +607,7 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
               </div>
               <div className="flex gap-3 pt-2">
                 <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 py-2.5 border border-slate-200 rounded-xl text-slate-600 font-semibold text-sm hover:bg-slate-50 transition-colors">Cancelar</button>
-                <button type="submit" className="flex-1 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl font-semibold text-sm transition-colors">Adicionar</button>
+                <button type="submit" className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold text-sm transition-colors">Adicionar</button>
               </div>
             </form>
           </div>
@@ -623,12 +621,12 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
             onClick={(e) => e.stopPropagation()} 
             className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[80vh] flex flex-col overflow-hidden"
           >
-            <div className="px-6 py-4 border-b border-slate-100 bg-[#F8F7FF] flex justify-between items-center shrink-0">
+            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center shrink-0 bg-white">
               <div>
-                <h3 className="font-bold text-slate-800">Histórico de Movimentações</h3>
-                <p className="text-xs text-slate-400 mt-0.5">{selectedHistoryItem.name}</p>
+                <h3 className="font-bold text-slate-900">Histórico de Movimentações</h3>
+                <p className="text-xs text-slate-500 mt-0.5">{selectedHistoryItem.name}</p>
               </div>
-              <button onClick={() => setSelectedHistoryItem(null)} className="w-9 h-9 rounded-xl hover:bg-slate-200 flex items-center justify-center transition-colors">
+              <button onClick={() => setSelectedHistoryItem(null)} className="w-9 h-9 rounded-xl hover:bg-slate-100 flex items-center justify-center transition-colors">
                 <X className="h-5 w-5 text-slate-400" />
               </button>
             </div>

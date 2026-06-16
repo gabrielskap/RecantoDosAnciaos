@@ -1,0 +1,938 @@
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import {
+  Settings, Building2, Bell, Shield, Info, Save, RotateCcw,
+  CheckCircle, ChevronRight, AlertTriangle, Clock, Lock,
+  Eye, EyeOff, Package, HeartPulse, Phone, Mail, MapPin,
+  FileText, Wifi, Database, Download, Upload, Users,
+  PenTool, Trash2, CheckSquare
+} from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
+
+interface InstitutionSettings {
+  name: string;
+  cnpj: string;
+  phone: string;
+  email: string;
+  address: string;
+  city: string;
+  state: string;
+  cep: string;
+  capacity: number;
+  directorName: string;
+  technicalDirector: string;
+  anvisa: string;
+}
+
+interface NotificationSettings {
+  stockAlertThreshold: number;
+  medicationReminderEnabled: boolean;
+  medicationReminderMinutes: number;
+  birthdayRemindersEnabled: boolean;
+  contractDueDaysWarning: number;
+  checklistMissedAlerts: boolean;
+  lowOccupancyThreshold: number;
+}
+
+interface SecuritySettings {
+  sessionTimeoutMinutes: number;
+  requirePasswordChange: boolean;
+  passwordChangeDays: number;
+  twoFactorEnabled: boolean;
+  auditLogRetentionDays: number;
+  maxLoginAttempts: number;
+}
+
+interface SystemSettings {
+  institution: InstitutionSettings;
+  notifications: NotificationSettings;
+  security: SecuritySettings;
+}
+
+const STORAGE_KEY = 'recanto_system_settings';
+
+const defaultSettings: SystemSettings = {
+  institution: {
+    name: 'Recanto dos Anciãos',
+    cnpj: '',
+    phone: '',
+    email: '',
+    address: '',
+    city: '',
+    state: 'SP',
+    cep: '',
+    capacity: 30,
+    directorName: '',
+    technicalDirector: '',
+    anvisa: '',
+  },
+  notifications: {
+    stockAlertThreshold: 5,
+    medicationReminderEnabled: true,
+    medicationReminderMinutes: 30,
+    birthdayRemindersEnabled: true,
+    contractDueDaysWarning: 30,
+    checklistMissedAlerts: true,
+    lowOccupancyThreshold: 20,
+  },
+  security: {
+    sessionTimeoutMinutes: 60,
+    requirePasswordChange: false,
+    passwordChangeDays: 90,
+    twoFactorEnabled: false,
+    auditLogRetentionDays: 365,
+    maxLoginAttempts: 5,
+  },
+};
+
+type TabId = 'institution' | 'notifications' | 'security' | 'about' | 'signature';
+
+const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
+  { id: 'institution', label: 'Instituição', icon: Building2 },
+  { id: 'notifications', label: 'Notificações', icon: Bell },
+  { id: 'security', label: 'Segurança', icon: Shield },
+  { id: 'signature', label: 'Minha Assinatura', icon: PenTool },
+  { id: 'about', label: 'Sobre', icon: Info },
+];
+
+const STATES_BR = [
+  'AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS',
+  'MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC',
+  'SP','SE','TO'
+];
+
+function loadSettings(): SystemSettings {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return defaultSettings;
+    const parsed = JSON.parse(raw);
+    return {
+      institution: { ...defaultSettings.institution, ...parsed.institution },
+      notifications: { ...defaultSettings.notifications, ...parsed.notifications },
+      security: { ...defaultSettings.security, ...parsed.security },
+    };
+  } catch {
+    return defaultSettings;
+  }
+}
+
+function saveSettings(settings: SystemSettings) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+}
+
+// ── Signature Tab ─────────────────────────────────────────────────────────────
+
+const SignatureTab: React.FC = () => {
+  const { currentUser, updateUserSignature } = useAuth();
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const isDrawing = useRef(false);
+  const lastPoint = useRef<{ x: number; y: number } | null>(null);
+  const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [hasDrawn, setHasDrawn] = useState(false);
+  const [error, setError] = useState('');
+
+  const getPoint = (e: React.MouseEvent | React.TouchEvent, canvas: HTMLCanvasElement) => {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    if ('touches' in e) {
+      const t = e.touches[0];
+      return { x: (t.clientX - rect.left) * scaleX, y: (t.clientY - rect.top) * scaleY };
+    }
+    return { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
+  };
+
+  const startDraw = (e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault();
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    isDrawing.current = true;
+    lastPoint.current = getPoint(e, canvas);
+  };
+
+  const draw = useCallback((e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault();
+    if (!isDrawing.current || !canvasRef.current || !lastPoint.current) return;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const pt = getPoint(e, canvas);
+    ctx.beginPath();
+    ctx.moveTo(lastPoint.current.x, lastPoint.current.y);
+    ctx.lineTo(pt.x, pt.y);
+    ctx.strokeStyle = '#1e293b';
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+    lastPoint.current = pt;
+    setHasDrawn(true);
+  }, []);
+
+  const stopDraw = () => {
+    isDrawing.current = false;
+    lastPoint.current = null;
+  };
+
+  const clearCanvas = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d')!;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    setHasDrawn(false);
+    setSaved(false);
+  };
+
+  const handleSave = async () => {
+    const canvas = canvasRef.current;
+    if (!canvas || !currentUser) return;
+    setSaving(true);
+    setError('');
+    try {
+      const dataUrl = canvas.toDataURL('image/png');
+      await updateUserSignature(currentUser.id, dataUrl);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (err: any) {
+      setError(err.message || 'Erro ao salvar a assinatura.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRemove = async () => {
+    if (!currentUser) return;
+    if (!confirm('Remover sua assinatura cadastrada?')) return;
+    setSaving(true);
+    setError('');
+    try {
+      await updateUserSignature(currentUser.id, null);
+      clearCanvas();
+    } catch (err: any) {
+      setError(err.message || 'Erro ao remover a assinatura.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 space-y-5">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 bg-blue-100 rounded-xl">
+            <PenTool className="h-5 w-5 text-blue-600" />
+          </div>
+          <div>
+            <h3 className="font-bold text-slate-800 text-base">Minha Assinatura Digital</h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Desenhe sua assinatura no campo abaixo. Ela será usada ao assinar documentos no sistema.
+            </p>
+          </div>
+        </div>
+
+        {currentUser?.signatureImage && !hasDrawn && (
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Assinatura cadastrada</p>
+            <div className="border border-slate-200 rounded-xl bg-slate-50 p-4 flex items-center justify-center">
+              <img
+                src={currentUser.signatureImage}
+                alt="Assinatura atual"
+                className="max-h-24 max-w-full object-contain"
+              />
+            </div>
+            <button
+              onClick={handleRemove}
+              disabled={saving}
+              className="flex items-center gap-1.5 text-xs text-red-600 hover:text-red-700 font-medium transition-colors disabled:opacity-40"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Remover assinatura
+            </button>
+          </div>
+        )}
+
+        <div className="space-y-2">
+          <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">
+            {currentUser?.signatureImage ? 'Substituir assinatura' : 'Desenhe sua assinatura'}
+          </p>
+          <div className="relative border-2 border-dashed border-slate-300 rounded-xl bg-slate-50 overflow-hidden touch-none select-none">
+            <canvas
+              ref={canvasRef}
+              width={600}
+              height={200}
+              className="w-full cursor-crosshair"
+              style={{ touchAction: 'none' }}
+              onMouseDown={startDraw}
+              onMouseMove={draw}
+              onMouseUp={stopDraw}
+              onMouseLeave={stopDraw}
+              onTouchStart={startDraw}
+              onTouchMove={draw}
+              onTouchEnd={stopDraw}
+            />
+            {!hasDrawn && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <p className="text-sm text-slate-400">Assine aqui com o mouse ou toque</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {error && (
+          <p className="text-xs text-red-600 font-medium">{error}</p>
+        )}
+
+        <div className="flex items-center gap-3 pt-1">
+          <button
+            onClick={clearCanvas}
+            disabled={!hasDrawn || saving}
+            className="flex items-center gap-1.5 px-4 py-2 text-sm text-slate-600 border border-slate-300 rounded-xl hover:bg-slate-50 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <RotateCcw className="h-4 w-4" />
+            Limpar
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={!hasDrawn || saving}
+            className="flex items-center gap-1.5 px-5 py-2 text-sm font-semibold bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {saving ? (
+              <span className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
+            ) : (
+              <CheckSquare className="h-4 w-4" />
+            )}
+            {saving ? 'Salvando...' : 'Salvar Assinatura'}
+          </button>
+          {saved && (
+            <span className="flex items-center gap-1.5 text-sm text-emerald-600 font-medium">
+              <CheckCircle className="h-4 w-4" />
+              Assinatura salva com sucesso!
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div className="bg-amber-50 border border-amber-200 rounded-2xl px-5 py-4 flex items-start gap-3">
+        <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+        <p className="text-xs text-amber-800 leading-relaxed">
+          Sua assinatura será exibida nos documentos assinados digitalmente pelo sistema.
+          Certifique-se de que ela representa fielmente sua assinatura oficial.
+          Sem uma assinatura cadastrada, não será possível assinar boletins e outros documentos.
+        </p>
+      </div>
+    </div>
+  );
+};
+
+// ── Main Settings Component ───────────────────────────────────────────────────
+
+const SettingsModule: React.FC = () => {
+  const { currentUser } = useAuth();
+  const [activeTab, setActiveTab] = useState<TabId>('institution');
+  const [settings, setSettings] = useState<SystemSettings>(loadSettings);
+  const [saved, setSaved] = useState(false);
+  const [dirty, setDirty] = useState(false);
+
+  const isAdmin = currentUser?.profile.type === 'Administrador';
+
+  const update = <K extends keyof SystemSettings>(section: K, patch: Partial<SystemSettings[K]>) => {
+    setSettings(prev => ({
+      ...prev,
+      [section]: { ...prev[section], ...patch },
+    }));
+    setDirty(true);
+  };
+
+  const handleSave = () => {
+    saveSettings(settings);
+    setDirty(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2500);
+  };
+
+  const handleReset = () => {
+    if (confirm('Redefinir todas as configurações para os valores padrão?')) {
+      setSettings(defaultSettings);
+      saveSettings(defaultSettings);
+      setDirty(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center shadow-sm">
+            <Settings className="h-5 w-5 text-white" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold text-slate-900">Configurações do Sistema</h1>
+            <p className="text-sm text-slate-500">Gerencie as preferências e parâmetros da plataforma</p>
+          </div>
+        </div>
+        {isAdmin && (
+          <div className="flex items-center gap-2">
+            {saved && (
+              <span className="flex items-center gap-1.5 text-sm text-emerald-600 font-medium bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 animate-pulse">
+                <CheckCircle className="h-4 w-4" />
+                Salvo com sucesso
+              </span>
+            )}
+            <button
+              onClick={handleReset}
+              className="flex items-center gap-1.5 px-3 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-xl transition-all border border-slate-200"
+            >
+              <RotateCcw className="h-4 w-4" />
+              Redefinir
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={!dirty}
+              className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-sm"
+            >
+              <Save className="h-4 w-4" />
+              Salvar Alterações
+            </button>
+          </div>
+        )}
+      </div>
+
+      {!isAdmin && (
+        <div className="flex items-center gap-2.5 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800">
+          <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" />
+          Apenas administradores podem editar as configurações do sistema. Você está no modo somente leitura.
+        </div>
+      )}
+
+      <div className="flex gap-6 flex-col lg:flex-row">
+        {/* Tab Navigation */}
+        <div className="lg:w-52 shrink-0">
+          <nav className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+            {TABS.map((tab) => {
+              const active = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`group flex items-center w-full px-4 py-3 text-sm transition-all ${
+                    active
+                      ? 'bg-blue-600 text-white font-semibold'
+                      : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                  }`}
+                >
+                  <tab.icon className={`h-4 w-4 mr-3 shrink-0 ${active ? 'text-white' : 'text-slate-400 group-hover:text-blue-600'}`} />
+                  <span className="flex-1 text-left">{tab.label}</span>
+                  {active && <ChevronRight className="h-3.5 w-3.5 text-white/70" />}
+                </button>
+              );
+            })}
+          </nav>
+        </div>
+
+        {/* Tab Content */}
+        <div className="flex-1 min-w-0">
+          {activeTab === 'institution' && (
+            <InstitutionTab
+              data={settings.institution}
+              onChange={(patch) => update('institution', patch)}
+              readOnly={!isAdmin}
+            />
+          )}
+          {activeTab === 'notifications' && (
+            <NotificationsTab
+              data={settings.notifications}
+              onChange={(patch) => update('notifications', patch)}
+              readOnly={!isAdmin}
+            />
+          )}
+          {activeTab === 'security' && (
+            <SecurityTab
+              data={settings.security}
+              onChange={(patch) => update('security', patch)}
+              readOnly={!isAdmin}
+            />
+          )}
+          {activeTab === 'signature' && <SignatureTab />}
+          {activeTab === 'about' && <AboutTab />}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* ─── Institution Tab ─── */
+
+const InstitutionTab: React.FC<{
+  data: InstitutionSettings;
+  onChange: (p: Partial<InstitutionSettings>) => void;
+  readOnly: boolean;
+}> = ({ data, onChange, readOnly }) => (
+  <div className="space-y-4">
+    <SectionCard title="Dados da Instituição" icon={Building2}>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <Field label="Nome da Instituição" span={2}>
+          <input
+            type="text"
+            value={data.name}
+            disabled={readOnly}
+            onChange={e => onChange({ name: e.target.value })}
+            className={inputClass(readOnly)}
+            placeholder="Ex: Recanto dos Anciãos"
+          />
+        </Field>
+        <Field label="CNPJ">
+          <input
+            type="text"
+            value={data.cnpj}
+            disabled={readOnly}
+            onChange={e => onChange({ cnpj: e.target.value })}
+            className={inputClass(readOnly)}
+            placeholder="00.000.000/0000-00"
+          />
+        </Field>
+        <Field label="Capacidade Máxima (vagas)">
+          <input
+            type="number"
+            value={data.capacity}
+            disabled={readOnly}
+            min={1}
+            onChange={e => onChange({ capacity: Number(e.target.value) })}
+            className={inputClass(readOnly)}
+          />
+        </Field>
+      </div>
+    </SectionCard>
+
+    <SectionCard title="Contato" icon={Phone}>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <Field label="Telefone">
+          <input
+            type="text"
+            value={data.phone}
+            disabled={readOnly}
+            onChange={e => onChange({ phone: e.target.value })}
+            className={inputClass(readOnly)}
+            placeholder="(00) 00000-0000"
+          />
+        </Field>
+        <Field label="E-mail">
+          <input
+            type="email"
+            value={data.email}
+            disabled={readOnly}
+            onChange={e => onChange({ email: e.target.value })}
+            className={inputClass(readOnly)}
+            placeholder="contato@instituicao.com.br"
+          />
+        </Field>
+      </div>
+    </SectionCard>
+
+    <SectionCard title="Endereço" icon={MapPin}>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <Field label="CEP">
+          <input
+            type="text"
+            value={data.cep}
+            disabled={readOnly}
+            onChange={e => onChange({ cep: e.target.value })}
+            className={inputClass(readOnly)}
+            placeholder="00000-000"
+          />
+        </Field>
+        <Field label="Estado">
+          <select
+            value={data.state}
+            disabled={readOnly}
+            onChange={e => onChange({ state: e.target.value })}
+            className={inputClass(readOnly)}
+          >
+            {STATES_BR.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </Field>
+        <Field label="Cidade">
+          <input
+            type="text"
+            value={data.city}
+            disabled={readOnly}
+            onChange={e => onChange({ city: e.target.value })}
+            className={inputClass(readOnly)}
+          />
+        </Field>
+        <Field label="Endereço">
+          <input
+            type="text"
+            value={data.address}
+            disabled={readOnly}
+            onChange={e => onChange({ address: e.target.value })}
+            className={inputClass(readOnly)}
+            placeholder="Rua, número, complemento"
+          />
+        </Field>
+      </div>
+    </SectionCard>
+
+    <SectionCard title="Responsáveis Técnicos" icon={Users}>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <Field label="Diretor(a) Geral">
+          <input
+            type="text"
+            value={data.directorName}
+            disabled={readOnly}
+            onChange={e => onChange({ directorName: e.target.value })}
+            className={inputClass(readOnly)}
+          />
+        </Field>
+        <Field label="Responsável Técnico (RT)">
+          <input
+            type="text"
+            value={data.technicalDirector}
+            disabled={readOnly}
+            onChange={e => onChange({ technicalDirector: e.target.value })}
+            className={inputClass(readOnly)}
+          />
+        </Field>
+        <Field label="Registro ANVISA / Vigilância Sanitária">
+          <input
+            type="text"
+            value={data.anvisa}
+            disabled={readOnly}
+            onChange={e => onChange({ anvisa: e.target.value })}
+            className={inputClass(readOnly)}
+            placeholder="Número do alvará sanitário"
+          />
+        </Field>
+      </div>
+    </SectionCard>
+  </div>
+);
+
+/* ─── Notifications Tab ─── */
+
+const NotificationsTab: React.FC<{
+  data: NotificationSettings;
+  onChange: (p: Partial<NotificationSettings>) => void;
+  readOnly: boolean;
+}> = ({ data, onChange, readOnly }) => (
+  <div className="space-y-4">
+    <SectionCard title="Alertas de Estoque" icon={Package}>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <Field label="Quantidade mínima para alerta (itens)" span={2}>
+          <input
+            type="number"
+            value={data.stockAlertThreshold}
+            disabled={readOnly}
+            min={1}
+            onChange={e => onChange({ stockAlertThreshold: Number(e.target.value) })}
+            className={inputClass(readOnly)}
+          />
+          <p className="text-xs text-slate-400 mt-1">Itens com estoque igual ou abaixo deste valor serão destacados.</p>
+        </Field>
+      </div>
+    </SectionCard>
+
+    <SectionCard title="Lembretes de Medicação" icon={HeartPulse}>
+      <div className="space-y-4">
+        <ToggleField
+          label="Alertas de medicação atrasada"
+          description="Exibe aviso quando uma dose está próxima ou atrasada"
+          checked={data.medicationReminderEnabled}
+          disabled={readOnly}
+          onChange={v => onChange({ medicationReminderEnabled: v })}
+        />
+        {data.medicationReminderEnabled && (
+          <Field label="Antecedência do lembrete (minutos)">
+            <input
+              type="number"
+              value={data.medicationReminderMinutes}
+              disabled={readOnly}
+              min={5}
+              max={120}
+              onChange={e => onChange({ medicationReminderMinutes: Number(e.target.value) })}
+              className={inputClass(readOnly)}
+            />
+          </Field>
+        )}
+      </div>
+    </SectionCard>
+
+    <SectionCard title="Alertas Gerais" icon={Bell}>
+      <div className="space-y-4">
+        <ToggleField
+          label="Aniversários de residentes"
+          description="Lembrete de aniversário no dia do evento"
+          checked={data.birthdayRemindersEnabled}
+          disabled={readOnly}
+          onChange={v => onChange({ birthdayRemindersEnabled: v })}
+        />
+        <ToggleField
+          label="Checklists não preenchidos"
+          description="Alerta quando o checklist diário de um turno não foi registrado"
+          checked={data.checklistMissedAlerts}
+          disabled={readOnly}
+          onChange={v => onChange({ checklistMissedAlerts: v })}
+        />
+        <Field label="Alerta de vencimento de contratos (dias antes)">
+          <input
+            type="number"
+            value={data.contractDueDaysWarning}
+            disabled={readOnly}
+            min={1}
+            max={180}
+            onChange={e => onChange({ contractDueDaysWarning: Number(e.target.value) })}
+            className={inputClass(readOnly)}
+          />
+        </Field>
+        <Field label="Alerta de baixa ocupação (% mínimo)">
+          <input
+            type="number"
+            value={data.lowOccupancyThreshold}
+            disabled={readOnly}
+            min={0}
+            max={100}
+            onChange={e => onChange({ lowOccupancyThreshold: Number(e.target.value) })}
+            className={inputClass(readOnly)}
+          />
+          <p className="text-xs text-slate-400 mt-1">Gera alerta quando a ocupação cair abaixo desta porcentagem.</p>
+        </Field>
+      </div>
+    </SectionCard>
+  </div>
+);
+
+/* ─── Security Tab ─── */
+
+const SecurityTab: React.FC<{
+  data: SecuritySettings;
+  onChange: (p: Partial<SecuritySettings>) => void;
+  readOnly: boolean;
+}> = ({ data, onChange, readOnly }) => (
+  <div className="space-y-4">
+    <SectionCard title="Sessão e Acesso" icon={Clock}>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <Field label="Tempo limite de sessão (minutos)">
+          <input
+            type="number"
+            value={data.sessionTimeoutMinutes}
+            disabled={readOnly}
+            min={15}
+            max={480}
+            onChange={e => onChange({ sessionTimeoutMinutes: Number(e.target.value) })}
+            className={inputClass(readOnly)}
+          />
+          <p className="text-xs text-slate-400 mt-1">Sessão encerrada automaticamente após inatividade.</p>
+        </Field>
+        <Field label="Tentativas máximas de login">
+          <input
+            type="number"
+            value={data.maxLoginAttempts}
+            disabled={readOnly}
+            min={3}
+            max={10}
+            onChange={e => onChange({ maxLoginAttempts: Number(e.target.value) })}
+            className={inputClass(readOnly)}
+          />
+        </Field>
+      </div>
+    </SectionCard>
+
+    <SectionCard title="Política de Senhas" icon={Lock}>
+      <div className="space-y-4">
+        <ToggleField
+          label="Exigir troca periódica de senha"
+          description="Solicita redefinição de senha após o período configurado"
+          checked={data.requirePasswordChange}
+          disabled={readOnly}
+          onChange={v => onChange({ requirePasswordChange: v })}
+        />
+        {data.requirePasswordChange && (
+          <Field label="Intervalo de troca (dias)">
+            <input
+              type="number"
+              value={data.passwordChangeDays}
+              disabled={readOnly}
+              min={30}
+              max={365}
+              onChange={e => onChange({ passwordChangeDays: Number(e.target.value) })}
+              className={inputClass(readOnly)}
+            />
+          </Field>
+        )}
+      </div>
+    </SectionCard>
+
+    <SectionCard title="Auditoria e Logs" icon={FileText}>
+      <Field label="Retenção de logs de auditoria (dias)">
+        <input
+          type="number"
+          value={data.auditLogRetentionDays}
+          disabled={readOnly}
+          min={30}
+          max={1825}
+          onChange={e => onChange({ auditLogRetentionDays: Number(e.target.value) })}
+          className={inputClass(readOnly)}
+        />
+        <p className="text-xs text-slate-400 mt-1">Registros mais antigos que este prazo serão arquivados.</p>
+      </Field>
+    </SectionCard>
+
+    <SectionCard title="Autenticação" icon={Shield}>
+      <ToggleField
+        label="Autenticação em dois fatores (2FA)"
+        description="Requer código adicional no login via e-mail ou app autenticador"
+        checked={data.twoFactorEnabled}
+        disabled={readOnly}
+        onChange={v => onChange({ twoFactorEnabled: v })}
+      />
+      {data.twoFactorEnabled && (
+        <p className="text-xs text-amber-600 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mt-3">
+          A configuração de 2FA requer ação individual de cada usuário no seu perfil.
+        </p>
+      )}
+    </SectionCard>
+  </div>
+);
+
+/* ─── About Tab ─── */
+
+const AboutTab: React.FC = () => (
+  <div className="space-y-4">
+    <SectionCard title="RecantoCare" icon={HeartPulse}>
+      <div className="flex items-start gap-4">
+        <div className="w-14 h-14 bg-blue-600 rounded-2xl flex items-center justify-center shadow-md shrink-0">
+          <HeartPulse className="h-7 w-7 text-white" />
+        </div>
+        <div>
+          <p className="font-bold text-slate-900 text-lg leading-tight">RecantoCare</p>
+          <p className="text-sm text-slate-500">Plataforma de Gestão para ILPIs</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <span className="text-xs bg-blue-50 text-blue-700 px-2.5 py-1 rounded-full font-medium border border-blue-100">v2.4.0</span>
+            <span className="text-xs bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full font-medium border border-emerald-100 flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
+              Assinatura Ativa
+            </span>
+          </div>
+        </div>
+      </div>
+    </SectionCard>
+
+    <SectionCard title="Informações Técnicas" icon={Database}>
+      <dl className="space-y-2.5">
+        {[
+          { label: 'Versão da aplicação', value: '2.4.0' },
+          { label: 'Banco de dados', value: 'Supabase (PostgreSQL)' },
+          { label: 'Ambiente', value: 'Produção' },
+          { label: 'Última atualização', value: 'Junho / 2026' },
+          { label: 'Framework', value: 'React 18 + TypeScript' },
+        ].map(({ label, value }) => (
+          <div key={label} className="flex items-center justify-between py-1.5 border-b border-slate-50 last:border-0">
+            <span className="text-sm text-slate-500">{label}</span>
+            <span className="text-sm font-medium text-slate-700">{value}</span>
+          </div>
+        ))}
+      </dl>
+    </SectionCard>
+
+    <SectionCard title="Status dos Serviços" icon={Wifi}>
+      <div className="space-y-2">
+        {[
+          { service: 'API Principal', status: 'online' },
+          { service: 'Banco de Dados', status: 'online' },
+          { service: 'Armazenamento de Arquivos', status: 'online' },
+          { service: 'Autenticação', status: 'online' },
+        ].map(({ service, status }) => (
+          <div key={service} className="flex items-center justify-between py-2 border-b border-slate-50 last:border-0">
+            <span className="text-sm text-slate-600">{service}</span>
+            <span className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full ${
+              status === 'online'
+                ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                : 'bg-rose-50 text-rose-700 border border-rose-100'
+            }`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${status === 'online' ? 'bg-emerald-500' : 'bg-rose-500'} animate-pulse`} />
+              {status === 'online' ? 'Online' : 'Offline'}
+            </span>
+          </div>
+        ))}
+      </div>
+    </SectionCard>
+
+    <SectionCard title="Assinatura" icon={FileText}>
+      <dl className="space-y-2.5">
+        {[
+          { label: 'Plano', value: 'Profissional' },
+          { label: 'Status', value: 'Ativo' },
+          { label: 'Suporte', value: 'Prioritário' },
+        ].map(({ label, value }) => (
+          <div key={label} className="flex items-center justify-between py-1.5 border-b border-slate-50 last:border-0">
+            <span className="text-sm text-slate-500">{label}</span>
+            <span className="text-sm font-medium text-slate-700">{value}</span>
+          </div>
+        ))}
+      </dl>
+    </SectionCard>
+  </div>
+);
+
+/* ─── Shared UI helpers ─── */
+
+const inputClass = (disabled: boolean) =>
+  `w-full px-3 py-2 text-sm border rounded-lg outline-none transition-all ${
+    disabled
+      ? 'bg-slate-50 text-slate-500 cursor-not-allowed border-slate-200'
+      : 'bg-white text-slate-900 border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-50'
+  }`;
+
+const SectionCard: React.FC<{
+  title: string;
+  icon: React.ElementType;
+  children: React.ReactNode;
+}> = ({ title, icon: Icon, children }) => (
+  <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+    <div className="flex items-center gap-2.5 px-5 py-3.5 border-b border-slate-50 bg-slate-50/60">
+      <Icon className="h-4 w-4 text-blue-600 shrink-0" />
+      <h3 className="text-sm font-semibold text-slate-700">{title}</h3>
+    </div>
+    <div className="p-5">{children}</div>
+  </div>
+);
+
+const Field: React.FC<{
+  label: string;
+  children: React.ReactNode;
+  span?: number;
+}> = ({ label, children, span }) => (
+  <div className={span === 2 ? 'sm:col-span-2' : undefined}>
+    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">{label}</label>
+    {children}
+  </div>
+);
+
+const ToggleField: React.FC<{
+  label: string;
+  description: string;
+  checked: boolean;
+  disabled: boolean;
+  onChange: (v: boolean) => void;
+}> = ({ label, description, checked, disabled, onChange }) => (
+  <div className="flex items-start justify-between gap-4 py-1">
+    <div className="flex-1 min-w-0">
+      <p className="text-sm font-medium text-slate-700">{label}</p>
+      <p className="text-xs text-slate-400 mt-0.5">{description}</p>
+    </div>
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={`shrink-0 relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 ${
+        disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+      } ${checked ? 'bg-blue-600' : 'bg-slate-200'}`}
+    >
+      <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-4' : 'translate-x-0.5'}`} />
+    </button>
+  </div>
+);
+
+export default SettingsModule;

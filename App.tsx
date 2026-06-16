@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
 import ResidentsList from './components/ResidentsList';
@@ -11,24 +11,28 @@ import NutritionModule from './components/NutritionModule';
 import ReportsModule from './components/ReportsModule';
 import AgendaModule from './components/AgendaModule';
 import LoginScreen from './components/LoginScreen';
+import LandingPage from './components/LandingPage';
+import SuperAdminPanel from './components/SuperAdminPanel';
+import TrialEnvironment from './components/TrialEnvironment';
 import ResidentPortal from './components/ResidentPortal';
 import RoomsModule from './components/RoomsModule';
+import SettingsModule from './components/SettingsModule';
+import NotificationsPanel from './components/NotificationsPanel';
+import type { AlertItem } from './components/NotificationsPanel';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { Menu, HeartPulse } from 'lucide-react';
+import { Menu, HeartPulse, Bell } from 'lucide-react';
 import { ViewState, Resident, FinancialRecord, StockItem, Employee, TrainingRecord, SystemAccessLog, Contract, Invoice, CalendarEvent, StockTransaction, Room } from './types';
 import { supabase } from './services/supabaseClient';
 
 // Path name to ViewState conversion
 const pathToView = (path: string): { view: ViewState; residentId?: string } => {
   const parts = path.split('/').filter(Boolean);
-  if (parts.length === 0) {
+  if (parts.length === 0 || parts[0] === 'dashboard') {
     return { view: ViewState.DASHBOARD };
   }
 
   const primary = parts[0];
   switch (primary) {
-    case 'dashboard':
-      return { view: ViewState.DASHBOARD };
     case 'residents':
       if (parts[1]) {
         return { view: ViewState.RESIDENT_DETAIL, residentId: parts[1] };
@@ -50,6 +54,8 @@ const pathToView = (path: string): { view: ViewState; residentId?: string } => {
       return { view: ViewState.TEAM };
     case 'rooms':
       return { view: ViewState.ROOMS };
+    case 'settings':
+      return { view: ViewState.SETTINGS };
     default:
       return { view: ViewState.DASHBOARD };
   }
@@ -58,7 +64,7 @@ const pathToView = (path: string): { view: ViewState; residentId?: string } => {
 const viewToPath = (view: ViewState, residentId?: string): string => {
   switch (view) {
     case ViewState.DASHBOARD:
-      return '/';
+      return '/dashboard';
     case ViewState.RESIDENTS:
       return '/residents';
     case ViewState.RESIDENT_DETAIL:
@@ -79,6 +85,8 @@ const viewToPath = (view: ViewState, residentId?: string): string => {
       return '/team';
     case ViewState.ROOMS:
       return '/rooms';
+    case ViewState.SETTINGS:
+      return '/settings';
     default:
       return '/';
   }
@@ -88,7 +96,10 @@ function AppInner() {
   const { currentUser, loading } = useAuth();
   const [currentView, setCurrentView] = useState<ViewState>(ViewState.DASHBOARD);
   const [selectedResident, setSelectedResident] = useState<Resident | null>(null);
+  const [dataLoaded, setDataLoaded] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [dismissedAlertIds, setDismissedAlertIds] = useState<Set<string>>(new Set());
 
   // Application State connected to database
   const [residents, setResidents] = useState<Resident[]>([]);
@@ -124,6 +135,7 @@ function AppInner() {
         `);
 
       if (error) throw error;
+
 
       const mapped: Resident[] = (data || []).map((r: any) => ({
         id: r.id,
@@ -321,6 +333,7 @@ function AppInner() {
       }));
 
       setResidents(mapped);
+      setDataLoaded(true);
 
       // Update selected resident context if it is active
       if (selectedResident) {
@@ -676,6 +689,7 @@ function AppInner() {
       setAccessLogs([]);
       setEvents([]);
       setRooms([]);
+      setDataLoaded(false);
     }
   }, [currentUser]);
 
@@ -691,6 +705,9 @@ function AppInner() {
       setSelectedResident(found);
     } else {
       setSelectedResident(null);
+    }
+    if (path !== '/' && path !== '/login' && path !== '/portal') {
+      localStorage.setItem('recanto_last_active_path', path);
     }
   };
 
@@ -728,8 +745,8 @@ function AppInner() {
         const found = residents.find(r => r.id === residentId);
         if (found) {
           setSelectedResident(found);
-        } else {
-          // Fallback if resident ID not found
+        } else if (dataLoaded) {
+          // Fallback only if data has finished loading and resident is still not found
           window.history.replaceState(null, '', '/residents');
           setCurrentView(ViewState.RESIDENTS);
           setSelectedResident(null);
@@ -737,13 +754,32 @@ function AppInner() {
       } else {
         setSelectedResident(null);
       }
+      if (path !== '/' && path !== '/login' && path !== '/portal') {
+        localStorage.setItem('recanto_last_active_path', path);
+      }
     };
 
     handleLocationChange();
 
     window.addEventListener('popstate', handleLocationChange);
     return () => window.removeEventListener('popstate', handleLocationChange);
-  }, [currentUser, residents]);
+  }, [currentUser, residents, dataLoaded]);
+
+  // Restore path on login
+  useEffect(() => {
+    if (currentUser && dataLoaded) {
+      const savedPath = localStorage.getItem('recanto_last_active_path');
+      if (savedPath && savedPath !== '/' && savedPath !== '/login' && savedPath !== '/portal' && (window.location.pathname === '/' || window.location.pathname === '/login')) {
+        window.history.replaceState(null, '', savedPath);
+        const { view, residentId } = pathToView(savedPath);
+        setCurrentView(view);
+        if (view === ViewState.RESIDENT_DETAIL && residentId) {
+          const found = residents.find(r => r.id === residentId);
+          if (found) setSelectedResident(found);
+        }
+      }
+    }
+  }, [currentUser, dataLoaded, residents]);
 
   // Sync login/logout path changes
   useEffect(() => {
@@ -766,6 +802,37 @@ function AppInner() {
       }
     }
   }, [currentUser]);
+
+  // Page title management
+  useEffect(() => {
+    if (loading) {
+      document.title = 'Carregando... | Recanto dos Anciãos';
+      return;
+    }
+    if (!currentUser) return;
+    if (currentUser.profile.type === 'Responsável') return;
+
+    const viewTitles: Partial<Record<ViewState, string>> = {
+      [ViewState.DASHBOARD]: 'Painel Geral',
+      [ViewState.RESIDENTS]: 'Residentes & Prontuário',
+      [ViewState.RESIDENT_DETAIL]: selectedResident
+        ? `Prontuário – ${selectedResident.name}`
+        : 'Prontuário do Residente',
+      [ViewState.AGENDA]: 'Agenda & Atividades',
+      [ViewState.NUTRITION]: 'Alimentação & Nutrição',
+      [ViewState.TEAM]: 'Equipe e Acessos',
+      [ViewState.USERS]: 'Equipe e Acessos',
+      [ViewState.FINANCE]: 'Financeiro & Contratos',
+      [ViewState.STOCK]: 'Estoque & Insumos',
+      [ViewState.REPORTS]: 'Relatórios & Indicadores',
+      [ViewState.ROOMS]: 'Gerenciamento de Quartos',
+      [ViewState.SETTINGS]: 'Configurações do Sistema',
+
+    };
+
+    const pageName = viewTitles[currentView] ?? 'Painel Geral';
+    document.title = `${pageName} | Recanto dos Anciãos`;
+  }, [currentView, selectedResident, loading, currentUser]);
 
   // Logic Handlers
   const handleSelectResident = (resident: Resident) => {
@@ -1516,6 +1583,38 @@ function AppInner() {
   // Derived State
   const lowStockItems = stockItems.filter(item => item.quantity < item.minThreshold);
 
+  const allAlerts = useMemo<AlertItem[]>(() => {
+    const staticAlerts: AlertItem[] = [
+      { id: 'a1', text: 'Maria Silva apresentou pressão arterial elevada (160/95)', time: '10:30', type: 'critical' },
+      { id: 'a2', text: 'João Santos recusou medicação matinal', time: '08:45', type: 'info' },
+    ];
+    const stockAlertItems: AlertItem[] = lowStockItems.map(item => ({
+      id: `stock-${item.id}`,
+      text: `Estoque crítico: ${item.name} (${item.quantity} ${item.unit})`,
+      time: 'Agora',
+      type: 'warning' as const,
+    }));
+    const medicationAlerts: AlertItem[] = residents.flatMap(resident =>
+      (resident.medications || []).map(med => ({
+        id: `med-${resident.id}-${med.id}`,
+        text: `Prescrição: ${resident.name} - ${med.name} (${med.dosage})`,
+        time: med.nextDose || '08:00',
+        type: 'medication' as const,
+      }))
+    );
+    return [...stockAlertItems, ...medicationAlerts, ...staticAlerts].sort((a, b) => {
+      if (a.time === 'Agora' && b.time !== 'Agora') return -1;
+      if (b.time === 'Agora' && a.time !== 'Agora') return 1;
+      return a.time.localeCompare(b.time);
+    });
+  }, [lowStockItems, residents]);
+
+  const visibleAlerts = allAlerts.filter(a => !dismissedAlertIds.has(a.id));
+
+  const handleClearAllAlerts = () => {
+    setDismissedAlertIds(new Set(allAlerts.map(a => a.id)));
+  };
+
   const renderContent = () => {
     switch (currentView) {
       case ViewState.DASHBOARD:
@@ -1524,6 +1623,7 @@ function AppInner() {
             residents={residents}
             financials={financials}
             stockAlerts={lowStockItems}
+            allAlerts={allAlerts}
           />
         );
       case ViewState.RESIDENTS:
@@ -1600,6 +1700,10 @@ function AppInner() {
             residents={residents}
             employees={employees}
             invoices={invoices}
+            financials={financials}
+            contracts={contracts}
+            stockItems={stockItems}
+            events={events}
           />
         );
       case ViewState.STOCK:
@@ -1622,6 +1726,8 @@ function AppInner() {
             onUpdateResident={handleUpdateResident}
           />
         );
+      case ViewState.SETTINGS:
+        return <SettingsModule />;
       default:
         return <Dashboard residents={residents} financials={financials} />;
     }
@@ -1630,21 +1736,19 @@ function AppInner() {
   // Not logged in
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-4">
-        <div className="animate-pulse flex flex-col items-center">
-          <div className="w-16 h-16 bg-rose-500 rounded-2xl flex items-center justify-center shadow-lg mb-4">
-            <svg className="animate-spin h-8 w-8 text-white" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-            </svg>
+      <div className="min-h-screen bg-gradient-to-br from-[#1e40af] to-[#1e3a8a] flex flex-col items-center justify-center p-4">
+        <div className="flex flex-col items-center">
+          <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center shadow-lg mb-4 border border-white/20">
+            <HeartPulse className="h-9 w-9 text-white" />
           </div>
-          <p className="text-white text-lg font-semibold">Carregando...</p>
+          <p className="text-white text-xl font-bold tracking-tight mb-1">RecantoCare</p>
+          <p className="text-blue-200 text-sm">Carregando...</p>
         </div>
       </div>
     );
   }
 
-  if (!currentUser) return <LoginScreen />;
+  if (!currentUser) return <LandingPage />;
 
   // Responsável: portal simplificado
   if (currentUser.profile.type === 'Responsável') {
@@ -1653,7 +1757,7 @@ function AppInner() {
   }
 
   return (
-    <div className="flex min-h-screen bg-[#F8F7FF] text-slate-900">
+    <div className="flex min-h-screen bg-slate-50 text-slate-900">
       <Sidebar
         currentView={currentView}
         onChangeView={navigateTo}
@@ -1663,19 +1767,54 @@ function AppInner() {
       />
 
       <main className="flex-1 max-w-full lg:max-w-[calc(100vw-256px)] transition-all">
-        {/* Mobile Header trigger - Sticky for accessibility */}
-        <div className="sticky top-0 z-20 lg:hidden px-4 py-3 bg-slate-900 text-white flex justify-between items-center shadow-md select-none border-b border-slate-800">
-          <div className="flex items-center space-x-2">
-            <HeartPulse className="h-6 w-6 text-rose-500" />
-            <span className="text-lg font-bold tracking-tight">Recanto dos Anciãos</span>
+        {/* Mobile Header - Sticky */}
+        <div className="sticky top-0 z-20 lg:hidden px-4 py-3 bg-white border-b border-slate-100 flex justify-between items-center shadow-sm select-none">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 bg-blue-600 rounded-lg flex items-center justify-center">
+              <HeartPulse className="h-4 w-4 text-white" />
+            </div>
+            <span className="text-base font-bold text-slate-900 tracking-tight">RecantoCare</span>
           </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowNotifications(true)}
+              className="relative w-9 h-9 flex items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 active:scale-95 transition-all"
+              aria-label="Notificações"
+            >
+              <Bell className="h-5 w-5" />
+              {visibleAlerts.length > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 min-w-[17px] h-[17px] flex items-center justify-center bg-rose-500 text-white text-[9px] font-bold rounded-full px-1 shadow-sm animate-pulse">
+                  {visibleAlerts.length > 99 ? '99+' : visibleAlerts.length}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 active:scale-95 transition-all"
+              aria-label="Toggle Menu"
+              id="mobile-menu-trigger-button"
+            >
+              <Menu className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Desktop Top Bar */}
+        <div className="hidden lg:flex sticky top-0 z-20 px-8 py-3 bg-white/80 backdrop-blur-sm border-b border-slate-100 items-center justify-end shadow-sm">
           <button
-            onClick={() => setSidebarOpen(true)}
-            className="w-[44px] h-[44px] flex items-center justify-center rounded-lg bg-slate-800 hover:bg-slate-700 active:scale-95 transition-all text-slate-200 hover:text-white"
-            aria-label="Toggle Menu"
-            id="mobile-menu-trigger-button"
+            onClick={() => setShowNotifications(true)}
+            className="relative flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-600 hover:bg-slate-100 hover:text-slate-800 active:scale-95 transition-all"
+            aria-label="Notificações"
           >
-            <Menu className="h-6 w-6" />
+            <div className="relative">
+              <Bell className="h-5 w-5" />
+              {visibleAlerts.length > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[16px] h-4 flex items-center justify-center bg-rose-500 text-white text-[9px] font-bold rounded-full px-1 shadow-sm animate-pulse">
+                  {visibleAlerts.length > 99 ? '99+' : visibleAlerts.length}
+                </span>
+              )}
+            </div>
+            <span className="text-sm font-semibold">Alertas e Notificações</span>
           </button>
         </div>
 
@@ -1683,11 +1822,29 @@ function AppInner() {
           {renderContent()}
         </div>
       </main>
+
+      {showNotifications && (
+        <NotificationsPanel
+          alerts={visibleAlerts}
+          onClose={() => setShowNotifications(false)}
+          onClearAll={handleClearAllAlerts}
+        />
+      )}
     </div>
   );
 }
 
 function App() {
+  if (window.location.pathname.startsWith('/superadmin')) {
+    return <SuperAdminPanel />;
+  }
+  if (window.location.pathname.startsWith('/demo')) {
+    return (
+      <AuthProvider>
+        <TrialEnvironment />
+      </AuthProvider>
+    );
+  }
   return (
     <AuthProvider>
       <AppInner />

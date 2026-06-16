@@ -289,6 +289,21 @@ export interface StockItem {
 
 export type UserRole = 'Admin' | 'Enfermeiro' | 'Cuidador' | 'Médico' | 'Nutricionista' | 'Fisioterapeuta';
 
+// --- DIGITAL CERTIFICATE TYPES (ICP-Brasil A1) ---
+
+export interface DigitalCertificate {
+  certificate_file_name?: string;
+  certificate_holder_name: string;
+  certificate_document: string;         // CPF ou CNPJ do titular
+  certificate_serial_number: string;    // Número de série em hex
+  certificate_issuer: string;           // Autoridade Certificadora (AC)
+  certificate_issue_date: string;       // YYYY-MM-DD
+  certificate_expiration_date: string;  // YYYY-MM-DD
+  certificate_status: 'valid' | 'expiring_soon' | 'expired';
+  certificate_last_validation: string;  // ISO datetime
+  certificate_type: 'A1';
+}
+
 export interface Employee {
   id: string;
   auth_user_id?: string; // Link to auth user
@@ -347,13 +362,13 @@ export enum ViewState {
   RESIDENT_DETAIL = 'RESIDENT_DETAIL',
   FINANCE = 'FINANCE',
   STOCK = 'STOCK',
-  AI_ASSISTANT = 'AI_ASSISTANT',
   TEAM = 'TEAM',
   NUTRITION = 'NUTRITION',
   REPORTS = 'REPORTS',
   AGENDA = 'AGENDA',
   USERS = 'USERS',
-  ROOMS = 'ROOMS'
+  ROOMS = 'ROOMS',
+  SETTINGS = 'SETTINGS'
 }
 
 // --- AUTH & RBAC TYPES ---
@@ -383,4 +398,6 @@ export interface AuthUser {
   profile: Profile;
   residentId?: string; // somente para Responsável
   employeeRole?: UserRole;
+  certificate?: DigitalCertificate;
+  signatureImage?: string; // base64 PNG da assinatura manuscrita do usuário
 }
