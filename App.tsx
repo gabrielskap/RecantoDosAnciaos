@@ -274,6 +274,7 @@ function AppInner() {
             photoUrl: chk.photo_url || undefined,
             signedBy: chk.signed_by || undefined,
             signedAt: chk.signed_at || undefined,
+            signatureInfo: chk.signature_info || undefined,
             frequenciaCardiaca: match && match.hr ? String(match.hr) : undefined,
             pressaoArterial: match && match.bp ? match.bp : undefined,
             saturacao: match && match.spo2 ? String(match.spo2) : undefined,
@@ -1145,7 +1146,8 @@ function AppInner() {
               intercorrencia_desc: chk.intercorrenciaDesc || null,
               photo_url: chk.photoUrl || null,
               signed_by: chk.signedBy || null,
-              signed_at: chk.signedAt || null
+              signed_at: chk.signedAt || null,
+              signature_info: chk.signatureInfo || null
             }, { onConflict: 'resident_id,date,shift' })
             .select()
             .single();

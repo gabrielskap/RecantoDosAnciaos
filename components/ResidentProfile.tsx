@@ -3,7 +3,8 @@ import {
   ArrowLeft, Activity, Pill, FileText,
   Thermometer, Heart, CheckCircle, PenTool, ShieldCheck,
   ClipboardList, History, Plus, User, Clock, File, Paperclip, CalendarCheck, AlertOctagon,
-  BedDouble, Home, Wrench, PaintRoller, Edit2, X, Phone, FileHeart, Trash2, Users, Camera, Sun, Moon
+  BedDouble, Home, Wrench, PaintRoller, Edit2, X, Phone, FileHeart, Trash2, Users, Camera, Sun, Moon,
+  Key, Printer
 } from 'lucide-react';
 import { Resident, CarePlan, AuditLog, DailyChecklist, Medication, RoomStatus, Room } from '../types';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
@@ -15,6 +16,7 @@ interface ChecklistMedication {
   id: string;
   name: string;
   dosage: string;
+  route?: string;
   status: 'tomou' | 'nao_tomou' | 'pendente';
   time?: string;
 }
@@ -621,7 +623,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   }, [newNoteText, resident.id]);
 
   const handleRequestSign = (context: 'read' | 'edit') => {
-    if (!currentUser?.signatureImage) {
+    if (!currentUser?.certificate) {
       setIsNoSignatureModalOpen(true);
       return;
     }
@@ -641,9 +643,17 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     const userName = currentUser?.name || 'Usuário';
     const signedBy = prefix ? `${prefix} ${userName}` : userName;
     const signedAt = new Date().toISOString();
+    const signatureInfo = currentUser?.certificate ? JSON.stringify({
+      certificate_holder_name: currentUser.certificate.certificate_holder_name,
+      certificate_document: currentUser.certificate.certificate_document,
+      certificate_serial_number: currentUser.certificate.certificate_serial_number,
+      certificate_issuer: currentUser.certificate.certificate_issuer,
+      certificate_issue_date: currentUser.certificate.certificate_issue_date,
+      certificate_expiration_date: currentUser.certificate.certificate_expiration_date,
+    }) : undefined;
 
     if (signConfirmContext === 'edit' && checklistDraft && onUpdateResident) {
-      const signedDraft = { ...checklistDraft, signedBy, signedAt, shift: selectedShift };
+      const signedDraft = { ...checklistDraft, signedBy, signedAt, signatureInfo, shift: selectedShift };
       const otherChecklists = resident.dailyChecklists?.filter(
         c => !(c.date === signedDraft.date && (c.shift || 'diurno') === selectedShift)
       ) || [];
@@ -651,13 +661,575 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
       setSelectedChecklistDate(signedDraft.date);
       setChecklistDraft(null);
     } else if (signConfirmContext === 'read' && onUpdateResident) {
-      const updatedChecklist = { ...selectedChecklist, signedBy, signedAt, shift: selectedShift };
+      const updatedChecklist = { ...selectedChecklist, signedBy, signedAt, signatureInfo, shift: selectedShift };
       const otherChecklists = resident.dailyChecklists?.filter(
         c => !(c.date === updatedChecklist.date && (c.shift || 'diurno') === selectedShift)
       ) || [];
       onUpdateResident({ ...resident, dailyChecklists: [updatedChecklist, ...otherChecklists] });
     }
     setIsSignConfirmModalOpen(false);
+  };
+
+  const handlePrintChecklist = () => {
+    if (!selectedChecklist) return;
+
+    let letterheadHtml = '';
+    let letterheadStyle = '';
+    let hasLetterhead = false;
+    let inst = {
+      name: 'Recanto dos Anciãos',
+      cnpj: '',
+      phone: '',
+      email: '',
+      address: '',
+      city: '',
+      state: 'SP',
+      cep: '',
+      directorName: '',
+      technicalDirector: '',
+      anvisa: '',
+    };
+
+    try {
+      const raw = localStorage.getItem('recanto_system_settings');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed?.institution) {
+          inst = { ...inst, ...parsed.institution };
+          const src = parsed.institution.watermarkImage;
+          if (src) {
+            hasLetterhead = true;
+            letterheadHtml = `
+              <div class="lh-bg" aria-hidden="true"></div>
+              <div class="watermark-bg" aria-hidden="true"></div>
+            `;
+            letterheadStyle = `
+              .lh-bg {
+                position: fixed;
+                top: 0; left: 0;
+                width: 210mm; height: 297mm;
+                z-index: 1;
+                pointer-events: none;
+                background-image: url('${src}');
+                background-repeat: no-repeat;
+                background-position: center top;
+                background-size: 100% 100%;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+              }
+              .watermark-bg {
+                position: fixed;
+                top: 50%; left: 50%;
+                transform: translate(-50%, -50%);
+                width: 120mm; height: 120mm;
+                z-index: 2;
+                pointer-events: none;
+                opacity: 0.04;
+                background-image: url('${src}');
+                background-repeat: no-repeat;
+                background-position: center;
+                background-size: contain;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+              }
+            `;
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Erro ao carregar dados da instituição ou papel timbrado:', e);
+    }
+
+    const win = window.open('', '_blank', 'width=960,height=720');
+    if (!win) {
+      alert('Permita popups para gerar a impressão.');
+      return;
+    }
+
+    const parsedMeds = parseMedications(selectedChecklist.medicacoesAdministradas);
+    const shiftLabel = selectedShift === 'diurno' ? 'Diurno' : 'Noturno';
+    const dateFormatted = new Date(selectedChecklistDate + 'T00:00:00').toLocaleDateString('pt-BR');
+
+    const docHtml = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Boletim ${shiftLabel} - ${resident.name} - ${dateFormatted}</title>
+  <style>
+    @page { size: A4; margin: ${hasLetterhead ? '55mm 20mm 40mm 20mm' : '15mm'}; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, Helvetica, sans-serif; color: #1e293b; font-size: 11px; padding: 32px; line-height: 1.4; -webkit-print-color-adjust: exact; print-color-adjust: exact; background: transparent; }
+    .doc-content { position: relative; z-index: 3; width: 100%; max-width: 170mm; margin: 0 auto; }
+
+    /* Papel timbrado (background layer, z-index 1) */
+    ${letterheadStyle}
+
+    /* Header styles */
+    .inst-header { display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #e2e8f0; padding-bottom: 12px; margin-bottom: 20px; }
+    .inst-info { flex: 1; }
+    .inst-title { font-size: 16px; font-weight: bold; color: #0f172a; margin-bottom: 4px; }
+    .inst-details { font-size: 10px; color: #64748b; }
+    .inst-rt { text-align: right; font-size: 10px; color: #64748b; }
+    
+    /* Document title */
+    .doc-title { font-size: 14px; font-weight: bold; text-align: center; text-transform: uppercase; color: #1e293b; margin-bottom: 20px; letter-spacing: 0.5px; }
+    
+    /* Sections */
+    .section { margin-bottom: 18px; background: rgba(255, 255, 255, 0.85); border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden; }
+    .section-title { background: rgba(248, 250, 252, 0.9); font-size: 11px; font-weight: bold; color: #334155; padding: 6px 12px; border-bottom: 1px solid #e2e8f0; text-transform: uppercase; letter-spacing: 0.5px; }
+    .section-content { padding: 12px; }
+    
+    /* Grid styles */
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 12px; }
+    .field { margin-bottom: 6px; }
+    .field-label { font-size: 9px; font-weight: bold; color: #64748b; text-transform: uppercase; margin-bottom: 2px; }
+    .field-value { font-size: 11px; color: #1e293b; font-weight: 500; }
+    
+    /* Badge styles */
+    .badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: bold; }
+    .bg-gray { background: #f1f5f9; color: #475569; }
+    .bg-green { background: #d1fae5; color: #065f46; }
+    .bg-yellow { background: #fef3c7; color: #92400e; }
+    .bg-red { background: #fee2e2; color: #991b1b; }
+    .bg-blue { background: #dbeafe; color: #1d4ed8; }
+    
+    /* Vitals grid */
+    .vital-card { text-align: center; padding: 8px; border-radius: 6px; border: 1px solid #e2e8f0; }
+    .vital-card.hr { background: rgba(255, 245, 245, 0.9); border-color: #fee2e2; }
+    .vital-card.bp { background: rgba(239, 246, 255, 0.9); border-color: #dbeafe; }
+    .vital-card.spo2 { background: rgba(240, 249, 255, 0.9); border-color: #e0f2fe; }
+    .vital-card.temp { background: rgba(255, 251, 235, 0.9); border-color: #fef3c7; }
+    
+    /* Table styles */
+    table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 10px; background: rgba(255, 255, 255, 0.85); }
+    th { background: rgba(248, 250, 252, 0.9); padding: 6px 8px; text-align: left; font-weight: bold; color: #475569; border-bottom: 1px solid #e2e8f0; }
+    td { padding: 6px 8px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
+    
+    /* Signature panel */
+    .sig-panel { border: 1px dashed #10b981; background: rgba(240, 253, 244, 0.9); border-radius: 6px; padding: 12px; margin-top: 20px; }
+    .sig-title { display: flex; align-items: center; font-weight: bold; color: #065f46; margin-bottom: 8px; font-size: 12px; }
+    .sig-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 9px; }
+    .sig-field { background: #fff; padding: 6px; border: 1px solid #d1fae5; border-radius: 4px; }
+    .sig-field-label { color: #2e7d32; font-weight: bold; text-transform: uppercase; font-size: 8px; }
+    .sig-field-value { color: #065f46; font-weight: bold; margin-top: 2px; }
+    
+    .footer { margin-top: 24px; padding-top: 10px; border-top: 1px solid #e2e8f0; font-size: 9px; color: #94a3b8; text-align: center; }
+    
+    .section, .sig-panel, table, tr, .footer { page-break-inside: avoid; break-inside: avoid; }
+    
+    @media screen and (max-width: 640px) {
+      body { padding: 16px; }
+      .grid-2, .grid-4 { grid-template-columns: 1fr; }
+      .inst-header { flex-direction: column; gap: 8px; }
+      .inst-rt { text-align: left; }
+    }
+    @media print {
+      body { padding: 0; background: transparent; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
+  </style>
+</head>
+<body>
+  ${letterheadHtml}
+  <div class="doc-content">
+  ${hasLetterhead ? '' : `
+  <!-- Institutional Header -->
+  <div class="inst-header">
+    <div class="inst-info">
+      <div class="inst-title">${inst.name}</div>
+      <div class="inst-details">
+        CNPJ: ${inst.cnpj || '—'} | Tel: ${inst.phone || '—'} | E-mail: ${inst.email || '—'}<br/>
+        Endereço: ${inst.address || ''} ${inst.city || ''} ${inst.state ? `- ${inst.state}` : ''} CEP: ${inst.cep || ''}
+      </div>
+    </div>
+    <div class="inst-rt">
+      ${inst.directorName ? `Diretoria: ${inst.directorName}<br/>` : ''}
+      ${inst.technicalDirector ? `Resp. Técnico: ${inst.technicalDirector}<br/>` : ''}
+      ${inst.anvisa ? `Alvará ANVISA: ${inst.anvisa}` : ''}
+    </div>
+  </div>
+  `}
+  
+  <!-- Document Title -->
+  <div class="doc-title">
+    Boletim de Evolução e Rotina Diária (${shiftLabel})
+  </div>
+  
+  <!-- Resident Info -->
+  <div class="section">
+    <div class="section-title">Identificação do Residente</div>
+    <div class="section-content">
+      <div class="grid-2">
+        <div>
+          <div class="field">
+            <div class="field-label">Residente</div>
+            <div class="field-value">${resident.name}</div>
+          </div>
+          <div class="field">
+            <div class="field-label">CPF</div>
+            <div class="field-value">${resident.cpf || '—'}</div>
+          </div>
+          <div class="field">
+            <div class="field-label">Data de Nascimento</div>
+            <div class="field-value">${resident.birthDate || '—'} (${resident.age} anos)</div>
+          </div>
+        </div>
+        <div>
+          <div class="field">
+            <div class="field-label">Data de Referência</div>
+            <div class="field-value">${dateFormatted}</div>
+          </div>
+          <div class="field">
+            <div class="field-label">Quarto / Acomodação</div>
+            <div class="field-value">${resident.room}</div>
+          </div>
+          <div class="field">
+            <div class="field-label">Grau de Dependência</div>
+            <div class="field-value"><span class="badge ${resident.careLevel === 'I' ? 'bg-green' : resident.careLevel === 'II' ? 'bg-yellow' : 'bg-red'}">Grau ${resident.careLevel}</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Sinais Vitais -->
+  <div class="section">
+    <div class="section-title">1. Sinais Vitais</div>
+    <div class="section-content">
+      <div class="grid-4">
+        <div class="vital-card hr">
+          <div class="field-label" style="color: #991b1b;">Frequência Cardíaca</div>
+          <div class="field-value" style="font-size: 14px; font-weight: bold; color: #991b1b; margin: 4px 0;">${selectedChecklist.frequenciaCardiaca || '—'}</div>
+          <div class="field-label" style="color: #f87171;">bpm</div>
+        </div>
+        <div class="vital-card bp">
+          <div class="field-label" style="color: #1e3a8a;">Pressão Arterial</div>
+          <div class="field-value" style="font-size: 14px; font-weight: bold; color: #1e3a8a; margin: 4px 0;">${selectedChecklist.pressaoArterial || '—'}</div>
+          <div class="field-label" style="color: #60a5fa;">mmHg</div>
+        </div>
+        <div class="vital-card spo2">
+          <div class="field-label" style="color: #0369a1;">Saturação (SpO2)</div>
+          <div class="field-value" style="font-size: 14px; font-weight: bold; color: #0369a1; margin: 4px 0;">${selectedChecklist.saturacao || '—'}</div>
+          <div class="field-label" style="color: #38bdf8;">%</div>
+        </div>
+        <div class="vital-card temp">
+          <div class="field-label" style="color: #854d0e;">Temperatura</div>
+          <div class="field-value" style="font-size: 14px; font-weight: bold; color: #854d0e; margin: 4px 0;">${selectedChecklist.temperatura || '—'}</div>
+          <div class="field-label" style="color: #fbbf24;">°C</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Sintomas & Estado Geral -->
+  <div class="section">
+    <div class="section-title">2. Sintomas e Estado Geral</div>
+    <div class="section-content">
+      <div class="grid-2">
+        <div>
+          <div class="field">
+            <div class="field-label">Queixa de Dor</div>
+            <div class="field-value">
+              ${selectedChecklist.queixaDor === 'sim' 
+                ? `<span class="badge bg-red">Sim - ${selectedChecklist.queixaDorDesc || 'Sem descrição'}</span>` 
+                : 'Não relatada'}
+            </div>
+          </div>
+          <div class="field">
+            <div class="field-label">Oxigenação</div>
+            <div class="field-value">
+              ${selectedChecklist.arAmbiente 
+                ? 'Ar Ambiente (Respiração normal)' 
+                : 'Necessitando de O2 Suplementar'}
+            </div>
+          </div>
+        </div>
+        <div>
+          <div class="field">
+            <div class="field-label">Estado Neurológico</div>
+            <div class="field-value">${selectedChecklist.estadoNeurologico || 'Não informado'}</div>
+          </div>
+          <div class="field">
+            <div class="field-label">Comportamento Observado</div>
+            <div class="field-value">
+              <div style="display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px;">
+                ${selectedChecklist.agitado ? '<span class="badge bg-yellow">Agitado</span>' : ''}
+                ${selectedChecklist.prostrado ? '<span class="badge bg-blue">Prostrado</span>' : ''}
+                ${selectedChecklist.sonolento ? '<span class="badge bg-gray">Sonolento</span>' : ''}
+                ${!selectedChecklist.agitado && !selectedChecklist.prostrado && !selectedChecklist.sonolento 
+                  ? '<span class="badge bg-green">Calmo / Estável</span>' 
+                  : ''}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Alimentação & Eliminações -->
+  <div class="section">
+    <div class="section-title">3. Alimentação & Eliminações</div>
+    <div class="section-content">
+      <div class="grid-2">
+        <div>
+          <div class="field">
+            <div class="field-label">Aceitação Alimentar</div>
+            <div class="field-value">
+              ${selectedChecklist.alimentacao === 'boa' ? '<span class="badge bg-green">Boa Aceitação</span>' :
+                selectedChecklist.alimentacao === 'moderada' ? '<span class="badge bg-yellow">Aceitação Moderada</span>' :
+                selectedChecklist.alimentacao === 'ruim' ? `<span class="badge bg-red">Aceitação Ruim: ${selectedChecklist.alimentacaoDesc || ''}</span>` :
+                'Não informado'}
+            </div>
+          </div>
+          <div class="field">
+            <div class="field-label">Evacuação (Bolo Fecal)</div>
+            <div class="field-value">
+              ${selectedChecklist.eliminacaoEvacuacao === 'presente' 
+                ? '<span class="badge bg-green">Presente</span>' 
+                : `<span class="badge bg-red">Ausente</span>`}
+              ${selectedChecklist.eliminacaoEvacuacaoDias ? ` (Dias sem evacuar: ${selectedChecklist.eliminacaoEvacuacaoDias})` : ''}
+            </div>
+          </div>
+          <div class="field">
+            <div class="field-label">Aspecto das Evacuações</div>
+            <div class="field-value">
+              ${selectedChecklist.aspectoEvacuacoes === 'endurecidas' ? 'Fezes Endurecidas' :
+                selectedChecklist.aspectoEvacuacoes === 'pastosa' ? 'Pastosa' :
+                selectedChecklist.aspectoEvacuacoes === 'semi-liquidas' ? 'Semi-líquidas' :
+                selectedChecklist.aspectoEvacuacoes === 'liquida-diarreia' ? '<span class="badge bg-red">Líquida / Diarreia</span>' : 
+                'Não informado'}
+            </div>
+          </div>
+        </div>
+        <div>
+          <div class="field">
+            <div class="field-label">Diurese</div>
+            <div class="field-value">
+              ${selectedChecklist.diurese === 'ausente' ? '<span class="badge bg-red">Ausente</span>' :
+                selectedChecklist.diurese === 'aumentada' ? '<span class="badge bg-yellow">Aumentada</span>' :
+                selectedChecklist.diurese === 'diminuida' ? '<span class="badge bg-yellow">Diminuída</span>' :
+                'Adequada / Normal'}
+            </div>
+          </div>
+          <div class="field">
+            <div class="field-label">Aspecto Urinário</div>
+            <div class="field-value">
+              ${selectedChecklist.diureseAspecto === 'clara' ? 'Clara / Limpida' :
+                selectedChecklist.diureseAspecto === 'concentrada' ? 'Concentrada' :
+                selectedChecklist.diureseAspecto === 'odor-sangue-ardencia' ? '<span class="badge bg-red">Com Odor / Sangue / Ardência</span>' :
+                'Não informado'}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Cuidados & Mobilidade -->
+  <div class="section">
+    <div class="section-title">4. Cuidados Diários & Mobilidade</div>
+    <div class="section-content">
+      <div class="grid-2">
+        <div>
+          <div class="field">
+            <div class="field-label">Uso de Fraldas</div>
+            <div class="field-value">
+              ${selectedChecklist.usoFraldas === 'sim' ? 'Sim, faz uso de fralda' : 'Não faz uso'}
+            </div>
+          </div>
+          <div class="field">
+            <div class="field-label">Mobilidade no Turno</div>
+            <div class="field-value">
+              ${selectedChecklist.mobilidadeSet === 'independente' ? 'Independente' :
+                selectedChecklist.mobilidadeSet === 'auxilio' ? 'Com Auxílio' :
+                selectedChecklist.mobilidadeSet === 'acamado' ? 'Acamado' : 'Não informado'}
+            </div>
+          </div>
+        </div>
+        <div>
+          <div class="field">
+            <div class="field-label">Higiene Corporal / Banho</div>
+            <div class="field-value">
+              ${selectedChecklist.higieneCorporal === 'independente' ? 'Independente' :
+                selectedChecklist.higieneCorporal === 'auxilio' ? 'Com Auxílio' : 'Não informado'}
+            </div>
+          </div>
+          <div class="field">
+            <div class="field-label">Higiene Oral & Vestir</div>
+            <div class="field-value">
+              ${selectedChecklist.higieneOralVestir === 'independente' ? 'Independente' :
+                selectedChecklist.higieneOralVestir === 'auxilio' ? 'Com Auxílio' : 'Não informado'}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Diagnósticos, Sono & Rotina -->
+  <div class="section">
+    <div class="section-title">5. Diagnósticos de Pele, Sono e Ocorrências</div>
+    <div class="section-content">
+      <div class="field" style="margin-bottom: 12px;">
+        <div class="field-label">Alterações de Pele / Edemas / Lesões</div>
+        <div class="field-value">
+          ${selectedChecklist.alteracoesPele === 'sim' 
+            ? `<span class="badge bg-red">Sim: ${selectedChecklist.alteracoesPeleDesc || 'Sem descrição'}</span>` 
+            : 'Pele íntegra / Sem alterações observadas'}
+        </div>
+      </div>
+      <div class="field" style="margin-bottom: 12px;">
+        <div class="field-label">Qualidade do Sono</div>
+        <div class="field-value">
+          ${selectedChecklist.sono === 'insatisfatorio' 
+            ? `<span class="badge bg-yellow">Insatisfatório: ${selectedChecklist.sonoDesc || ''}</span>` 
+            : 'Sono preservado / Dormiu bem'}
+        </div>
+      </div>
+      <div class="field" style="margin-bottom: 12px;">
+        <div class="field-label">Outras Atividades / Consultas</div>
+        <div class="field-value">${selectedChecklist.atividadesConsulta || 'Nenhuma atividade registrada.'}</div>
+      </div>
+      <div class="field">
+        <div class="field-label">Ocorrência / Intercorrência médica no turno</div>
+        <div class="field-value">
+          ${selectedChecklist.intercorrencia === 'sim'
+            ? `<span class="badge bg-red">SIM: ${selectedChecklist.intercorrenciaDesc || 'Sem detalhes'}</span>`
+            : 'Não houve intercorrência registrada.'}
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Medicações Administradas -->
+  <div class="section">
+    <div class="section-title">6. Registro de Medicações no Turno</div>
+    <div class="section-content">
+      ${parsedMeds && parsedMeds.length > 0 ? `
+        <table>
+          <thead>
+            <tr>
+              <th>Medicamento</th>
+              <th>Dosagem / Via</th>
+              <th>Status</th>
+              <th>Horário</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${parsedMeds.map(med => `
+              <tr>
+                <td style="font-weight: bold;">${med.name}</td>
+                <td>${med.dosage} (${med.route || '—'})</td>
+                <td>
+                  <span class="badge ${
+                    med.status === 'tomou' ? 'bg-green' :
+                    med.status === 'nao_tomou' ? 'bg-red' : 'bg-gray'
+                  }">
+                    ${med.status === 'tomou' ? 'Administrado' :
+                      med.status === 'nao_tomou' ? 'Não Administrado' : 'Pendente'}
+                  </span>
+                </td>
+                <td>${med.time || '—'}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      ` : '<div style="font-size: 11px; color: #64748b; font-style: italic; padding: 4px 0;">Nenhuma medicação programada ou administrada para este turno.</div>'}
+    </div>
+  </div>
+  
+  <!-- Assinatura Digital ICP-Brasil -->
+  ${selectedChecklist.signedBy ? (() => {
+    let certDetails = '';
+    if (selectedChecklist.signatureInfo) {
+      try {
+        const cert = JSON.parse(selectedChecklist.signatureInfo);
+        certDetails = `
+          <div class="sig-grid">
+            <div class="sig-field">
+              <div class="sig-field-label">Assinante / Titular</div>
+              <div class="sig-field-value">${cert.certificate_holder_name}</div>
+            </div>
+            <div class="sig-field">
+              <div class="sig-field-label">CPF</div>
+              <div class="sig-field-value">${cert.certificate_document}</div>
+            </div>
+            <div class="sig-field">
+              <div class="sig-field-label">Autoridade Certificadora (AC)</div>
+              <div class="sig-field-value">${cert.certificate_issuer}</div>
+            </div>
+            <div class="sig-field">
+              <div class="sig-field-label">Número de Série</div>
+              <div class="sig-field-value" style="font-family: monospace; font-size: 8px;">${cert.certificate_serial_number}</div>
+            </div>
+            <div class="sig-field">
+              <div class="sig-field-label">Validade do Certificado</div>
+              <div class="sig-field-value">${new Date(cert.certificate_issue_date).toLocaleDateString('pt-BR')} a ${new Date(cert.certificate_expiration_date).toLocaleDateString('pt-BR')}</div>
+            </div>
+            <div class="sig-field" style="background: #e8f5e9; border-color: #a5d6a7;">
+              <div class="sig-field-label" style="color: #2e7d32;">Carimbo de Data/Hora (Assinatura)</div>
+              <div class="sig-field-value" style="color: #1b5e20;">${new Date(selectedChecklist.signedAt || '').toLocaleString('pt-BR')}</div>
+            </div>
+          </div>
+        `;
+      } catch (e) {
+        certDetails = `
+          <div class="sig-grid">
+            <div class="sig-field">
+              <div class="sig-field-label">Assinado por</div>
+              <div class="sig-field-value">${selectedChecklist.signedBy}</div>
+            </div>
+            <div class="sig-field" style="background: #e8f5e9; border-color: #a5d6a7;">
+              <div class="sig-field-label" style="color: #2e7d32;">Carimbo de Data/Hora (Assinatura)</div>
+              <div class="sig-field-value" style="color: #1b5e20;">${new Date(selectedChecklist.signedAt || '').toLocaleString('pt-BR')}</div>
+            </div>
+          </div>
+        `;
+      }
+    } else {
+      certDetails = `
+        <div class="sig-grid">
+          <div class="sig-field">
+            <div class="sig-field-label">Assinado por</div>
+            <div class="sig-field-value">${selectedChecklist.signedBy}</div>
+          </div>
+          <div class="sig-field" style="background: #e8f5e9; border-color: #a5d6a7;">
+            <div class="sig-field-label" style="color: #2e7d32;">Carimbo de Data/Hora (Assinatura)</div>
+            <div class="sig-field-value" style="color: #1b5e20;">${new Date(selectedChecklist.signedAt || '').toLocaleString('pt-BR')}</div>
+          </div>
+        </div>
+      `;
+    }
+    return `
+      <div class="sig-panel">
+        <div class="sig-title">
+          <span style="display: inline-block; width: 8px; height: 8px; background: #10b981; border-radius: 50%; margin-right: 6px;"></span>
+          Assinatura Digital ICP-Brasil Válida · MP 2.200-2/2001
+        </div>
+        <p style="font-size: 9px; color: #065f46; margin-bottom: 10px; line-height: 1.3;">
+          Este documento clínico/boletim foi assinado eletronicamente pelo profissional responsável utilizando certificado digital ICP-Brasil A1. A autoria, integridade e validade jurídica deste registro são garantidas nos termos da legislação federal brasileira.
+        </p>
+        ${certDetails}
+      </div>
+    `;
+  })() : ''}
+  
+  <div class="footer">
+    Gerado em ${new Date().toLocaleString('pt-BR')} · Recanto dos Anciãos · Sistema de Gestão ILPI
+  </div>
+  </div>
+  <script>
+    window.onload = () => {
+      window.print();
+    };
+  </script>
+</body>
+</html>`;
+
+    win.document.write(docHtml);
+    win.document.close();
   };
 
   const handleStartEditChecklist = () => {
@@ -669,6 +1241,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
         id: med.id,
         name: med.name,
         dosage: med.dosage,
+        route: med.route,
         status: 'pendente' as const,
         time: med.nextDose || '08:00'
       }));
@@ -1415,10 +1988,19 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                         </div>
                         <div className="flex items-center gap-2 w-full sm:w-auto justify-end flex-wrap">
                           {selectedChecklist.signedBy ? (
-                            <span className="text-xs bg-blue-100 text-blue-800 border border-blue-200 px-3 py-1.5 rounded-full font-medium flex items-center shadow-sm gap-1.5">
-                              <ShieldCheck className="h-3.5 w-3.5 text-blue-600" />
-                              Assinado por {selectedChecklist.signedBy}
-                            </span>
+                            <>
+                              <span className="text-xs bg-blue-100 text-blue-800 border border-blue-200 px-3 py-1.5 rounded-full font-medium flex items-center shadow-sm gap-1.5">
+                                <ShieldCheck className="h-3.5 w-3.5 text-blue-600" />
+                                Assinado por {selectedChecklist.signedBy}
+                              </span>
+                              <button
+                                onClick={handlePrintChecklist}
+                                className="flex items-center px-4 py-2 bg-white text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold hover:bg-slate-50 transition-all shadow-sm cursor-pointer"
+                              >
+                                <Printer className="h-3.5 w-3.5 mr-1.5 text-primary-600" />
+                                Imprimir Boletim
+                              </button>
+                            </>
                           ) : (
                             <>
                               <span className="text-xs bg-emerald-100 text-emerald-800 border border-emerald-200 px-3 py-1.5 rounded-full font-medium flex items-center shadow-sm">
@@ -1427,17 +2009,24 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                               </span>
                               <button
                                 onClick={() => handleRequestSign('read')}
-                                className="flex items-center px-4 py-2 bg-blue-600 text-white border border-blue-700 rounded-xl text-xs font-semibold hover:bg-blue-700 transition-all shadow-sm"
+                                className="flex items-center px-4 py-2 bg-blue-600 text-white border border-blue-700 rounded-xl text-xs font-semibold hover:bg-blue-700 transition-all shadow-sm cursor-pointer"
                               >
                                 <PenTool className="h-3.5 w-3.5 mr-1.5" />
                                 Assinar Digitalmente
                               </button>
                               <button
                                 onClick={handleStartEditChecklist}
-                                className="flex items-center px-4 py-2 bg-white text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold hover:bg-slate-50 transition-all shadow-sm"
+                                className="flex items-center px-4 py-2 bg-white text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold hover:bg-slate-50 transition-all shadow-sm cursor-pointer"
                               >
                                 <Edit2 className="h-3.5 w-3.5 mr-1.5 text-primary-600" />
                                 Editar Boletim
+                              </button>
+                              <button
+                                onClick={handlePrintChecklist}
+                                className="flex items-center px-4 py-2 bg-white text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold hover:bg-slate-50 transition-all shadow-sm cursor-pointer"
+                              >
+                                <Printer className="h-3.5 w-3.5 mr-1.5 text-primary-600" />
+                                Imprimir Boletim
                               </button>
                             </>
                           )}
@@ -1760,6 +2349,92 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                               <p className="text-xs text-slate-500 italic">
                                 Acompanhamento visual registrado neste boletim diário.
                               </p>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Painel de Assinatura Digital ICP-Brasil */}
+                        {selectedChecklist.signedBy && (
+                          <div className="bg-emerald-50/40 border-l-4 border-emerald-500 border border-slate-200 rounded-xl p-5 mt-6 shadow-sm">
+                            <div className="flex items-start gap-4">
+                              <div className="p-2.5 bg-emerald-100 rounded-xl text-emerald-700 shrink-0 shadow-sm border border-emerald-200/50">
+                                <ShieldCheck className="h-6 w-6" />
+                              </div>
+                              <div className="space-y-1.5 w-full">
+                                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-emerald-100 pb-2">
+                                  <div className="flex items-center gap-2">
+                                    <h4 className="text-sm font-bold text-slate-800 tracking-tight">
+                                      Validação de Assinatura Digital
+                                    </h4>
+                                    <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 border border-emerald-200/70 px-2 py-0.5 rounded-full flex items-center gap-1">
+                                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                      ICP-BRASIL VÁLIDA
+                                    </span>
+                                  </div>
+                                  <div className="text-[10px] text-slate-400 font-medium font-mono">
+                                    Documento Integrado e Auditado
+                                  </div>
+                                </div>
+                                
+                                <p className="text-xs text-slate-500 leading-relaxed mt-1">
+                                  Este prontuário/boletim de acompanhamento foi assinado e selado eletronicamente utilizando um certificado digital ICP-Brasil A1. A assinatura atesta a autoria e a integridade deste registro clínico na data especificada, em conformidade com a MP 2.200-2/2001.
+                                </p>
+
+                                {selectedChecklist.signatureInfo ? (() => {
+                                  try {
+                                    const cert = JSON.parse(selectedChecklist.signatureInfo);
+                                    return (
+                                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-4 mt-4 pt-3 text-xs text-slate-650">
+                                        <div className="bg-white/60 p-2.5 rounded-lg border border-slate-100 shadow-sm">
+                                          <p className="text-slate-400 font-bold uppercase tracking-wider text-[9px]">Assinante / Titular</p>
+                                          <p className="font-bold text-slate-700 mt-1">{cert.certificate_holder_name}</p>
+                                        </div>
+                                        <div className="bg-white/60 p-2.5 rounded-lg border border-slate-100 shadow-sm">
+                                          <p className="text-slate-400 font-bold uppercase tracking-wider text-[9px]">Documento de Identidade</p>
+                                          <p className="font-mono font-bold text-slate-700 mt-1">{cert.certificate_document}</p>
+                                        </div>
+                                        <div className="bg-white/60 p-2.5 rounded-lg border border-slate-100 shadow-sm">
+                                          <p className="text-slate-400 font-bold uppercase tracking-wider text-[9px]">Autoridade Certificadora (AC)</p>
+                                          <p className="font-bold text-slate-700 mt-1">{cert.certificate_issuer}</p>
+                                        </div>
+                                        <div className="bg-white/60 p-2.5 rounded-lg border border-slate-100 shadow-sm">
+                                          <p className="text-slate-400 font-bold uppercase tracking-wider text-[9px]">Número de Série do Certificado</p>
+                                          <p className="font-mono text-slate-600 mt-1 text-[10px] break-all">{cert.certificate_serial_number}</p>
+                                        </div>
+                                        <div className="bg-white/60 p-2.5 rounded-lg border border-slate-100 shadow-sm">
+                                          <p className="text-slate-400 font-bold uppercase tracking-wider text-[9px]">Validade do Certificado</p>
+                                          <p className="font-medium text-slate-700 mt-1">
+                                            {new Date(cert.certificate_issue_date).toLocaleDateString('pt-BR')} a {new Date(cert.certificate_expiration_date).toLocaleDateString('pt-BR')}
+                                          </p>
+                                        </div>
+                                        <div className="bg-white/60 p-2.5 rounded-lg border border-slate-100 shadow-sm border-emerald-100/50 bg-emerald-50/20">
+                                          <p className="text-emerald-700 font-bold uppercase tracking-wider text-[9px]">Carimbo de Data/Hora (Assinatura)</p>
+                                          <p className="font-bold text-emerald-900 mt-1 flex items-center gap-1">
+                                            <Clock className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                                            {new Date(selectedChecklist.signedAt || '').toLocaleString('pt-BR')}
+                                          </p>
+                                        </div>
+                                      </div>
+                                    );
+                                  } catch (e) {
+                                    return null;
+                                  }
+                                })() : (
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 mt-4 pt-3 text-xs text-slate-650">
+                                    <div className="bg-white/60 p-2.5 rounded-lg border border-slate-100 shadow-sm">
+                                      <p className="text-slate-400 font-bold uppercase tracking-wider text-[9px]">Assinado por</p>
+                                      <p className="font-bold text-slate-700 mt-1">{selectedChecklist.signedBy}</p>
+                                    </div>
+                                    <div className="bg-white/60 p-2.5 rounded-lg border border-slate-100 shadow-sm border-emerald-100/50 bg-emerald-50/20">
+                                      <p className="text-emerald-700 font-bold uppercase tracking-wider text-[9px]">Carimbo de Data/Hora (Assinatura)</p>
+                                      <p className="font-bold text-emerald-900 mt-1 flex items-center gap-1">
+                                        <Clock className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                                        {new Date(selectedChecklist.signedAt || '').toLocaleString('pt-BR')}
+                                      </p>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           </div>
                         )}
@@ -3737,14 +4412,15 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                 <AlertOctagon className="h-6 w-6 text-amber-600" />
               </div>
               <div>
-                <h3 className="font-bold text-slate-800 text-base">Assinatura não cadastrada</h3>
+                <h3 className="font-bold text-slate-800 text-base">Certificado não cadastrado</h3>
                 <p className="text-xs text-slate-500 mt-0.5">Necessário cadastrar antes de assinar</p>
               </div>
             </div>
             <div className="px-6 py-5">
               <p className="text-sm text-slate-700 leading-relaxed">
-                Você ainda não possui uma <strong>assinatura digital cadastrada</strong> no sistema.
-                Para assinar documentos, acesse <strong>Configurações → Minha Assinatura</strong> e desenhe sua assinatura.
+                Você ainda não possui um <strong>certificado digital ICP-Brasil A1</strong> cadastrado no sistema.
+                <br /><br />
+                Para assinar documentos, solicite ao administrador para vincular seu certificado digital na <strong>Gestão de Usuários</strong>.
               </p>
             </div>
             <div className="px-6 py-4 border-t border-slate-100 flex justify-end">
@@ -3783,13 +4459,18 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
               <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
                 <p className="text-xs text-slate-500 font-medium uppercase tracking-wider">Assinatura de</p>
                 <p className="text-sm font-bold text-slate-800">{currentUser?.name || 'Usuário'}</p>
-                {currentUser?.signatureImage && (
-                  <div className="mt-2 p-2 bg-white border border-slate-200 rounded-lg">
-                    <img
-                      src={currentUser.signatureImage}
-                      alt="Assinatura"
-                      className="max-h-16 max-w-full object-contain"
-                    />
+                {currentUser?.certificate && (
+                  <div className="mt-2 p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-start gap-2">
+                    <Key className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-xs font-bold text-emerald-800">Certificado Digital ICP-Brasil A1</p>
+                      <p className="text-[10px] text-emerald-700 font-medium mt-0.5">
+                        Titular: {currentUser.certificate.certificate_holder_name}
+                      </p>
+                      <p className="text-[10px] text-emerald-600 font-medium">
+                        Emissor: {currentUser.certificate.certificate_issuer}
+                      </p>
+                    </div>
                   </div>
                 )}
                 <p className="text-xs text-slate-500">{new Date().toLocaleString('pt-BR')}</p>

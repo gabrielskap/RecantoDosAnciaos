@@ -21,6 +21,7 @@ interface InstitutionSettings {
   directorName: string;
   technicalDirector: string;
   anvisa: string;
+  watermarkImage?: string;
 }
 
 interface NotificationSettings {
@@ -64,6 +65,7 @@ const defaultSettings: SystemSettings = {
     directorName: '',
     technicalDirector: '',
     anvisa: '',
+    watermarkImage: '',
   },
   notifications: {
     stockAlertThreshold: 5,
@@ -84,13 +86,12 @@ const defaultSettings: SystemSettings = {
   },
 };
 
-type TabId = 'institution' | 'notifications' | 'security' | 'about' | 'signature';
+type TabId = 'institution' | 'notifications' | 'security' | 'about';
 
 const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'institution', label: 'Instituição', icon: Building2 },
   { id: 'notifications', label: 'Notificações', icon: Bell },
   { id: 'security', label: 'Segurança', icon: Shield },
-  { id: 'signature', label: 'Minha Assinatura', icon: PenTool },
   { id: 'about', label: 'Sobre', icon: Info },
 ];
 
@@ -118,211 +119,6 @@ function loadSettings(): SystemSettings {
 function saveSettings(settings: SystemSettings) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
 }
-
-// ── Signature Tab ─────────────────────────────────────────────────────────────
-
-const SignatureTab: React.FC = () => {
-  const { currentUser, updateUserSignature } = useAuth();
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const isDrawing = useRef(false);
-  const lastPoint = useRef<{ x: number; y: number } | null>(null);
-  const [saved, setSaved] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [hasDrawn, setHasDrawn] = useState(false);
-  const [error, setError] = useState('');
-
-  const getPoint = (e: React.MouseEvent | React.TouchEvent, canvas: HTMLCanvasElement) => {
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    if ('touches' in e) {
-      const t = e.touches[0];
-      return { x: (t.clientX - rect.left) * scaleX, y: (t.clientY - rect.top) * scaleY };
-    }
-    return { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
-  };
-
-  const startDraw = (e: React.MouseEvent | React.TouchEvent) => {
-    e.preventDefault();
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    isDrawing.current = true;
-    lastPoint.current = getPoint(e, canvas);
-  };
-
-  const draw = useCallback((e: React.MouseEvent | React.TouchEvent) => {
-    e.preventDefault();
-    if (!isDrawing.current || !canvasRef.current || !lastPoint.current) return;
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    const pt = getPoint(e, canvas);
-    ctx.beginPath();
-    ctx.moveTo(lastPoint.current.x, lastPoint.current.y);
-    ctx.lineTo(pt.x, pt.y);
-    ctx.strokeStyle = '#1e293b';
-    ctx.lineWidth = 2.5;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.stroke();
-    lastPoint.current = pt;
-    setHasDrawn(true);
-  }, []);
-
-  const stopDraw = () => {
-    isDrawing.current = false;
-    lastPoint.current = null;
-  };
-
-  const clearCanvas = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d')!;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    setHasDrawn(false);
-    setSaved(false);
-  };
-
-  const handleSave = async () => {
-    const canvas = canvasRef.current;
-    if (!canvas || !currentUser) return;
-    setSaving(true);
-    setError('');
-    try {
-      const dataUrl = canvas.toDataURL('image/png');
-      await updateUserSignature(currentUser.id, dataUrl);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 3000);
-    } catch (err: any) {
-      setError(err.message || 'Erro ao salvar a assinatura.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleRemove = async () => {
-    if (!currentUser) return;
-    if (!confirm('Remover sua assinatura cadastrada?')) return;
-    setSaving(true);
-    setError('');
-    try {
-      await updateUserSignature(currentUser.id, null);
-      clearCanvas();
-    } catch (err: any) {
-      setError(err.message || 'Erro ao remover a assinatura.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="space-y-5">
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 space-y-5">
-        <div className="flex items-center gap-3">
-          <div className="p-2.5 bg-blue-100 rounded-xl">
-            <PenTool className="h-5 w-5 text-blue-600" />
-          </div>
-          <div>
-            <h3 className="font-bold text-slate-800 text-base">Minha Assinatura Digital</h3>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Desenhe sua assinatura no campo abaixo. Ela será usada ao assinar documentos no sistema.
-            </p>
-          </div>
-        </div>
-
-        {currentUser?.signatureImage && !hasDrawn && (
-          <div className="space-y-2">
-            <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Assinatura cadastrada</p>
-            <div className="border border-slate-200 rounded-xl bg-slate-50 p-4 flex items-center justify-center">
-              <img
-                src={currentUser.signatureImage}
-                alt="Assinatura atual"
-                className="max-h-24 max-w-full object-contain"
-              />
-            </div>
-            <button
-              onClick={handleRemove}
-              disabled={saving}
-              className="flex items-center gap-1.5 text-xs text-red-600 hover:text-red-700 font-medium transition-colors disabled:opacity-40"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              Remover assinatura
-            </button>
-          </div>
-        )}
-
-        <div className="space-y-2">
-          <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">
-            {currentUser?.signatureImage ? 'Substituir assinatura' : 'Desenhe sua assinatura'}
-          </p>
-          <div className="relative border-2 border-dashed border-slate-300 rounded-xl bg-slate-50 overflow-hidden touch-none select-none">
-            <canvas
-              ref={canvasRef}
-              width={600}
-              height={200}
-              className="w-full cursor-crosshair"
-              style={{ touchAction: 'none' }}
-              onMouseDown={startDraw}
-              onMouseMove={draw}
-              onMouseUp={stopDraw}
-              onMouseLeave={stopDraw}
-              onTouchStart={startDraw}
-              onTouchMove={draw}
-              onTouchEnd={stopDraw}
-            />
-            {!hasDrawn && (
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <p className="text-sm text-slate-400">Assine aqui com o mouse ou toque</p>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {error && (
-          <p className="text-xs text-red-600 font-medium">{error}</p>
-        )}
-
-        <div className="flex items-center gap-3 pt-1">
-          <button
-            onClick={clearCanvas}
-            disabled={!hasDrawn || saving}
-            className="flex items-center gap-1.5 px-4 py-2 text-sm text-slate-600 border border-slate-300 rounded-xl hover:bg-slate-50 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            <RotateCcw className="h-4 w-4" />
-            Limpar
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={!hasDrawn || saving}
-            className="flex items-center gap-1.5 px-5 py-2 text-sm font-semibold bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {saving ? (
-              <span className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
-            ) : (
-              <CheckSquare className="h-4 w-4" />
-            )}
-            {saving ? 'Salvando...' : 'Salvar Assinatura'}
-          </button>
-          {saved && (
-            <span className="flex items-center gap-1.5 text-sm text-emerald-600 font-medium">
-              <CheckCircle className="h-4 w-4" />
-              Assinatura salva com sucesso!
-            </span>
-          )}
-        </div>
-      </div>
-
-      <div className="bg-amber-50 border border-amber-200 rounded-2xl px-5 py-4 flex items-start gap-3">
-        <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
-        <p className="text-xs text-amber-800 leading-relaxed">
-          Sua assinatura será exibida nos documentos assinados digitalmente pelo sistema.
-          Certifique-se de que ela representa fielmente sua assinatura oficial.
-          Sem uma assinatura cadastrada, não será possível assinar boletins e outros documentos.
-        </p>
-      </div>
-    </div>
-  );
-};
 
 // ── Main Settings Component ───────────────────────────────────────────────────
 
@@ -453,7 +249,7 @@ const SettingsModule: React.FC = () => {
               readOnly={!isAdmin}
             />
           )}
-          {activeTab === 'signature' && <SignatureTab />}
+
           {activeTab === 'about' && <AboutTab />}
         </div>
       </div>
@@ -467,44 +263,107 @@ const InstitutionTab: React.FC<{
   data: InstitutionSettings;
   onChange: (p: Partial<InstitutionSettings>) => void;
   readOnly: boolean;
-}> = ({ data, onChange, readOnly }) => (
-  <div className="space-y-4">
-    <SectionCard title="Dados da Instituição" icon={Building2}>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Field label="Nome da Instituição" span={2}>
-          <input
-            type="text"
-            value={data.name}
-            disabled={readOnly}
-            onChange={e => onChange({ name: e.target.value })}
-            className={inputClass(readOnly)}
-            placeholder="Ex: Recanto dos Anciãos"
-          />
-        </Field>
-        <Field label="CNPJ">
-          <input
-            type="text"
-            value={data.cnpj}
-            disabled={readOnly}
-            onChange={e => onChange({ cnpj: e.target.value })}
-            className={inputClass(readOnly)}
-            placeholder="00.000.000/0000-00"
-          />
-        </Field>
-        <Field label="Capacidade Máxima (vagas)">
-          <input
-            type="number"
-            value={data.capacity}
-            disabled={readOnly}
-            min={1}
-            onChange={e => onChange({ capacity: Number(e.target.value) })}
-            className={inputClass(readOnly)}
-          />
-        </Field>
-      </div>
-    </SectionCard>
+}> = ({ data, onChange, readOnly }) => {
+  const handleWatermarkUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 1500000) {
+      alert('A imagem é muito grande. Escolha uma imagem de até 1.5MB.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64 = event.target?.result as string;
+      onChange({ watermarkImage: base64 });
+    };
+    reader.readAsDataURL(file);
+  };
 
-    <SectionCard title="Contato" icon={Phone}>
+  return (
+    <div className="space-y-4">
+      <SectionCard title="Dados da Instituição" icon={Building2}>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <Field label="Nome da Instituição" span={2}>
+            <input
+              type="text"
+              value={data.name}
+              disabled={readOnly}
+              onChange={e => onChange({ name: e.target.value })}
+              className={inputClass(readOnly)}
+              placeholder="Ex: Recanto dos Anciãos"
+            />
+          </Field>
+          <Field label="CNPJ">
+            <input
+              type="text"
+              value={data.cnpj}
+              disabled={readOnly}
+              onChange={e => onChange({ cnpj: e.target.value })}
+              className={inputClass(readOnly)}
+              placeholder="00.000.000/0000-00"
+            />
+          </Field>
+          <Field label="Capacidade Máxima (vagas)">
+            <input
+              type="number"
+              value={data.capacity}
+              disabled={readOnly}
+              min={1}
+              onChange={e => onChange({ capacity: Number(e.target.value) })}
+              className={inputClass(readOnly)}
+            />
+          </Field>
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Papel Timbrado para Documentos" icon={FileText}>
+        {data.watermarkImage ? (
+          <div className="relative border border-slate-100 rounded-xl p-4 bg-slate-50 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-16 h-16 bg-white border border-slate-200 rounded-lg flex items-center justify-center overflow-hidden p-1 shadow-sm">
+                <img src={data.watermarkImage} alt="Papel timbrado" className="max-w-full max-h-full object-contain" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-slate-700">Papel timbrado configurado</p>
+                <p className="text-xs text-slate-400">Esta imagem aparecerá no fundo de todos os relatórios e documentos do sistema.</p>
+              </div>
+            </div>
+            {!readOnly && (
+              <button
+                type="button"
+                onClick={() => onChange({ watermarkImage: '' })}
+                className="w-10 h-10 bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-700 rounded-xl flex items-center justify-center transition-all shadow-sm"
+                title="Remover papel timbrado"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="relative">
+            <input
+              type="file"
+              accept="image/*"
+              id="watermark-upload"
+              disabled={readOnly}
+              onChange={handleWatermarkUpload}
+              className="hidden"
+            />
+            <label
+              htmlFor="watermark-upload"
+              className={`group flex flex-col items-center justify-center border-2 border-dashed border-slate-200 hover:border-blue-400 hover:bg-blue-50/20 rounded-2xl p-6 cursor-pointer transition-all ${
+                readOnly ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''
+              }`}
+            >
+              <Upload className="h-8 w-8 text-slate-400 group-hover:text-blue-500 group-hover:scale-110 transition-all duration-300" />
+              <span className="text-sm font-semibold text-slate-600 mt-2">Fazer upload de papel timbrado</span>
+              <span className="text-xs text-slate-400 mt-1">Clique para selecionar uma imagem (PNG, JPG ou SVG)</span>
+            </label>
+          </div>
+        )}
+      </SectionCard>
+
+      <SectionCard title="Contato" icon={Phone}>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Field label="Telefone">
           <input
@@ -606,7 +465,8 @@ const InstitutionTab: React.FC<{
       </div>
     </SectionCard>
   </div>
-);
+  );
+};
 
 /* ─── Notifications Tab ─── */
 

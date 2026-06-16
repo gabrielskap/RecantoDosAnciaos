@@ -20,7 +20,6 @@ interface AuthContextValue {
   updateUser: (user: AuthUser) => Promise<void>;
   signUpNewTenant: (params: { companyName: string; city?: string; userName: string; email: string; password: string }) => Promise<{ needsEmailConfirm: boolean }>;
   updateUserCertificate: (userId: string, cert: DigitalCertificate | null) => Promise<void>;
-  updateUserSignature: (userId: string, signatureImage: string | null) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -37,7 +36,6 @@ const fetchUserProfile = async (authUserId: string): Promise<AuthUser | null> =>
         name,
         email,
         resident_id,
-        signature_image,
         profile:Recanto_Perfis (
           id,
           name,
@@ -111,7 +109,6 @@ const fetchUserProfile = async (authUserId: string): Promise<AuthUser | null> =>
     residentId: data.resident_id || undefined,
     employeeRole: employeeResult.data?.role || undefined,
     certificate,
-    signatureImage: data.signature_image ?? undefined,
   };
 };
 
@@ -164,7 +161,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         name,
         email,
         resident_id,
-        signature_image,
         profile:Recanto_Perfis (
           id,
           name,
@@ -229,7 +225,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         profile: mappedProfile,
         residentId: u.resident_id || undefined,
         certificate,
-        signatureImage: u.signature_image ?? undefined,
       };
     });
 
@@ -588,22 +583,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const updateUserSignature = async (userId: string, signatureImage: string | null) => {
-    const { error } = await supabase
-      .from('Recanto_Usuarios')
-      .update({ signature_image: signatureImage })
-      .eq('auth_user_id', userId);
-
-    if (error) throw new Error(error.message || 'Erro ao salvar a assinatura.');
-
-    setUsers(prev => prev.map(u =>
-      u.id === userId ? { ...u, signatureImage: signatureImage ?? undefined } : u
-    ));
-    setCurrentUser(prev =>
-      prev && prev.id === userId ? { ...prev, signatureImage: signatureImage ?? undefined } : prev
-    );
-  };
-
   const updateUserCertificate = async (userId: string, cert: DigitalCertificate | null) => {
     if (cert) {
       const { error } = await supabase
@@ -639,7 +618,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ currentUser, users, profiles, loading, login, logout, resetPassword, hasPermission, updateProfile, addProfile, addUser, deleteUser, updateUser, signUpNewTenant, updateUserCertificate, updateUserSignature }}>
+    <AuthContext.Provider value={{ currentUser, users, profiles, loading, login, logout, resetPassword, hasPermission, updateProfile, addProfile, addUser, deleteUser, updateUser, signUpNewTenant, updateUserCertificate }}>
       {children}
     </AuthContext.Provider>
   );

@@ -71,12 +71,12 @@ const dateOf = (iso: string) => iso.split('T')[0];
 
 const PDF_STYLES = `
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: Arial, Helvetica, sans-serif; color: #1e293b; font-size: 12px; padding: 32px; }
-h1 { font-size: 20px; font-weight: bold; margin-bottom: 4px; }
+body { font-family: Arial, Helvetica, sans-serif; color: #1e293b; font-size: 12px; padding: 32px; -webkit-print-color-adjust: exact; print-color-adjust: exact; background: transparent; }
+h1 { font-size: 20px; font-weight: bold; margin-bottom: 6px; text-align: center; color: #0f172a; }
 h2 { font-size: 14px; font-weight: bold; margin: 24px 0 10px; color: #334155; border-bottom: 2px solid #e2e8f0; padding-bottom: 6px; }
-.meta { font-size: 11px; color: #64748b; margin-bottom: 24px; }
-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 11px; }
-th { background: #f8fafc; padding: 8px 10px; text-align: left; font-weight: 700; color: #475569; border-bottom: 2px solid #e2e8f0; }
+.meta { font-size: 11px; color: #64748b; margin-bottom: 24px; text-align: center; }
+table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 11px; background: rgba(255, 255, 255, 0.85); }
+th { background: rgba(248, 250, 252, 0.9); padding: 8px 10px; text-align: left; font-weight: 700; color: #475569; border-bottom: 2px solid #e2e8f0; }
 td { padding: 7px 10px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
 tr:last-child td { border-bottom: none; }
 .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; }
@@ -84,24 +84,92 @@ tr:last-child td { border-bottom: none; }
 .r { background:#fee2e2;color:#991b1b } .b { background:#dbeafe;color:#1d4ed8 }
 .v { background:#ede9fe;color:#5b21b6 } .o { background:#ffedd5;color:#9a3412 }
 .kpi-row { display:flex; gap:16px; margin-bottom:24px; }
-.kpi { flex:1; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:12px 16px; }
+.kpi { flex:1; background: rgba(248, 250, 252, 0.85); border:1px solid #e2e8f0; border-radius:8px; padding:12px 16px; }
 .kpi-label { font-size:10px; color:#64748b; margin-bottom:6px; font-weight:600; text-transform:uppercase; letter-spacing:.5px; }
 .kpi-value { font-size:22px; font-weight:800; }
 .empty { text-align:center; color:#94a3b8; padding:24px; }
-.footer { margin-top:32px; padding-top:12px; border-top:1px solid #e2e8f0; font-size:10px; color:#94a3b8; }
-@media print { body { padding: 20px; } }
+.footer { margin-top:32px; padding-top:12px; border-top:1px solid #e2e8f0; font-size:10px; color:#94a3b8; text-align: center; }
+.doc-content { position: relative; z-index: 3; width: 100%; max-width: 170mm; margin: 0 auto; }
+.kpi-row, .kpi, table, tr, .footer, h1, h2, .meta { page-break-inside: avoid; break-inside: avoid; }
+@media screen and (max-width: 640px) { body { padding: 16px; } .kpi-row { flex-direction: column; } }
+@media print {
+  body { padding: 0; background: transparent; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
 `;
 
 const openPrintWindow = (title: string, body: string) => {
   const win = window.open('', '_blank', 'width=960,height=720');
   if (!win) { alert('Permita popups para gerar o PDF.'); return; }
+
+  let letterheadHtml = '';
+  let letterheadStyle = '';
+  let hasLetterhead = false;
+  try {
+    const raw = localStorage.getItem('recanto_system_settings');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      const src = parsed?.institution?.watermarkImage;
+      if (src) {
+        hasLetterhead = true;
+        letterheadHtml = `
+          <div class="lh-bg" aria-hidden="true"></div>
+          <div class="watermark-bg" aria-hidden="true"></div>
+        `;
+        letterheadStyle = `
+          .lh-bg {
+            position: fixed;
+            top: 0; left: 0;
+            width: 210mm; height: 297mm;
+            z-index: 1;
+            pointer-events: none;
+            background-image: url('${src}');
+            background-repeat: no-repeat;
+            background-position: center top;
+            background-size: 100% 100%;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+          .watermark-bg {
+            position: fixed;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 120mm; height: 120mm;
+            z-index: 2;
+            pointer-events: none;
+            opacity: 0.04;
+            background-image: url('${src}');
+            background-repeat: no-repeat;
+            background-position: center;
+            background-size: contain;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+        `;
+      }
+    }
+  } catch (e) {
+    console.error('Erro ao carregar papel timbrado:', e);
+  }
+
+  /* Safe area: @page margins keep content inside the letterhead's clear zone on every page. */
+  const pageMargins = hasLetterhead ? '55mm 20mm 40mm 20mm' : '15mm';
   const now = new Date().toLocaleString('pt-BR');
+
   win.document.write(`<!DOCTYPE html><html lang="pt-BR"><head>
-    <meta charset="utf-8"><title>${title}</title>
-    <style>${PDF_STYLES}</style>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${title}</title>
+    <style>
+      @page { size: A4; margin: ${pageMargins}; }
+      ${PDF_STYLES}
+      ${letterheadStyle}
+    </style>
   </head><body>
-    ${body}
-    <div class="footer">Gerado em ${now} · Recanto dos Anciãos · Sistema de Gestão ILPI</div>
+    ${letterheadHtml}
+    <div class="doc-content">
+      ${body}
+      <div class="footer">Gerado em ${now} · Recanto dos Anciãos · Sistema de Gestão ILPI</div>
+    </div>
     <script>window.onload=()=>{window.print();}</script>
   </body></html>`);
   win.document.close();

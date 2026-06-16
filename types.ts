@@ -87,6 +87,7 @@ export interface DailyChecklist {
   photoUrl?: string;
   signedBy?: string;
   signedAt?: string;
+  signatureInfo?: string;
   frequenciaCardiaca?: string;
   pressaoArterial?: string;
   saturacao?: string;
@@ -399,5 +400,4 @@ export interface AuthUser {
   residentId?: string; // somente para Responsável
   employeeRole?: UserRole;
   certificate?: DigitalCertificate;
-  signatureImage?: string; // base64 PNG da assinatura manuscrita do usuário
 }
