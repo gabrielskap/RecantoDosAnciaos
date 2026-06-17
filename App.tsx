@@ -17,6 +17,7 @@ import TrialEnvironment from './components/TrialEnvironment';
 import ResidentPortal from './components/ResidentPortal';
 import RoomsModule from './components/RoomsModule';
 import SettingsModule from './components/SettingsModule';
+import CheckoutPage from './components/CheckoutPage';
 import NotificationsPanel from './components/NotificationsPanel';
 import type { AlertItem } from './components/NotificationsPanel';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -1846,6 +1847,9 @@ function App() {
         <TrialEnvironment />
       </AuthProvider>
     );
+  }
+  if (window.location.pathname.startsWith('/assinar') || window.location.pathname.startsWith('/checkout')) {
+    return <CheckoutPage />;
   }
   return (
     <AuthProvider>

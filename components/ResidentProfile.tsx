@@ -673,8 +673,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   const handlePrintChecklist = () => {
     if (!selectedChecklist) return;
 
-    let letterheadHtml = '';
-    let letterheadStyle = '';
+    let watermarkSrc = '';
     let hasLetterhead = false;
     let inst = {
       name: 'Recanto dos Anciãos',
@@ -699,40 +698,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
           const src = parsed.institution.watermarkImage;
           if (src) {
             hasLetterhead = true;
-            letterheadHtml = `
-              <div class="lh-bg" aria-hidden="true"></div>
-              <div class="watermark-bg" aria-hidden="true"></div>
-            `;
-            letterheadStyle = `
-              .lh-bg {
-                position: fixed;
-                top: 0; left: 0;
-                width: 210mm; height: 297mm;
-                z-index: 1;
-                pointer-events: none;
-                background-image: url('${src}');
-                background-repeat: no-repeat;
-                background-position: center top;
-                background-size: 100% 100%;
-                -webkit-print-color-adjust: exact;
-                print-color-adjust: exact;
-              }
-              .watermark-bg {
-                position: fixed;
-                top: 50%; left: 50%;
-                transform: translate(-50%, -50%);
-                width: 120mm; height: 120mm;
-                z-index: 2;
-                pointer-events: none;
-                opacity: 0.04;
-                background-image: url('${src}');
-                background-repeat: no-repeat;
-                background-position: center;
-                background-size: contain;
-                -webkit-print-color-adjust: exact;
-                print-color-adjust: exact;
-              }
-            `;
+            watermarkSrc = src;
           }
         }
       }
@@ -757,33 +723,99 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Boletim ${shiftLabel} - ${resident.name} - ${dateFormatted}</title>
   <style>
-    @page { size: A4; margin: ${hasLetterhead ? '55mm 20mm 40mm 20mm' : '15mm'}; }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: Arial, Helvetica, sans-serif; color: #1e293b; font-size: 11px; padding: 32px; line-height: 1.4; -webkit-print-color-adjust: exact; print-color-adjust: exact; background: transparent; }
-    .doc-content { position: relative; z-index: 3; width: 100%; max-width: 170mm; margin: 0 auto; }
-
-    /* Papel timbrado (background layer, z-index 1) */
-    ${letterheadStyle}
+    @page { size: A4; margin: 0; }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    body { font-family: Arial, Helvetica, sans-serif; color: #1e293b; font-size: 11px; padding: 20px 0; line-height: 1.4; background: #f1f5f9; display: flex; flex-direction: column; align-items: center; }
+    @media print {
+      body { background: transparent; padding: 0; margin: 0; display: block; }
+    }
+    
+    /* Paginação Real A4 */
+    #pdf-pages {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 100%;
+    }
+    @media print {
+      #pdf-pages {
+        display: block;
+      }
+    }
+    .pdf-page {
+      width: 210mm;
+      height: 297mm;
+      position: relative;
+      background: white;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+      margin-bottom: 20px;
+      overflow: hidden;
+      box-sizing: border-box;
+    }
+    @media print {
+      .pdf-page {
+        box-shadow: none;
+        margin-bottom: 0;
+        page-break-after: always;
+        break-after: page;
+      }
+    }
+    .letterhead-background {
+      position: absolute;
+      top: 0; left: 0;
+      width: 210mm; height: 297mm;
+      z-index: 1;
+      pointer-events: none;
+      background-repeat: no-repeat;
+      background-position: center top;
+      background-size: 100% 100%;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    .watermark-background {
+      position: absolute;
+      top: 0; left: 0;
+      width: 210mm; height: 297mm;
+      z-index: 2;
+      pointer-events: none;
+      opacity: 0.04;
+      background-repeat: no-repeat;
+      background-position: center;
+      background-size: contain;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    .page-content-safe-area {
+      position: absolute;
+      top: 45mm;
+      left: 20mm;
+      width: 170mm;
+      height: 207mm;
+      z-index: 10;
+      box-sizing: border-box;
+      overflow: hidden;
+      background: transparent;
+    }
 
     /* Header styles */
-    .inst-header { display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #e2e8f0; padding-bottom: 12px; margin-bottom: 20px; }
+    .inst-header { display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #cbd5e1; padding-bottom: 6px; margin-bottom: 12px; }
     .inst-info { flex: 1; }
-    .inst-title { font-size: 16px; font-weight: bold; color: #0f172a; margin-bottom: 4px; }
+    .inst-title { font-size: 15px; font-weight: bold; color: #0f172a; margin-bottom: 2px; }
     .inst-details { font-size: 10px; color: #64748b; }
     .inst-rt { text-align: right; font-size: 10px; color: #64748b; }
     
     /* Document title */
-    .doc-title { font-size: 14px; font-weight: bold; text-align: center; text-transform: uppercase; color: #1e293b; margin-bottom: 20px; letter-spacing: 0.5px; }
+    .doc-title { font-size: 13px; font-weight: bold; text-align: center; text-transform: uppercase; color: #1e293b; margin-bottom: 12px; letter-spacing: 0.5px; }
     
     /* Sections */
-    .section { margin-bottom: 18px; background: rgba(255, 255, 255, 0.85); border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden; }
+    .section { margin-bottom: 6mm; background: rgba(255, 255, 255, 0.85); border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden; page-break-inside: avoid; break-inside: avoid; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
     .section-title { background: rgba(248, 250, 252, 0.9); font-size: 11px; font-weight: bold; color: #334155; padding: 6px 12px; border-bottom: 1px solid #e2e8f0; text-transform: uppercase; letter-spacing: 0.5px; }
-    .section-content { padding: 12px; }
+    .section-content { padding: 8px 12px; }
     
     /* Grid styles */
-    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    .grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 12px; }
-    .field { margin-bottom: 6px; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px; }
+    .field { margin-bottom: 4px; }
     .field-label { font-size: 9px; font-weight: bold; color: #64748b; text-transform: uppercase; margin-bottom: 2px; }
     .field-value { font-size: 11px; color: #1e293b; font-weight: 500; }
     
@@ -803,19 +835,19 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     .vital-card.temp { background: rgba(255, 251, 235, 0.9); border-color: #fef3c7; }
     
     /* Table styles */
-    table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 10px; background: rgba(255, 255, 255, 0.85); }
-    th { background: rgba(248, 250, 252, 0.9); padding: 6px 8px; text-align: left; font-weight: bold; color: #475569; border-bottom: 1px solid #e2e8f0; }
-    td { padding: 6px 8px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
+    table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 10px; background: rgba(255, 255, 255, 0.85); border-left: none !important; border-right: none !important; }
+    th { background: rgba(248, 250, 252, 0.9); padding: 6px 8px; text-align: left; font-weight: bold; color: #475569; border-bottom: 1px solid #e2e8f0; border-left: none !important; border-right: none !important; }
+    td { padding: 6px 8px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; border-left: none !important; border-right: none !important; }
     
     /* Signature panel */
-    .sig-panel { border: 1px dashed #10b981; background: rgba(240, 253, 244, 0.9); border-radius: 6px; padding: 12px; margin-top: 20px; }
+    .sig-panel { border: 1px dashed #10b981; background: rgba(240, 253, 244, 0.9); border-radius: 6px; padding: 10px; margin-top: 10px; page-break-inside: avoid; break-inside: avoid; }
     .sig-title { display: flex; align-items: center; font-weight: bold; color: #065f46; margin-bottom: 8px; font-size: 12px; }
     .sig-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 9px; }
     .sig-field { background: #fff; padding: 6px; border: 1px solid #d1fae5; border-radius: 4px; }
     .sig-field-label { color: #2e7d32; font-weight: bold; text-transform: uppercase; font-size: 8px; }
     .sig-field-value { color: #065f46; font-weight: bold; margin-top: 2px; }
     
-    .footer { margin-top: 24px; padding-top: 10px; border-top: 1px solid #e2e8f0; font-size: 9px; color: #94a3b8; text-align: center; }
+    .footer { margin-top: 10px; padding-top: 6px; border-top: 1px solid #e2e8f0; font-size: 9px; color: #94a3b8; text-align: center; page-break-inside: avoid; break-inside: avoid; }
     
     .section, .sig-panel, table, tr, .footer { page-break-inside: avoid; break-inside: avoid; }
     
@@ -826,355 +858,368 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
       .inst-rt { text-align: left; }
     }
     @media print {
-      body { padding: 0; background: transparent; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      body { padding: 0; background: transparent; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
     }
   </style>
 </head>
 <body>
-  ${letterheadHtml}
-  <div class="doc-content">
-  ${hasLetterhead ? '' : `
-  <!-- Institutional Header -->
-  <div class="inst-header">
-    <div class="inst-info">
-      <div class="inst-title">${inst.name}</div>
-      <div class="inst-details">
-        CNPJ: ${inst.cnpj || '—'} | Tel: ${inst.phone || '—'} | E-mail: ${inst.email || '—'}<br/>
-        Endereço: ${inst.address || ''} ${inst.city || ''} ${inst.state ? `- ${inst.state}` : ''} CEP: ${inst.cep || ''}
-      </div>
-    </div>
-    <div class="inst-rt">
-      ${inst.directorName ? `Diretoria: ${inst.directorName}<br/>` : ''}
-      ${inst.technicalDirector ? `Resp. Técnico: ${inst.technicalDirector}<br/>` : ''}
-      ${inst.anvisa ? `Alvará ANVISA: ${inst.anvisa}` : ''}
-    </div>
-  </div>
-  `}
-  
-  <!-- Document Title -->
-  <div class="doc-title">
-    Boletim de Evolução e Rotina Diária (${shiftLabel})
-  </div>
-  
-  <!-- Resident Info -->
-  <div class="section">
-    <div class="section-title">Identificação do Residente</div>
-    <div class="section-content">
-      <div class="grid-2">
-        <div>
-          <div class="field">
-            <div class="field-label">Residente</div>
-            <div class="field-value">${resident.name}</div>
-          </div>
-          <div class="field">
-            <div class="field-label">CPF</div>
-            <div class="field-value">${resident.cpf || '—'}</div>
-          </div>
-          <div class="field">
-            <div class="field-label">Data de Nascimento</div>
-            <div class="field-value">${resident.birthDate || '—'} (${resident.age} anos)</div>
-          </div>
-        </div>
-        <div>
-          <div class="field">
-            <div class="field-label">Data de Referência</div>
-            <div class="field-value">${dateFormatted}</div>
-          </div>
-          <div class="field">
-            <div class="field-label">Quarto / Acomodação</div>
-            <div class="field-value">${resident.room}</div>
-          </div>
-          <div class="field">
-            <div class="field-label">Grau de Dependência</div>
-            <div class="field-value"><span class="badge ${resident.careLevel === 'I' ? 'bg-green' : resident.careLevel === 'II' ? 'bg-yellow' : 'bg-red'}">Grau ${resident.careLevel}</span></div>
-          </div>
+  <div id="pdf-source" style="position: absolute; left: -9999px; top: 0; width: 170mm; box-sizing: border-box;">
+    ${hasLetterhead ? '' : `
+    <!-- Institutional Header -->
+    <div class="inst-header">
+      <div class="inst-info">
+        <div class="inst-title">${inst.name}</div>
+        <div class="inst-details">
+          CNPJ: ${inst.cnpj || '—'} | Tel: ${inst.phone || '—'} | E-mail: ${inst.email || '—'}<br/>
+          Endereço: ${inst.address || ''} ${inst.city || ''} ${inst.state ? `- ${inst.state}` : ''} CEP: ${inst.cep || ''}
         </div>
       </div>
-    </div>
-  </div>
-  
-  <!-- Sinais Vitais -->
-  <div class="section">
-    <div class="section-title">1. Sinais Vitais</div>
-    <div class="section-content">
-      <div class="grid-4">
-        <div class="vital-card hr">
-          <div class="field-label" style="color: #991b1b;">Frequência Cardíaca</div>
-          <div class="field-value" style="font-size: 14px; font-weight: bold; color: #991b1b; margin: 4px 0;">${selectedChecklist.frequenciaCardiaca || '—'}</div>
-          <div class="field-label" style="color: #f87171;">bpm</div>
-        </div>
-        <div class="vital-card bp">
-          <div class="field-label" style="color: #1e3a8a;">Pressão Arterial</div>
-          <div class="field-value" style="font-size: 14px; font-weight: bold; color: #1e3a8a; margin: 4px 0;">${selectedChecklist.pressaoArterial || '—'}</div>
-          <div class="field-label" style="color: #60a5fa;">mmHg</div>
-        </div>
-        <div class="vital-card spo2">
-          <div class="field-label" style="color: #0369a1;">Saturação (SpO2)</div>
-          <div class="field-value" style="font-size: 14px; font-weight: bold; color: #0369a1; margin: 4px 0;">${selectedChecklist.saturacao || '—'}</div>
-          <div class="field-label" style="color: #38bdf8;">%</div>
-        </div>
-        <div class="vital-card temp">
-          <div class="field-label" style="color: #854d0e;">Temperatura</div>
-          <div class="field-value" style="font-size: 14px; font-weight: bold; color: #854d0e; margin: 4px 0;">${selectedChecklist.temperatura || '—'}</div>
-          <div class="field-label" style="color: #fbbf24;">°C</div>
-        </div>
+      <div class="inst-rt">
+        ${inst.directorName ? `Diretoria: ${inst.directorName}<br/>` : ''}
+        ${inst.technicalDirector ? `Resp. Técnico: ${inst.technicalDirector}<br/>` : ''}
+        ${inst.anvisa ? `Alvará ANVISA: ${inst.anvisa}` : ''}
       </div>
     </div>
-  </div>
-  
-  <!-- Sintomas & Estado Geral -->
-  <div class="section">
-    <div class="section-title">2. Sintomas e Estado Geral</div>
-    <div class="section-content">
-      <div class="grid-2">
-        <div>
-          <div class="field">
-            <div class="field-label">Queixa de Dor</div>
-            <div class="field-value">
-              ${selectedChecklist.queixaDor === 'sim' 
-                ? `<span class="badge bg-red">Sim - ${selectedChecklist.queixaDorDesc || 'Sem descrição'}</span>` 
-                : 'Não relatada'}
+    `}
+    
+    <!-- Document Title -->
+    <div class="doc-title">
+      Boletim de Evolução e Rotina Diária (${shiftLabel})
+    </div>
+    
+    <!-- Resident Info -->
+    <div class="section">
+      <div class="section-title">Identificação do Residente</div>
+      <div class="section-content">
+        <div class="grid-2">
+          <div>
+            <div class="field">
+              <div class="field-label">Residente</div>
+              <div class="field-value">${resident.name}</div>
+            </div>
+            <div class="field">
+              <div class="field-label">CPF</div>
+              <div class="field-value">${resident.cpf || '—'}</div>
+            </div>
+            <div class="field">
+              <div class="field-label">Data de Nascimento</div>
+              <div class="field-value">${resident.birthDate || '—'} (${resident.age} anos)</div>
             </div>
           </div>
-          <div class="field">
-            <div class="field-label">Oxigenação</div>
-            <div class="field-value">
-              ${selectedChecklist.arAmbiente 
-                ? 'Ar Ambiente (Respiração normal)' 
-                : 'Necessitando de O2 Suplementar'}
+          <div>
+            <div class="field">
+              <div class="field-label">Data de Referência</div>
+              <div class="field-value">${dateFormatted}</div>
+            </div>
+            <div class="field">
+              <div class="field-label">Quarto / Acomodação</div>
+              <div class="field-value">${resident.room}</div>
+            </div>
+            <div class="field">
+              <div class="field-label">Grau de Dependência</div>
+              <div class="field-value"><span class="badge ${resident.careLevel === 'I' ? 'bg-green' : resident.careLevel === 'II' ? 'bg-yellow' : 'bg-red'}">Grau ${resident.careLevel}</span></div>
             </div>
           </div>
         </div>
-        <div>
-          <div class="field">
-            <div class="field-label">Estado Neurológico</div>
-            <div class="field-value">${selectedChecklist.estadoNeurologico || 'Não informado'}</div>
+      </div>
+    </div>
+    
+    <!-- Sinais Vitais -->
+    <div class="section">
+      <div class="section-title">1. Sinais Vitais</div>
+      <div class="section-content">
+        <div class="grid-4">
+          <div class="vital-card hr">
+            <div class="field-label" style="color: #991b1b;">Frequência Cardíaca</div>
+            <div class="field-value" style="font-size: 14px; font-weight: bold; color: #991b1b; margin: 4px 0;">${selectedChecklist.frequenciaCardiaca || '—'}</div>
+            <div class="field-label" style="color: #f87171;">bpm</div>
           </div>
-          <div class="field">
-            <div class="field-label">Comportamento Observado</div>
-            <div class="field-value">
-              <div style="display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px;">
-                ${selectedChecklist.agitado ? '<span class="badge bg-yellow">Agitado</span>' : ''}
-                ${selectedChecklist.prostrado ? '<span class="badge bg-blue">Prostrado</span>' : ''}
-                ${selectedChecklist.sonolento ? '<span class="badge bg-gray">Sonolento</span>' : ''}
-                ${!selectedChecklist.agitado && !selectedChecklist.prostrado && !selectedChecklist.sonolento 
-                  ? '<span class="badge bg-green">Calmo / Estável</span>' 
-                  : ''}
+          <div class="vital-card bp">
+            <div class="field-label" style="color: #1e3a8a;">Pressão Arterial</div>
+            <div class="field-value" style="font-size: 14px; font-weight: bold; color: #1e3a8a; margin: 4px 0;">${selectedChecklist.pressaoArterial || '—'}</div>
+            <div class="field-label" style="color: #60a5fa;">mmHg</div>
+          </div>
+          <div class="vital-card spo2">
+            <div class="field-label" style="color: #0369a1;">Saturação (SpO2)</div>
+            <div class="field-value" style="font-size: 14px; font-weight: bold; color: #0369a1; margin: 4px 0;">${selectedChecklist.saturacao || '—'}</div>
+            <div class="field-label" style="color: #38bdf8;">%</div>
+          </div>
+          <div class="vital-card temp">
+            <div class="field-label" style="color: #854d0e;">Temperatura</div>
+            <div class="field-value" style="font-size: 14px; font-weight: bold; color: #854d0e; margin: 4px 0;">${selectedChecklist.temperatura || '—'}</div>
+            <div class="field-label" style="color: #fbbf24;">°C</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Sintomas & Estado Geral -->
+    <div class="section">
+      <div class="section-title">2. Sintomas e Estado Geral</div>
+      <div class="section-content">
+        <div class="grid-2">
+          <div>
+            <div class="field">
+              <div class="field-label">Queixa de Dor</div>
+              <div class="field-value">
+                ${selectedChecklist.queixaDor === 'sim' 
+                  ? `<span class="badge bg-red">Sim - ${selectedChecklist.queixaDorDesc || 'Sem descrição'}</span>` 
+                  : 'Não relatada'}
+              </div>
+            </div>
+            <div class="field">
+              <div class="field-label">Oxigenação</div>
+              <div class="field-value">
+                ${selectedChecklist.arAmbiente 
+                  ? 'Ar Ambiente (Respiração normal)' 
+                  : 'Necessitando de O2 Suplementar'}
+              </div>
+            </div>
+          </div>
+          <div>
+            <div class="field">
+              <div class="field-label">Estado Neurológico</div>
+              <div class="field-value">${selectedChecklist.estadoNeurologico || 'Não informado'}</div>
+            </div>
+            <div class="field">
+              <div class="field-label">Comportamento Observado</div>
+              <div class="field-value">
+                <div style="display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px;">
+                  ${selectedChecklist.agitado ? '<span class="badge bg-yellow">Agitado</span>' : ''}
+                  ${selectedChecklist.prostrado ? '<span class="badge bg-blue">Prostrado</span>' : ''}
+                  ${selectedChecklist.sonolento ? '<span class="badge bg-gray">Sonolento</span>' : ''}
+                  ${!selectedChecklist.agitado && !selectedChecklist.prostrado && !selectedChecklist.sonolento 
+                    ? '<span class="badge bg-green">Calmo / Estável</span>' 
+                    : ''}
+                </div>
               </div>
             </div>
           </div>
         </div>
       </div>
     </div>
-  </div>
-  
-  <!-- Alimentação & Eliminações -->
-  <div class="section">
-    <div class="section-title">3. Alimentação & Eliminações</div>
-    <div class="section-content">
-      <div class="grid-2">
-        <div>
-          <div class="field">
-            <div class="field-label">Aceitação Alimentar</div>
-            <div class="field-value">
-              ${selectedChecklist.alimentacao === 'boa' ? '<span class="badge bg-green">Boa Aceitação</span>' :
-                selectedChecklist.alimentacao === 'moderada' ? '<span class="badge bg-yellow">Aceitação Moderada</span>' :
-                selectedChecklist.alimentacao === 'ruim' ? `<span class="badge bg-red">Aceitação Ruim: ${selectedChecklist.alimentacaoDesc || ''}</span>` :
-                'Não informado'}
+    
+    <!-- Alimentação & Eliminações -->
+    <div class="section">
+      <div class="section-title">3. Alimentação & Eliminações</div>
+      <div class="section-content">
+        <div class="grid-2">
+          <div>
+            <div class="field">
+              <div class="field-label">Aceitação Alimentar</div>
+              <div class="field-value">
+                ${selectedChecklist.alimentacao === 'boa' ? '<span class="badge bg-green">Boa Aceitação</span>' :
+                  selectedChecklist.alimentacao === 'moderada' ? '<span class="badge bg-yellow">Aceitação Moderada</span>' :
+                  selectedChecklist.alimentacao === 'ruim' ? `<span class="badge bg-red">Aceitação Ruim: ${selectedChecklist.alimentacaoDesc || ''}</span>` :
+                  'Não informado'}
+              </div>
+            </div>
+            <div class="field">
+              <div class="field-label">Evacuação (Bolo Fecal)</div>
+              <div class="field-value">
+                ${selectedChecklist.eliminacaoEvacuacao === 'presente' 
+                  ? '<span class="badge bg-green">Presente</span>' 
+                  : `<span class="badge bg-red">Ausente</span>`}
+                ${selectedChecklist.eliminacaoEvacuacaoDias ? ` (Dias sem evacuar: ${selectedChecklist.eliminacaoEvacuacaoDias})` : ''}
+              </div>
+            </div>
+            <div class="field">
+              <div class="field-label">Aspecto das Evacuações</div>
+              <div class="field-value">
+                ${selectedChecklist.aspectoEvacuacoes === 'endurecidas' ? 'Fezes Endurecidas' :
+                  selectedChecklist.aspectoEvacuacoes === 'pastosa' ? 'Pastosa' :
+                  selectedChecklist.aspectoEvacuacoes === 'semi-liquidas' ? 'Semi-líquidas' :
+                  selectedChecklist.aspectoEvacuacoes === 'liquida-diarreia' ? '<span class="badge bg-red">Líquida / Diarreia</span>' : 
+                  'Não informado'}
+              </div>
             </div>
           </div>
-          <div class="field">
-            <div class="field-label">Evacuação (Bolo Fecal)</div>
-            <div class="field-value">
-              ${selectedChecklist.eliminacaoEvacuacao === 'presente' 
-                ? '<span class="badge bg-green">Presente</span>' 
-                : `<span class="badge bg-red">Ausente</span>`}
-              ${selectedChecklist.eliminacaoEvacuacaoDias ? ` (Dias sem evacuar: ${selectedChecklist.eliminacaoEvacuacaoDias})` : ''}
+          <div>
+            <div class="field">
+              <div class="field-label">Diurese</div>
+              <div class="field-value">
+                ${selectedChecklist.diurese === 'ausente' ? '<span class="badge bg-red">Ausente</span>' :
+                  selectedChecklist.diurese === 'aumentada' ? '<span class="badge bg-yellow">Aumentada</span>' :
+                  selectedChecklist.diurese === 'diminuida' ? '<span class="badge bg-yellow">Diminuída</span>' :
+                  'Adequada / Normal'}
+              </div>
             </div>
-          </div>
-          <div class="field">
-            <div class="field-label">Aspecto das Evacuações</div>
-            <div class="field-value">
-              ${selectedChecklist.aspectoEvacuacoes === 'endurecidas' ? 'Fezes Endurecidas' :
-                selectedChecklist.aspectoEvacuacoes === 'pastosa' ? 'Pastosa' :
-                selectedChecklist.aspectoEvacuacoes === 'semi-liquidas' ? 'Semi-líquidas' :
-                selectedChecklist.aspectoEvacuacoes === 'liquida-diarreia' ? '<span class="badge bg-red">Líquida / Diarreia</span>' : 
-                'Não informado'}
-            </div>
-          </div>
-        </div>
-        <div>
-          <div class="field">
-            <div class="field-label">Diurese</div>
-            <div class="field-value">
-              ${selectedChecklist.diurese === 'ausente' ? '<span class="badge bg-red">Ausente</span>' :
-                selectedChecklist.diurese === 'aumentada' ? '<span class="badge bg-yellow">Aumentada</span>' :
-                selectedChecklist.diurese === 'diminuida' ? '<span class="badge bg-yellow">Diminuída</span>' :
-                'Adequada / Normal'}
-            </div>
-          </div>
-          <div class="field">
-            <div class="field-label">Aspecto Urinário</div>
-            <div class="field-value">
-              ${selectedChecklist.diureseAspecto === 'clara' ? 'Clara / Limpida' :
-                selectedChecklist.diureseAspecto === 'concentrada' ? 'Concentrada' :
-                selectedChecklist.diureseAspecto === 'odor-sangue-ardencia' ? '<span class="badge bg-red">Com Odor / Sangue / Ardência</span>' :
-                'Não informado'}
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-  
-  <!-- Cuidados & Mobilidade -->
-  <div class="section">
-    <div class="section-title">4. Cuidados Diários & Mobilidade</div>
-    <div class="section-content">
-      <div class="grid-2">
-        <div>
-          <div class="field">
-            <div class="field-label">Uso de Fraldas</div>
-            <div class="field-value">
-              ${selectedChecklist.usoFraldas === 'sim' ? 'Sim, faz uso de fralda' : 'Não faz uso'}
-            </div>
-          </div>
-          <div class="field">
-            <div class="field-label">Mobilidade no Turno</div>
-            <div class="field-value">
-              ${selectedChecklist.mobilidadeSet === 'independente' ? 'Independente' :
-                selectedChecklist.mobilidadeSet === 'auxilio' ? 'Com Auxílio' :
-                selectedChecklist.mobilidadeSet === 'acamado' ? 'Acamado' : 'Não informado'}
-            </div>
-          </div>
-        </div>
-        <div>
-          <div class="field">
-            <div class="field-label">Higiene Corporal / Banho</div>
-            <div class="field-value">
-              ${selectedChecklist.higieneCorporal === 'independente' ? 'Independente' :
-                selectedChecklist.higieneCorporal === 'auxilio' ? 'Com Auxílio' : 'Não informado'}
-            </div>
-          </div>
-          <div class="field">
-            <div class="field-label">Higiene Oral & Vestir</div>
-            <div class="field-value">
-              ${selectedChecklist.higieneOralVestir === 'independente' ? 'Independente' :
-                selectedChecklist.higieneOralVestir === 'auxilio' ? 'Com Auxílio' : 'Não informado'}
+            <div class="field">
+              <div class="field-label">Aspecto Urinário</div>
+              <div class="field-value">
+                ${selectedChecklist.diureseAspecto === 'clara' ? 'Clara / Limpida' :
+                  selectedChecklist.diureseAspecto === 'concentrada' ? 'Concentrada' :
+                  selectedChecklist.diureseAspecto === 'odor-sangue-ardencia' ? '<span class="badge bg-red">Com Odor / Sangue / Ardência</span>' :
+                  'Não informado'}
+              </div>
             </div>
           </div>
         </div>
       </div>
     </div>
-  </div>
-  
-  <!-- Diagnósticos, Sono & Rotina -->
-  <div class="section">
-    <div class="section-title">5. Diagnósticos de Pele, Sono e Ocorrências</div>
-    <div class="section-content">
-      <div class="field" style="margin-bottom: 12px;">
-        <div class="field-label">Alterações de Pele / Edemas / Lesões</div>
-        <div class="field-value">
-          ${selectedChecklist.alteracoesPele === 'sim' 
-            ? `<span class="badge bg-red">Sim: ${selectedChecklist.alteracoesPeleDesc || 'Sem descrição'}</span>` 
-            : 'Pele íntegra / Sem alterações observadas'}
-        </div>
-      </div>
-      <div class="field" style="margin-bottom: 12px;">
-        <div class="field-label">Qualidade do Sono</div>
-        <div class="field-value">
-          ${selectedChecklist.sono === 'insatisfatorio' 
-            ? `<span class="badge bg-yellow">Insatisfatório: ${selectedChecklist.sonoDesc || ''}</span>` 
-            : 'Sono preservado / Dormiu bem'}
-        </div>
-      </div>
-      <div class="field" style="margin-bottom: 12px;">
-        <div class="field-label">Outras Atividades / Consultas</div>
-        <div class="field-value">${selectedChecklist.atividadesConsulta || 'Nenhuma atividade registrada.'}</div>
-      </div>
-      <div class="field">
-        <div class="field-label">Ocorrência / Intercorrência médica no turno</div>
-        <div class="field-value">
-          ${selectedChecklist.intercorrencia === 'sim'
-            ? `<span class="badge bg-red">SIM: ${selectedChecklist.intercorrenciaDesc || 'Sem detalhes'}</span>`
-            : 'Não houve intercorrência registrada.'}
+    
+    <!-- Cuidados & Mobilidade -->
+    <div class="section">
+      <div class="section-title">4. Cuidados Diários & Mobilidade</div>
+      <div class="section-content">
+        <div class="grid-2">
+          <div>
+            <div class="field">
+              <div class="field-label">Uso de Fraldas</div>
+              <div class="field-value">
+                ${selectedChecklist.usoFraldas === 'sim' ? 'Sim, faz uso de fralda' : 'Não faz uso'}
+              </div>
+            </div>
+            <div class="field">
+              <div class="field-label">Mobilidade no Turno</div>
+              <div class="field-value">
+                ${selectedChecklist.mobilidadeSet === 'independente' ? 'Independente' :
+                  selectedChecklist.mobilidadeSet === 'auxilio' ? 'Com Auxílio' :
+                  selectedChecklist.mobilidadeSet === 'acamado' ? 'Acamado' : 'Não informado'}
+              </div>
+            </div>
+          </div>
+          <div>
+            <div class="field">
+              <div class="field-label">Higiene Corporal / Banho</div>
+              <div class="field-value">
+                ${selectedChecklist.higieneCorporal === 'independente' ? 'Independente' :
+                  selectedChecklist.higieneCorporal === 'auxilio' ? 'Com Auxílio' : 'Não informado'}
+              </div>
+            </div>
+            <div class="field">
+              <div class="field-label">Higiene Oral & Vestir</div>
+              <div class="field-value">
+                ${selectedChecklist.higieneOralVestir === 'independente' ? 'Independente' :
+                  selectedChecklist.higieneOralVestir === 'auxilio' ? 'Com Auxílio' : 'Não informado'}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
-  </div>
-  
-  <!-- Medicações Administradas -->
-  <div class="section">
-    <div class="section-title">6. Registro de Medicações no Turno</div>
-    <div class="section-content">
-      ${parsedMeds && parsedMeds.length > 0 ? `
-        <table>
-          <thead>
-            <tr>
-              <th>Medicamento</th>
-              <th>Dosagem / Via</th>
-              <th>Status</th>
-              <th>Horário</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${parsedMeds.map(med => `
+    
+    <!-- Diagnósticos, Sono & Rotina -->
+    <div class="section">
+      <div class="section-title">5. Diagnósticos de Pele, Sono e Ocorrências</div>
+      <div class="section-content">
+        <div class="field" style="margin-bottom: 12px;">
+          <div class="field-label">Alterações de Pele / Edemas / Lesões</div>
+          <div class="field-value">
+            ${selectedChecklist.alteracoesPele === 'sim' 
+              ? `<span class="badge bg-red">Sim: ${selectedChecklist.alteracoesPeleDesc || 'Sem descrição'}</span>` 
+              : 'Pele íntegra / Sem alterações observadas'}
+          </div>
+        </div>
+        <div class="field" style="margin-bottom: 12px;">
+          <div class="field-label">Qualidade do Sono</div>
+          <div class="field-value">
+            ${selectedChecklist.sono === 'insatisfatorio' 
+              ? `<span class="badge bg-yellow">Insatisfatório: ${selectedChecklist.sonoDesc || ''}</span>` 
+              : 'Sono preservado / Dormiu bem'}
+          </div>
+        </div>
+        <div class="field" style="margin-bottom: 12px;">
+          <div class="field-label">Outras Atividades / Consultas</div>
+          <div class="field-value">${selectedChecklist.atividadesConsulta || 'Nenhuma atividade registrada.'}</div>
+        </div>
+        <div class="field">
+          <div class="field-label">Ocorrência / Intercorrência médica no turno</div>
+          <div class="field-value">
+            ${selectedChecklist.intercorrencia === 'sim'
+              ? `<span class="badge bg-red">SIM: ${selectedChecklist.intercorrenciaDesc || 'Sem detalhes'}</span>`
+              : 'Não houve intercorrência registrada.'}
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Medicações Administradas -->
+    <div class="section">
+      <div class="section-title">6. Registro de Medicações no Turno</div>
+      <div class="section-content">
+        ${parsedMeds && parsedMeds.length > 0 ? `
+          <table>
+            <thead>
               <tr>
-                <td style="font-weight: bold;">${med.name}</td>
-                <td>${med.dosage} (${med.route || '—'})</td>
-                <td>
-                  <span class="badge ${
-                    med.status === 'tomou' ? 'bg-green' :
-                    med.status === 'nao_tomou' ? 'bg-red' : 'bg-gray'
-                  }">
-                    ${med.status === 'tomou' ? 'Administrado' :
-                      med.status === 'nao_tomou' ? 'Não Administrado' : 'Pendente'}
-                  </span>
-                </td>
-                <td>${med.time || '—'}</td>
+                <th>Medicamento</th>
+                <th>Dosagem / Via</th>
+                <th>Status</th>
+                <th>Horário</th>
               </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      ` : '<div style="font-size: 11px; color: #64748b; font-style: italic; padding: 4px 0;">Nenhuma medicação programada ou administrada para este turno.</div>'}
+            </thead>
+            <tbody>
+              ${parsedMeds.map(med => `
+                <tr>
+                  <td style="font-weight: bold;">${med.name}</td>
+                  <td>${med.dosage} (${med.route || '—'})</td>
+                  <td>
+                    <span class="badge ${
+                      med.status === 'tomou' ? 'bg-green' :
+                      med.status === 'nao_tomou' ? 'bg-red' : 'bg-gray'
+                    }">
+                      ${med.status === 'tomou' ? 'Administrado' :
+                        med.status === 'nao_tomou' ? 'Não Administrado' : 'Pendente'}
+                    </span>
+                  </td>
+                  <td>${med.time || '—'}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        ` : '<div style="font-size: 11px; color: #64748b; font-style: italic; padding: 4px 0;">Nenhuma medicação programada ou administrada para este turno.</div>'}
+      </div>
     </div>
-  </div>
-  
-  <!-- Assinatura Digital ICP-Brasil -->
-  ${selectedChecklist.signedBy ? (() => {
-    let certDetails = '';
-    if (selectedChecklist.signatureInfo) {
-      try {
-        const cert = JSON.parse(selectedChecklist.signatureInfo);
-        certDetails = `
-          <div class="sig-grid">
-            <div class="sig-field">
-              <div class="sig-field-label">Assinante / Titular</div>
-              <div class="sig-field-value">${cert.certificate_holder_name}</div>
+    
+    <!-- Assinatura Digital ICP-Brasil -->
+    ${selectedChecklist.signedBy ? (() => {
+      let certDetails = '';
+      if (selectedChecklist.signatureInfo) {
+        try {
+          const cert = JSON.parse(selectedChecklist.signatureInfo);
+          certDetails = `
+            <div class="sig-grid">
+              <div class="sig-field">
+                <div class="sig-field-label">Assinante / Titular</div>
+                <div class="sig-field-value">${cert.certificate_holder_name}</div>
+              </div>
+              <div class="sig-field">
+                <div class="sig-field-label">CPF</div>
+                <div class="sig-field-value">${cert.certificate_document}</div>
+              </div>
+              <div class="sig-field">
+                <div class="sig-field-label">Autoridade Certificadora (AC)</div>
+                <div class="sig-field-value">${cert.certificate_issuer}</div>
+              </div>
+              <div class="sig-field">
+                <div class="sig-field-label">Número de Série</div>
+                <div class="sig-field-value" style="font-family: monospace; font-size: 8px;">${cert.certificate_serial_number}</div>
+              </div>
+              <div class="sig-field">
+                <div class="sig-field-label">Validade do Certificado</div>
+                <div class="sig-field-value">${new Date(cert.certificate_issue_date).toLocaleDateString('pt-BR')} a ${new Date(cert.certificate_expiration_date).toLocaleDateString('pt-BR')}</div>
+              </div>
+              <div class="sig-field" style="background: #e8f5e9; border-color: #a5d6a7;">
+                <div class="sig-field-label" style="color: #2e7d32;">Carimbo de Data/Hora (Assinatura)</div>
+                <div class="sig-field-value" style="color: #1b5e20;">${new Date(selectedChecklist.signedAt || '').toLocaleString('pt-BR')}</div>
+              </div>
             </div>
-            <div class="sig-field">
-              <div class="sig-field-label">CPF</div>
-              <div class="sig-field-value">${cert.certificate_document}</div>
+          `;
+        } catch (e) {
+          certDetails = `
+            <div class="sig-grid">
+              <div class="sig-field">
+                <div class="sig-field-label">Assinado por</div>
+                <div class="sig-field-value">${selectedChecklist.signedBy}</div>
+              </div>
+              <div class="sig-field" style="background: #e8f5e9; border-color: #a5d6a7;">
+                <div class="sig-field-label" style="color: #2e7d32;">Carimbo de Data/Hora (Assinatura)</div>
+                <div class="sig-field-value" style="color: #1b5e20;">${new Date(selectedChecklist.signedAt || '').toLocaleString('pt-BR')}</div>
+              </div>
             </div>
-            <div class="sig-field">
-              <div class="sig-field-label">Autoridade Certificadora (AC)</div>
-              <div class="sig-field-value">${cert.certificate_issuer}</div>
-            </div>
-            <div class="sig-field">
-              <div class="sig-field-label">Número de Série</div>
-              <div class="sig-field-value" style="font-family: monospace; font-size: 8px;">${cert.certificate_serial_number}</div>
-            </div>
-            <div class="sig-field">
-              <div class="sig-field-label">Validade do Certificado</div>
-              <div class="sig-field-value">${new Date(cert.certificate_issue_date).toLocaleDateString('pt-BR')} a ${new Date(cert.certificate_expiration_date).toLocaleDateString('pt-BR')}</div>
-            </div>
-            <div class="sig-field" style="background: #e8f5e9; border-color: #a5d6a7;">
-              <div class="sig-field-label" style="color: #2e7d32;">Carimbo de Data/Hora (Assinatura)</div>
-              <div class="sig-field-value" style="color: #1b5e20;">${new Date(selectedChecklist.signedAt || '').toLocaleString('pt-BR')}</div>
-            </div>
-          </div>
-        `;
-      } catch (e) {
+          `;
+        }
+      } else {
         certDetails = `
           <div class="sig-grid">
             <div class="sig-field">
@@ -1188,41 +1233,85 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
           </div>
         `;
       }
-    } else {
-      certDetails = `
-        <div class="sig-grid">
-          <div class="sig-field">
-            <div class="sig-field-label">Assinado por</div>
-            <div class="sig-field-value">${selectedChecklist.signedBy}</div>
+      return `
+        <div class="sig-panel">
+          <div class="sig-title">
+            <span style="display: inline-block; width: 8px; height: 8px; background: #10b981; border-radius: 50%; margin-right: 6px;"></span>
+            Assinatura Digital ICP-Brasil Válida · MP 2.200-2/2001
           </div>
-          <div class="sig-field" style="background: #e8f5e9; border-color: #a5d6a7;">
-            <div class="sig-field-label" style="color: #2e7d32;">Carimbo de Data/Hora (Assinatura)</div>
-            <div class="sig-field-value" style="color: #1b5e20;">${new Date(selectedChecklist.signedAt || '').toLocaleString('pt-BR')}</div>
-          </div>
+          <p style="font-size: 9px; color: #065f46; margin-bottom: 10px; line-height: 1.3;">
+            Este documento clínico/boletim foi assinado eletronicamente pelo profissional responsável utilizando certificado digital ICP-Brasil A1. A autoria, integridade e validade jurídica deste registro são garantidas nos termos da legislação federal brasileira.
+          </p>
+          ${certDetails}
         </div>
       `;
-    }
-    return `
-      <div class="sig-panel">
-        <div class="sig-title">
-          <span style="display: inline-block; width: 8px; height: 8px; background: #10b981; border-radius: 50%; margin-right: 6px;"></span>
-          Assinatura Digital ICP-Brasil Válida · MP 2.200-2/2001
-        </div>
-        <p style="font-size: 9px; color: #065f46; margin-bottom: 10px; line-height: 1.3;">
-          Este documento clínico/boletim foi assinado eletronicamente pelo profissional responsável utilizando certificado digital ICP-Brasil A1. A autoria, integridade e validade jurídica deste registro são garantidas nos termos da legislação federal brasileira.
-        </p>
-        ${certDetails}
-      </div>
-    `;
-  })() : ''}
-  
-  <div class="footer">
-    Gerado em ${new Date().toLocaleString('pt-BR')} · Recanto dos Anciãos · Sistema de Gestão ILPI
+    })() : ''}
+    
+    <div class="footer">
+      Gerado em ${new Date().toLocaleString('pt-BR')} · Recanto dos Anciãos · Sistema de Gestão ILPI
+    </div>
   </div>
-  </div>
+  <div id="pdf-pages"></div>
   <script>
+    const hasLetterhead = ${hasLetterhead};
+    const letterheadSrc = '${watermarkSrc}';
+
     window.onload = () => {
-      window.print();
+      const pxPerMm = 96 / 25.4;
+      const maxHeight = 207 * pxPerMm; // 207mm is safe content height (297 - 45 - 45)
+      const pagesContainer = document.getElementById('pdf-pages');
+      const sourceContainer = document.getElementById('pdf-source');
+
+      let currentPage = null;
+      let currentSafeContent = null;
+
+      function createPage() {
+        currentPage = document.createElement('div');
+        currentPage.className = 'pdf-page';
+        
+        if (hasLetterhead && letterheadSrc) {
+          const bg = document.createElement('div');
+          bg.className = 'letterhead-background';
+          bg.style.backgroundImage = 'url("' + letterheadSrc + '")';
+          currentPage.appendChild(bg);
+          
+          const wm = document.createElement('div');
+          wm.className = 'watermark-background';
+          wm.style.backgroundImage = 'url("' + letterheadSrc + '")';
+          currentPage.appendChild(wm);
+        }
+        
+        currentSafeContent = document.createElement('div');
+        currentSafeContent.className = 'page-content-safe-area';
+        currentPage.appendChild(currentSafeContent);
+        
+        pagesContainer.appendChild(currentPage);
+      }
+
+      createPage();
+
+      const elements = Array.from(sourceContainer.children);
+      for (let i = 0; i < elements.length; i++) {
+        const el = elements[i];
+        currentSafeContent.appendChild(el);
+        if (currentSafeContent.scrollHeight > maxHeight) {
+          if (el.classList.contains('footer')) {
+            // Keep it on the last page. Rule 15: Don't create an exclusive page just for the footer.
+            continue;
+          }
+          if (currentSafeContent.children.length > 1) {
+            currentSafeContent.removeChild(el);
+            createPage();
+            currentSafeContent.appendChild(el);
+          }
+        }
+      }
+
+      sourceContainer.style.display = 'none';
+
+      setTimeout(() => {
+        window.print();
+      }, 150);
     };
   </script>
 </body>

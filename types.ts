@@ -400,4 +400,83 @@ export interface AuthUser {
   residentId?: string; // somente para Responsável
   employeeRole?: UserRole;
   certificate?: DigitalCertificate;
+  empresaId?: string;
+}
+
+// --- MULTI-TENANT / ASSINATURA ---
+
+export type StatusEmpresa = 'ativa' | 'pendente' | 'bloqueada' | 'cancelada';
+export type StatusAssinatura = 'ativa' | 'pendente' | 'cancelada' | 'vencida' | 'pagamento_recusado' | 'em_trial';
+export type PlanoId = 'essencial' | 'profissional' | 'enterprise';
+export type FormaPagamento = 'cartao' | 'pix' | 'boleto';
+export type Periodicidade = 'mensal' | 'anual';
+
+export interface Empresa {
+  id: string;
+  empresaId: string;
+  nomeInstituicao: string;
+  cnpj?: string;
+  razaoSocial?: string;
+  nomeFantasia?: string;
+  telefone?: string;
+  emailComercial?: string;
+  endereco?: string;
+  cidade?: string;
+  estado?: string;
+  cep?: string;
+  qtdResidentes?: number;
+  qtdUsuarios?: number;
+  status: StatusEmpresa;
+  createdAt: string;
+}
+
+export interface Assinatura {
+  id: string;
+  empresaId: string;
+  planoId: PlanoId;
+  planoNome: string;
+  valorMensal: number;
+  periodicidade: Periodicidade;
+  gatewayPagamento?: string;
+  gatewayCustomerId?: string;
+  gatewaySubscriptionId?: string;
+  status: StatusAssinatura;
+  dataInicio?: string;
+  dataVencimento?: string;
+  dataCancelamento?: string;
+  createdAt: string;
+}
+
+export interface CheckoutFormData {
+  // Empresa
+  nomeInstituicao: string;
+  cnpj: string;
+  razaoSocial: string;
+  nomeFantasia: string;
+  telefoneEmpresa: string;
+  emailComercial: string;
+  endereco: string;
+  cidade: string;
+  estado: string;
+  cep: string;
+  qtdResidentes: string;
+  qtdUsuarios: string;
+  planoId: PlanoId;
+  periodicidade: Periodicidade;
+  // Admin
+  nomeAdmin: string;
+  cpfAdmin: string;
+  emailAdmin: string;
+  telefoneAdmin: string;
+  cargo: string;
+  senha: string;
+  confirmarSenha: string;
+  // Pagamento
+  formaPagamento: FormaPagamento;
+  nomeTitular: string;
+  cpfTitular: string;
+  numeroCartao: string;
+  validadeCartao: string;
+  cvv: string;
+  enderecoCobranca: string;
 }

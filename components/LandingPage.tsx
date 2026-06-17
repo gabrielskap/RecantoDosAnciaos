@@ -72,6 +72,15 @@ const LandingPage: React.FC = () => {
     window.location.reload();
   };
 
+  const navigateToCheckout = (planoId?: string, periodo?: string) => {
+    const params = new URLSearchParams();
+    if (planoId) params.set('plano', planoId);
+    if (periodo) params.set('periodo', periodo);
+    const qs = params.toString();
+    window.history.pushState(null, '', `/assinar${qs ? '?' + qs : ''}`);
+    window.location.reload();
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
@@ -169,12 +178,13 @@ const LandingPage: React.FC = () => {
   const plans = [
     {
       name: 'Essencial',
+      planoId: 'essencial',
       priceMonthly: 'R$ 399',
       priceAnnual: 'R$ 299',
       desc: 'Ideal para ILPIs com até 30 residentes',
       color: 'border-slate-200 hover:border-blue-300',
       badge: null,
-      cta: 'Começar agora',
+      cta: 'Assinar agora',
       ctaStyle: 'bg-slate-900 text-white hover:bg-slate-700',
       features: [
         'Até 30 residentes',
@@ -188,12 +198,13 @@ const LandingPage: React.FC = () => {
     },
     {
       name: 'Profissional',
+      planoId: 'profissional',
       priceMonthly: 'R$ 799',
       priceAnnual: 'R$ 599',
       desc: 'Para ILPIs de médio porte com mais recursos',
       color: 'border-blue-600 ring-2 ring-blue-600',
       badge: 'Mais popular',
-      cta: 'Começar agora',
+      cta: 'Assinar agora',
       ctaStyle: 'bg-blue-600 text-white hover:bg-blue-700',
       features: [
         'Até 100 residentes',
@@ -208,6 +219,7 @@ const LandingPage: React.FC = () => {
     },
     {
       name: 'Enterprise',
+      planoId: 'enterprise',
       priceMonthly: 'Sob consulta',
       priceAnnual: 'Sob consulta',
       desc: 'Para redes e grupos com múltiplas unidades',
@@ -284,10 +296,10 @@ const LandingPage: React.FC = () => {
                 Entrar
               </button>
               <button
-                onClick={() => setShowSignUpModal(true)}
+                onClick={() => navigateToCheckout()}
                 className="text-white border border-white/40 hover:border-white hover:bg-white/10 text-sm font-medium px-4 py-2 rounded-lg transition-all"
               >
-                Cadastre-se
+                Quero Assinar
               </button>
               <button
                 onClick={navigateToDemo}
@@ -314,10 +326,10 @@ const LandingPage: React.FC = () => {
             <a href="#pricing" className="block text-blue-100 text-sm font-medium py-2" onClick={() => setMobileMenuOpen(false)}>Preços</a>
             <a href="#testimonials" className="block text-blue-100 text-sm font-medium py-2" onClick={() => setMobileMenuOpen(false)}>Depoimentos</a>
             <button
-              onClick={() => { setMobileMenuOpen(false); setShowSignUpModal(true); }}
+              onClick={() => { setMobileMenuOpen(false); navigateToCheckout(); }}
               className="w-full bg-white text-blue-700 font-semibold py-3 rounded-lg text-sm mt-2 border border-blue-200"
             >
-              Cadastre-se
+              Quero Assinar
             </button>
             <button
               onClick={() => { setMobileMenuOpen(false); navigateToDemo(); }}
@@ -722,7 +734,11 @@ const LandingPage: React.FC = () => {
                   </div>
                 </div>
                 <button
-                  onClick={navigateToDemo}
+                  onClick={() =>
+                    plan.planoId === 'enterprise'
+                      ? navigateToDemo()
+                      : navigateToCheckout(plan.planoId, pricingPeriod)
+                  }
                   className={`w-full py-3 rounded-xl font-semibold text-sm transition-all mb-6 ${plan.ctaStyle}`}
                 >
                   {plan.cta}
