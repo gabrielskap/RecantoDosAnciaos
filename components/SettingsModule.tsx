@@ -7,6 +7,7 @@ import {
   PenTool, Trash2, CheckSquare
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { supabase } from '../services/supabaseClient';
 
 interface InstitutionSettings {
   name: string;
@@ -128,8 +129,58 @@ const SettingsModule: React.FC = () => {
   const [settings, setSettings] = useState<SystemSettings>(loadSettings);
   const [saved, setSaved] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   const isAdmin = currentUser?.profile.type === 'Administrador';
+
+  useEffect(() => {
+    const fetchCompanySettings = async () => {
+      if (!currentUser?.empresaId) return;
+      try {
+        setLoading(true);
+        const { data, error } = await supabase
+          .from('Recanto_Empresas')
+          .select('*')
+          .eq('empresa_id', currentUser.empresaId)
+          .single();
+        
+        if (error) {
+          console.error('Erro ao carregar configurações do banco:', error);
+          return;
+        }
+
+        if (data) {
+          const loaded: SystemSettings = {
+            institution: {
+              name: data.nome_instituicao || '',
+              cnpj: data.cnpj || '',
+              phone: data.telefone || '',
+              email: data.email_comercial || '',
+              address: data.endereco || '',
+              city: data.cidade || '',
+              state: data.estado || 'SP',
+              cep: data.cep || '',
+              capacity: data.capacidade_maxima ?? 30,
+              directorName: data.diretor_geral || '',
+              technicalDirector: data.responsavel_tecnico || '',
+              anvisa: data.registro_anvisa || '',
+              watermarkImage: data.papel_timbrado || '',
+            },
+            notifications: data.config_notificacoes ? { ...defaultSettings.notifications, ...data.config_notificacoes } : defaultSettings.notifications,
+            security: data.config_seguranca ? { ...defaultSettings.security, ...data.config_seguranca } : defaultSettings.security,
+          };
+          setSettings(loaded);
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(loaded));
+        }
+      } catch (err) {
+        console.error('Erro no fetch das configurações:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchCompanySettings();
+  }, [currentUser]);
 
   const update = <K extends keyof SystemSettings>(section: K, patch: Partial<SystemSettings[K]>) => {
     setSettings(prev => ({
@@ -139,18 +190,82 @@ const SettingsModule: React.FC = () => {
     setDirty(true);
   };
 
-  const handleSave = () => {
-    saveSettings(settings);
-    setDirty(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
+  const handleSave = async () => {
+    if (!currentUser?.empresaId) return;
+    try {
+      setLoading(true);
+      const { error } = await supabase
+        .from('Recanto_Empresas')
+        .update({
+          nome_instituicao: settings.institution.name,
+          cnpj: settings.institution.cnpj,
+          telefone: settings.institution.phone,
+          email_comercial: settings.institution.email,
+          endereco: settings.institution.address,
+          cidade: settings.institution.city,
+          estado: settings.institution.state,
+          cep: settings.institution.cep,
+          capacidade_maxima: settings.institution.capacity,
+          diretor_geral: settings.institution.directorName,
+          responsavel_tecnico: settings.institution.technicalDirector,
+          registro_anvisa: settings.institution.anvisa,
+          papel_timbrado: settings.institution.watermarkImage,
+          config_notificacoes: settings.notifications,
+          config_seguranca: settings.security,
+        })
+        .eq('empresa_id', currentUser.empresaId);
+
+      if (error) throw error;
+
+      saveSettings(settings);
+      setDirty(false);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch (err: any) {
+      console.error('Erro ao salvar configurações:', err);
+      alert('Erro ao salvar configurações: ' + (err.message || err));
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleReset = () => {
-    if (confirm('Redefinir todas as configurações para os valores padrão?')) {
-      setSettings(defaultSettings);
-      saveSettings(defaultSettings);
-      setDirty(false);
+  const handleReset = async () => {
+    if (!currentUser?.empresaId) return;
+    if (confirm('Redefinir todas as configurações para os valores padrão no banco de dados?')) {
+      try {
+        setLoading(true);
+        const { error } = await supabase
+          .from('Recanto_Empresas')
+          .update({
+            nome_instituicao: defaultSettings.institution.name,
+            cnpj: defaultSettings.institution.cnpj,
+            telefone: defaultSettings.institution.phone,
+            email_comercial: defaultSettings.institution.email,
+            endereco: defaultSettings.institution.address,
+            cidade: defaultSettings.institution.city,
+            estado: defaultSettings.institution.state,
+            cep: defaultSettings.institution.cep,
+            capacidade_maxima: defaultSettings.institution.capacity,
+            diretor_geral: defaultSettings.institution.directorName,
+            responsavel_tecnico: defaultSettings.institution.technicalDirector,
+            registro_anvisa: defaultSettings.institution.anvisa,
+            papel_timbrado: defaultSettings.institution.watermarkImage,
+            config_notificacoes: defaultSettings.notifications,
+            config_seguranca: defaultSettings.security,
+          })
+          .eq('empresa_id', currentUser.empresaId);
+
+        if (error) throw error;
+
+        setSettings(defaultSettings);
+        saveSettings(defaultSettings);
+        setDirty(false);
+      } catch (err: any) {
+        console.error('Erro ao redefinir configurações:', err);
+        alert('Erro ao redefinir: ' + (err.message || err));
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
@@ -177,14 +292,15 @@ const SettingsModule: React.FC = () => {
             )}
             <button
               onClick={handleReset}
-              className="flex items-center gap-1.5 px-3 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-xl transition-all border border-slate-200"
+              disabled={loading}
+              className="flex items-center gap-1.5 px-3 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-xl transition-all border border-slate-200 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <RotateCcw className="h-4 w-4" />
               Redefinir
             </button>
             <button
               onClick={handleSave}
-              disabled={!dirty}
+              disabled={!dirty || loading}
               className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-sm"
             >
               <Save className="h-4 w-4" />
@@ -210,8 +326,9 @@ const SettingsModule: React.FC = () => {
               return (
                 <button
                   key={tab.id}
+                  disabled={loading}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`group flex items-center w-full px-4 py-3 text-sm transition-all ${
+                  className={`group flex items-center w-full px-4 py-3 text-sm transition-all disabled:opacity-55 ${
                     active
                       ? 'bg-blue-600 text-white font-semibold'
                       : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
@@ -228,29 +345,38 @@ const SettingsModule: React.FC = () => {
 
         {/* Tab Content */}
         <div className="flex-1 min-w-0">
-          {activeTab === 'institution' && (
-            <InstitutionTab
-              data={settings.institution}
-              onChange={(patch) => update('institution', patch)}
-              readOnly={!isAdmin}
-            />
-          )}
-          {activeTab === 'notifications' && (
-            <NotificationsTab
-              data={settings.notifications}
-              onChange={(patch) => update('notifications', patch)}
-              readOnly={!isAdmin}
-            />
-          )}
-          {activeTab === 'security' && (
-            <SecurityTab
-              data={settings.security}
-              onChange={(patch) => update('security', patch)}
-              readOnly={!isAdmin}
-            />
-          )}
+          {loading ? (
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-12 flex flex-col items-center justify-center min-h-[400px]">
+              <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+              <p className="text-sm text-slate-500 mt-4 font-medium">Carregando configurações...</p>
+            </div>
+          ) : (
+            <>
+              {activeTab === 'institution' && (
+                <InstitutionTab
+                  data={settings.institution}
+                  onChange={(patch) => update('institution', patch)}
+                  readOnly={!isAdmin || loading}
+                />
+              )}
+              {activeTab === 'notifications' && (
+                <NotificationsTab
+                  data={settings.notifications}
+                  onChange={(patch) => update('notifications', patch)}
+                  readOnly={!isAdmin || loading}
+                />
+              )}
+              {activeTab === 'security' && (
+                <SecurityTab
+                  data={settings.security}
+                  onChange={(patch) => update('security', patch)}
+                  readOnly={!isAdmin || loading}
+                />
+              )}
 
-          {activeTab === 'about' && <AboutTab />}
+              {activeTab === 'about' && <AboutTab />}
+            </>
+          )}
         </div>
       </div>
     </div>

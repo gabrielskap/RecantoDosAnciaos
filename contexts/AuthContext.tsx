@@ -36,6 +36,7 @@ const fetchUserProfile = async (authUserId: string): Promise<AuthUser | null> =>
         name,
         email,
         resident_id,
+        empresa_id,
         profile:Recanto_Perfis (
           id,
           name,
@@ -109,6 +110,7 @@ const fetchUserProfile = async (authUserId: string): Promise<AuthUser | null> =>
     residentId: data.resident_id || undefined,
     employeeRole: employeeResult.data?.role || undefined,
     certificate,
+    empresaId: data.empresa_id || undefined,
   };
 };
 
@@ -161,6 +163,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         name,
         email,
         resident_id,
+        empresa_id,
         profile:Recanto_Perfis (
           id,
           name,
@@ -225,6 +228,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         profile: mappedProfile,
         residentId: u.resident_id || undefined,
         certificate,
+        empresaId: u.empresa_id || undefined,
       };
     });
 
@@ -285,6 +289,133 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUsers([]);
       setProfiles([]);
     }
+  }, [currentUser]);  // Sincroniza as configurações da empresa com o localStorage para compatibilidade retroativa e migra do local se necessário
+  useEffect(() => {
+    const syncCompanySettings = async () => {
+      if (!currentUser?.empresaId) return;
+      try {
+        const { data, error } = await supabase
+          .from('Recanto_Empresas')
+          .select('*')
+          .eq('empresa_id', currentUser.empresaId)
+          .single();
+        
+        if (error) {
+          console.warn('Erro ao buscar configurações da empresa:', error);
+          return;
+        }
+
+        if (data) {
+          const migrationDone = localStorage.getItem('recanto_settings_migrated_to_db') === 'true';
+          const localRaw = localStorage.getItem('recanto_system_settings');
+
+          // Se ainda não foi feita a migração para o banco E houver dados locais válidos no localStorage
+          if (!migrationDone && localRaw) {
+            try {
+              const localSettings = JSON.parse(localRaw);
+              
+              const { error: updateError } = await supabase
+                .from('Recanto_Empresas')
+                .update({
+                  nome_instituicao: localSettings.institution?.name || data.nome_instituicao,
+                  cnpj: localSettings.institution?.cnpj || data.cnpj,
+                  telefone: localSettings.institution?.phone || data.telefone,
+                  email_comercial: localSettings.institution?.email || data.email_comercial,
+                  endereco: localSettings.institution?.address || data.endereco,
+                  cidade: localSettings.institution?.city || data.cidade,
+                  estado: localSettings.institution?.state || data.estado,
+                  cep: localSettings.institution?.cep || data.cep,
+                  capacidade_maxima: localSettings.institution?.capacity || data.capacidade_maxima,
+                  diretor_geral: localSettings.institution?.directorName || data.diretor_geral,
+                  responsavel_tecnico: localSettings.institution?.technicalDirector || data.responsavel_tecnico,
+                  registro_anvisa: localSettings.institution?.anvisa || data.registro_anvisa,
+                  papel_timbrado: localSettings.institution?.watermarkImage || data.papel_timbrado,
+                  config_notificacoes: localSettings.notifications || data.config_notificacoes,
+                  config_seguranca: localSettings.security || data.config_seguranca,
+                })
+                .eq('empresa_id', currentUser.empresaId);
+
+              if (!updateError) {
+                localStorage.setItem('recanto_settings_migrated_to_db', 'true');
+                // Recarrega os dados pós-migração
+                const { data: freshData } = await supabase
+                  .from('Recanto_Empresas')
+                  .select('*')
+                  .eq('empresa_id', currentUser.empresaId)
+                  .single();
+
+                if (freshData) {
+                  const settings = {
+                    institution: {
+                      name: freshData.nome_instituicao || '',
+                      cnpj: freshData.cnpj || '',
+                      phone: freshData.telefone || '',
+                      email: freshData.email_comercial || '',
+                      address: freshData.endereco || '',
+                      city: freshData.cidade || '',
+                      state: freshData.estado || 'SP',
+                      cep: freshData.cep || '',
+                      capacity: freshData.capacidade_maxima ?? 30,
+                      directorName: freshData.diretor_geral || '',
+                      technicalDirector: freshData.responsavel_tecnico || '',
+                      anvisa: freshData.registro_anvisa || '',
+                      watermarkImage: freshData.papel_timbrado || '',
+                    },
+                    notifications: freshData.config_notificacoes || {},
+                    security: freshData.config_seguranca || {},
+                  };
+                  localStorage.setItem('recanto_system_settings', JSON.stringify(settings));
+                }
+                return;
+              }
+            } catch (errParse) {
+              console.error('Erro ao processar migração local:', errParse);
+            }
+          }
+
+          // Se a migração já foi feita ou não havia dados, apenas atualiza o localStorage com o que está no banco
+          const settings = {
+            institution: {
+              name: data.nome_instituicao || '',
+              cnpj: data.cnpj || '',
+              phone: data.telefone || '',
+              email: data.email_comercial || '',
+              address: data.endereco || '',
+              city: data.cidade || '',
+              state: data.estado || 'SP',
+              cep: data.cep || '',
+              capacity: data.capacidade_maxima ?? 30,
+              directorName: data.diretor_geral || '',
+              technicalDirector: data.responsavel_tecnico || '',
+              anvisa: data.registro_anvisa || '',
+              watermarkImage: data.papel_timbrado || '',
+            },
+            notifications: data.config_notificacoes || {
+              stockAlertThreshold: 5,
+              medicationReminderEnabled: true,
+              medicationReminderMinutes: 30,
+              birthdayRemindersEnabled: true,
+              contractDueDaysWarning: 30,
+              checklistMissedAlerts: true,
+              lowOccupancyThreshold: 20
+            },
+            security: data.config_seguranca || {
+              sessionTimeoutMinutes: 60,
+              requirePasswordChange: false,
+              passwordChangeDays: 90,
+              twoFactorEnabled: false,
+              auditLogRetentionDays: 365,
+              maxLoginAttempts: 5
+            }
+          };
+          localStorage.setItem('recanto_system_settings', JSON.stringify(settings));
+        }
+      } catch (err) {
+        console.error('Erro ao sincronizar configurações locais:', err);
+      }
+    };
+
+    syncCompanySettings();
   }, [currentUser]);
 
   const login = async (email: string, password: string) => {
@@ -427,7 +558,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             name: userData.name,
             profile_id: userData.profile.id,
             resident_id: userData.residentId || null,
-            employee_id: userData.employeeId || null
+            employee_id: userData.employeeId || null,
+            empresa_id: currentUser?.empresaId
           }
         }
       });
@@ -443,7 +575,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           name: userData.name,
           email: userData.email,
           profile_id: userData.profile.id,
-          resident_id: userData.residentId || null
+          resident_id: userData.residentId || null,
+          empresa_id: currentUser?.empresaId
         }, { onConflict: 'auth_user_id' });
 
       if (dbError) throw dbError;
@@ -505,6 +638,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       ViewState.REPORTS, ViewState.AGENDA, ViewState.ROOMS,
     ];
 
+    const empresaId = 'emp_' + Math.random().toString(36).substring(2, 9);
+
+    // 1. Criar Empresa
+    const { error: empError } = await supabase
+      .from('Recanto_Empresas')
+      .insert({
+        empresa_id: empresaId,
+        nome_instituicao: params.companyName,
+        cidade: params.city || null,
+        status: 'ativa'
+      });
+
+    if (empError) throw empError;
+
+    // 2. Criar Auth User
     const { data: authData, error: signUpError } = await supabase.auth.signUp({
       email: params.email,
       password: params.password,
@@ -512,6 +660,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         data: {
           name: params.userName,
           company_name: params.companyName,
+          empresa_id: empresaId
         }
       }
     });
@@ -523,9 +672,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { needsEmailConfirm: true };
     }
 
+    // 3. Criar Perfil de Administrador para a empresa
     const { data: profileData, error: profileError } = await supabase
       .from('Recanto_Perfis')
-      .insert({ name: 'Administrador', type: 'Administrador', is_editable: false })
+      .insert({ name: 'Administrador', type: 'Administrador', is_editable: false, empresa_id: empresaId })
       .select()
       .single();
 
@@ -543,6 +693,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     if (permError) console.warn('Aviso ao criar permissões:', permError.message);
 
+    // 4. Salvar usuário público
     const { error: userError } = await supabase
       .from('Recanto_Usuarios')
       .upsert({
@@ -550,6 +701,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         name: params.userName,
         email: params.email,
         profile_id: profileData.id,
+        empresa_id: empresaId
       }, { onConflict: 'auth_user_id' });
 
     if (userError) throw userError;

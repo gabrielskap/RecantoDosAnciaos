@@ -320,19 +320,42 @@ const CheckoutPage: React.FC = () => {
     if (assinaturaError) console.warn('Aviso assinatura:', assinaturaError.message);
 
     // 3. Criar usuário no Supabase Auth
-    const { data: authData, error: signUpError } = await supabase.auth.signUp({
-      email: form.emailAdmin,
-      password: form.senha,
-      options: {
-        data: {
-          name: form.nomeAdmin,
-          company_name: form.nomeInstituicao,
-          empresa_id: empresaId,
+    let authData;
+    let signUpError;
+    try {
+      const res = await supabase.auth.signUp({
+        email: form.emailAdmin,
+        password: form.senha,
+        options: {
+          data: {
+            name: form.nomeAdmin,
+            company_name: form.nomeInstituicao,
+            empresa_id: empresaId,
+            profile_type: 'Administrador',
+          },
         },
-      },
-    });
+      });
+      authData = res.data;
+      signUpError = res.error;
+    } catch (err: any) {
+      signUpError = err;
+    }
 
-    if (signUpError) throw new Error('Falha ao criar usuário: ' + signUpError.message);
+    if (signUpError && (signUpError.message?.includes('already registered') || signUpError.message?.includes('already exists') || signUpError.status === 422)) {
+      // Usuário já cadastrado no Auth. Tenta fazer login com a senha fornecida para prosseguir
+      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+        email: form.emailAdmin,
+        password: form.senha,
+      });
+
+      if (signInError) {
+        throw new Error('Este e-mail já está cadastrado. Caso seja você, digite a senha correta.');
+      }
+      authData = signInData;
+    } else if (signUpError) {
+      throw new Error('Falha ao criar usuário: ' + signUpError.message);
+    }
+
     if (!authData.user) throw new Error('Usuário não retornado pelo Supabase.');
 
     if (!authData.session) {
@@ -340,34 +363,51 @@ const CheckoutPage: React.FC = () => {
       return;
     }
 
-    // 4. Criar perfil Administrador
-    const allModules = [
-      'DASHBOARD','RESIDENTS','FINANCE','STOCK','TEAM',
-      'NUTRITION','REPORTS','AGENDA','ROOMS','SETTINGS'
-    ];
+    // Verifica se já existe o registro de Recanto_Usuarios
+    const { data: existingUser } = await supabase
+      .from('Recanto_Usuarios')
+      .select('id, profile_id, empresa_id')
+      .eq('auth_user_id', authData.user.id)
+      .maybeSingle();
 
-    const { data: profileData, error: profileError } = await supabase
-      .from('Recanto_Perfis')
-      .insert({ name: 'Administrador', type: 'Administrador', is_editable: false })
-      .select()
-      .single();
+    if (existingUser && existingUser.empresa_id && existingUser.empresa_id !== empresaId) {
+      // Já está completamente cadastrado e associado a uma empresa
+      throw new Error('Este e-mail já está cadastrado e associado a uma empresa.');
+    }
 
-    if (profileError) throw new Error('Falha ao criar perfil: ' + profileError.message);
+    let profileId = existingUser?.profile_id;
 
-    await supabase.from('Recanto_Permissoes').insert(
-      allModules.map(module => ({
-        profile_id: profileData.id,
-        module,
-        actions: ['view', 'edit', 'create', 'delete'],
-      }))
-    );
+    if (!profileId) {
+      // 4. Criar perfil Administrador
+      const allModules = [
+        'DASHBOARD','RESIDENTS','FINANCE','STOCK','TEAM',
+        'NUTRITION','REPORTS','AGENDA','ROOMS','SETTINGS'
+      ];
 
-    // 5. Inserir usuário na tabela de negócio com empresa_id
+      const { data: profileData, error: profileError } = await supabase
+        .from('Recanto_Perfis')
+        .insert({ name: 'Administrador', type: 'Administrador', is_editable: false })
+        .select()
+        .single();
+
+      if (profileError) throw new Error('Falha ao criar perfil: ' + profileError.message);
+      profileId = profileData.id;
+
+      await supabase.from('Recanto_Permissoes').insert(
+        allModules.map(module => ({
+          profile_id: profileId,
+          module,
+          actions: ['view', 'edit', 'create', 'delete'],
+        }))
+      );
+    }
+
+    // 5. Inserir/Atualizar usuário na tabela de negócio com empresa_id
     await supabase.from('Recanto_Usuarios').upsert({
       auth_user_id: authData.user.id,
       name: form.nomeAdmin,
       email: form.emailAdmin,
-      profile_id: profileData.id,
+      profile_id: profileId,
       empresa_id: empresaId,
     }, { onConflict: 'auth_user_id' });
 
