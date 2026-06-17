@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   HeartPulse, ArrowLeft, ArrowRight, Check, Building2, User, CreditCard,
   ClipboardList, CheckCircle, XCircle, Clock, Eye, EyeOff, Shield, Lock,
-  AlertCircle, ChevronRight
+  AlertCircle, ChevronRight, Loader2
 } from 'lucide-react';
 import { supabase } from '../services/supabaseClient';
 import type { CheckoutFormData, PlanoId, Periodicidade, FormaPagamento } from '../types';
@@ -135,6 +135,40 @@ const CheckoutPage: React.FC = () => {
   const [showConfirm, setShowConfirm] = useState(false);
   const [processingMsg, setProcessingMsg] = useState('Aguarde enquanto processamos seu pagamento...');
   const [errorMsg, setErrorMsg] = useState('');
+  const [loadingCEP, setLoadingCEP] = useState(false);
+
+  const handleCEPChange = async (val: string) => {
+    const formatted = formatCEP(val);
+    set('cep', formatted);
+
+    const cleanCEP = formatted.replace(/\D/g, '');
+    if (cleanCEP.length === 8) {
+      setLoadingCEP(true);
+      try {
+        const response = await fetch(`https://viacep.com.br/ws/${cleanCEP}/json/`);
+        if (response.ok) {
+          const data = await response.json();
+          if (!data.erro) {
+            setForm(f => ({
+              ...f,
+              endereco: data.logradouro ? `${data.logradouro}${data.bairro ? `, ${data.bairro}` : ''}` : f.endereco,
+              cidade: data.localidade || f.cidade,
+              estado: data.uf || f.estado,
+            }));
+            setErrors(e => ({
+              ...e,
+              cidade: undefined,
+              estado: undefined,
+            }));
+          }
+        }
+      } catch (err) {
+        console.error('Erro ao buscar CEP:', err);
+      } finally {
+        setLoadingCEP(false);
+      }
+    }
+  };
 
   // Pré-seleciona plano pela query string (?plano=essencial)
   useEffect(() => {
@@ -546,14 +580,30 @@ const CheckoutPage: React.FC = () => {
                         <FieldError name="emailComercial" />
                       </div>
                     </div>
-                    <div>
-                      <label className={labelCls}>Endereço completo</label>
-                      <input className={inputCls('endereco')} value={form.endereco}
-                        onChange={e => set('endereco', e.target.value)}
-                        placeholder="Rua, número, complemento" />
-                    </div>
                     <div className="grid md:grid-cols-3 gap-4">
                       <div>
+                        <label className={labelCls}>CEP *</label>
+                        <div className="relative">
+                          <input className={inputCls('cep')} value={form.cep}
+                            onChange={e => handleCEPChange(e.target.value)}
+                            placeholder="00000-000" maxLength={9} />
+                          {loadingCEP && (
+                            <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                              <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
+                            </div>
+                          )}
+                        </div>
+                        <FieldError name="cep" />
+                      </div>
+                      <div className="md:col-span-2">
+                        <label className={labelCls}>Endereço completo</label>
+                        <input className={inputCls('endereco')} value={form.endereco}
+                          onChange={e => set('endereco', e.target.value)}
+                          placeholder="Rua, número, complemento" />
+                      </div>
+                    </div>
+                    <div className="grid md:grid-cols-3 gap-4">
+                      <div className="md:col-span-2">
                         <label className={labelCls}>Cidade *</label>
                         <input className={inputCls('cidade')} value={form.cidade}
                           onChange={e => set('cidade', e.target.value)} placeholder="São Paulo" />
@@ -567,13 +617,6 @@ const CheckoutPage: React.FC = () => {
                           {ESTADOS_BR.map(uf => <option key={uf} value={uf}>{uf}</option>)}
                         </select>
                         <FieldError name="estado" />
-                      </div>
-                      <div>
-                        <label className={labelCls}>CEP *</label>
-                        <input className={inputCls('cep')} value={form.cep}
-                          onChange={e => set('cep', formatCEP(e.target.value))}
-                          placeholder="00000-000" maxLength={9} />
-                        <FieldError name="cep" />
                       </div>
                     </div>
                     <div className="grid md:grid-cols-2 gap-4">
