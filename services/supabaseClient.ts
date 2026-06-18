@@ -143,3 +143,56 @@ export const uploadPrescriptionDocument = async (file: File): Promise<string> =>
 
   return data.publicUrl;
 };
+
+// Helper to upload a user profile photo to Supabase storage, with automatic bucket verification and fallback to base64
+export const uploadUserPhoto = async (file: File, compressedBase64: string): Promise<string> => {
+  try {
+    const fileExt = file.name.split('.').pop() || 'jpg';
+    const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}.${fileExt}`;
+    const filePath = `avatars/${fileName}`;
+
+    // 1. Try to ensure storage bucket exists
+    try {
+      const { data: buckets } = await supabase.storage.listBuckets();
+      const bucketExists = buckets?.some(b => b.name === 'user-photos');
+      
+      if (!bucketExists) {
+        await supabase.storage.createBucket('user-photos', {
+          public: true,
+          allowedMimeTypes: ['image/png', 'image/jpeg', 'image/gif', 'image/webp'],
+          fileSizeLimit: 5242880 // 5MB
+        });
+      }
+    } catch (bucketErr) {
+      console.warn('Could not verify/create user-photos bucket, attempting upload anyway:', bucketErr);
+    }
+
+    // 2. Convert base64 data URL to Blob for upload
+    const res = await fetch(compressedBase64);
+    const blob = await res.blob();
+
+    // 3. Upload file
+    const { error: uploadErr } = await supabase.storage
+      .from('user-photos')
+      .upload(filePath, blob, {
+        contentType: file.type || 'image/jpeg',
+        upsert: true
+      });
+
+    if (uploadErr) {
+      console.warn('Supabase storage upload failed, using compressed base64 fallback:', uploadErr);
+      return compressedBase64;
+    }
+
+    // 4. Get public URL
+    const { data } = supabase.storage
+      .from('user-photos')
+      .getPublicUrl(filePath);
+
+    return data.publicUrl;
+  } catch (err) {
+    console.warn('Failed uploading to Supabase storage, falling back to base64:', err);
+    return compressedBase64;
+  }
+};
+

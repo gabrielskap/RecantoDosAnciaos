@@ -405,6 +405,17 @@ export interface AuthUser {
   employeeRole?: UserRole;
   certificate?: DigitalCertificate;
   empresaId?: string;
+  cpf?: string;
+  sexo?: string;
+  celular?: string;
+  cep?: string;
+  logradouro?: string;
+  bairro?: string;
+  cidade?: string;
+  estado?: string;
+  numero?: string;
+  complemento?: string;
+  avatarUrl?: string;
 }
 
 // --- MULTI-TENANT / ASSINATURA ---

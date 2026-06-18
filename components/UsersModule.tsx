@@ -25,6 +25,55 @@ function certDaysRemaining(expDate: string): number {
   return Math.ceil((exp.getTime() - today.getTime()) / 86400000);
 }
 
+function validateCPF(cpf: string): boolean {
+  const cleanCPF = cpf.replace(/\D/g, '');
+  if (cleanCPF.length !== 11) return false;
+  if (/^(\d)\1{10}$/.test(cleanCPF)) return false;
+
+  let sum = 0;
+  for (let i = 0; i < 9; i++) {
+    sum += parseInt(cleanCPF.charAt(i)) * (10 - i);
+  }
+  let rev = 11 - (sum % 11);
+  if (rev === 10 || rev === 11) rev = 0;
+  if (rev !== parseInt(cleanCPF.charAt(9))) return false;
+
+  sum = 0;
+  for (let i = 0; i < 10; i++) {
+    sum += parseInt(cleanCPF.charAt(i)) * (11 - i);
+  }
+  rev = 11 - (sum % 11);
+  if (rev === 10 || rev === 11) rev = 0;
+  if (rev !== parseInt(cleanCPF.charAt(10))) return false;
+
+  return true;
+}
+
+function formatCPF(v: string): string {
+  v = v.replace(/\D/g, '');
+  if (v.length > 11) v = v.slice(0, 11);
+  if (v.length <= 3) return v;
+  if (v.length <= 6) return `${v.slice(0, 3)}.${v.slice(3)}`;
+  if (v.length <= 9) return `${v.slice(0, 3)}.${v.slice(3, 6)}.${v.slice(6)}`;
+  return `${v.slice(0, 3)}.${v.slice(3, 6)}.${v.slice(6, 9)}-${v.slice(9)}`;
+}
+
+function formatPhone(v: string): string {
+  v = v.replace(/\D/g, '');
+  if (v.length > 11) v = v.slice(0, 11);
+  if (v.length <= 2) return v;
+  if (v.length <= 6) return `(${v.slice(0, 2)}) ${v.slice(2)}`;
+  if (v.length <= 10) return `(${v.slice(0, 2)}) ${v.slice(2, 6)}-${v.slice(6)}`;
+  return `(${v.slice(0, 2)}) ${v.slice(2, 7)}-${v.slice(7)}`;
+}
+
+function formatCEP(v: string): string {
+  v = v.replace(/\D/g, '');
+  if (v.length > 8) v = v.slice(0, 8);
+  if (v.length <= 5) return v;
+  return `${v.slice(0, 5)}-${v.slice(5)}`;
+}
+
 function certFilterMatch(cert: DigitalCertificate | undefined, filter: string): boolean {
   if (filter === 'all') return true;
   if (filter === 'none') return !cert;
@@ -105,6 +154,17 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
   const [selectedProfileId, setSelectedProfileId] = useState(() => localStorage.getItem('modal_users_form_profile_id') || '');
   const [selectedResidentId, setSelectedResidentId] = useState(() => localStorage.getItem('modal_users_form_resident_id') || '');
   const [formError, setFormError] = useState(() => localStorage.getItem('modal_users_form_error') || '');
+  const [cpf, setCpf] = useState(() => localStorage.getItem('modal_users_form_cpf') || '');
+  const [sexo, setSexo] = useState(() => localStorage.getItem('modal_users_form_sexo') || 'Prefiro não Informar');
+  const [celular, setCelular] = useState(() => localStorage.getItem('modal_users_form_celular') || '');
+  const [cep, setCep] = useState(() => localStorage.getItem('modal_users_form_cep') || '');
+  const [logradouro, setLogradouro] = useState(() => localStorage.getItem('modal_users_form_logradouro') || '');
+  const [bairro, setBairro] = useState(() => localStorage.getItem('modal_users_form_bairro') || '');
+  const [cidade, setCidade] = useState(() => localStorage.getItem('modal_users_form_cidade') || '');
+  const [estado, setEstado] = useState(() => localStorage.getItem('modal_users_form_estado') || '');
+  const [numero, setNumero] = useState(() => localStorage.getItem('modal_users_form_numero') || '');
+  const [complemento, setComplemento] = useState(() => localStorage.getItem('modal_users_form_complemento') || '');
+  const [searchingCep, setSearchingCep] = useState(false);
 
   React.useEffect(() => {
     if (isModalOpen) {
@@ -115,6 +175,16 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
       localStorage.setItem('modal_users_form_profile_id', selectedProfileId);
       localStorage.setItem('modal_users_form_resident_id', selectedResidentId);
       localStorage.setItem('modal_users_form_error', formError);
+      localStorage.setItem('modal_users_form_cpf', cpf);
+      localStorage.setItem('modal_users_form_sexo', sexo);
+      localStorage.setItem('modal_users_form_celular', celular);
+      localStorage.setItem('modal_users_form_cep', cep);
+      localStorage.setItem('modal_users_form_logradouro', logradouro);
+      localStorage.setItem('modal_users_form_bairro', bairro);
+      localStorage.setItem('modal_users_form_cidade', cidade);
+      localStorage.setItem('modal_users_form_estado', estado);
+      localStorage.setItem('modal_users_form_numero', numero);
+      localStorage.setItem('modal_users_form_complemento', complemento);
       if (editingUserId) localStorage.setItem('modal_users_editing_user_id', editingUserId);
     } else {
       localStorage.removeItem('modal_users_create_open');
@@ -124,9 +194,22 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
       localStorage.removeItem('modal_users_form_profile_id');
       localStorage.removeItem('modal_users_form_resident_id');
       localStorage.removeItem('modal_users_form_error');
+      localStorage.removeItem('modal_users_form_cpf');
+      localStorage.removeItem('modal_users_form_sexo');
+      localStorage.removeItem('modal_users_form_celular');
+      localStorage.removeItem('modal_users_form_cep');
+      localStorage.removeItem('modal_users_form_logradouro');
+      localStorage.removeItem('modal_users_form_bairro');
+      localStorage.removeItem('modal_users_form_cidade');
+      localStorage.removeItem('modal_users_form_estado');
+      localStorage.removeItem('modal_users_form_numero');
+      localStorage.removeItem('modal_users_form_complemento');
       localStorage.removeItem('modal_users_editing_user_id');
     }
-  }, [isModalOpen, name, email, password, selectedProfileId, selectedResidentId, formError, editingUserId]);
+  }, [
+    isModalOpen, name, email, password, selectedProfileId, selectedResidentId, formError,
+    cpf, sexo, celular, cep, logradouro, bairro, cidade, estado, numero, complemento, editingUserId
+  ]);
 
   React.useEffect(() => {
     if (userToDelete) {
@@ -165,6 +248,16 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
     setPassword('');
     setSelectedResidentId(residents[0]?.id || '');
     setFormError('');
+    setCpf('');
+    setSexo('Prefiro não Informar');
+    setCelular('');
+    setCep('');
+    setLogradouro('');
+    setBairro('');
+    setCidade('');
+    setEstado('');
+    setNumero('');
+    setComplemento('');
     setIsModalOpen(true);
   };
 
@@ -176,7 +269,44 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
     setSelectedProfileId(user.profile.id);
     setSelectedResidentId(user.residentId || residents[0]?.id || '');
     setFormError('');
+    setCpf(user.cpf || '');
+    setSexo(user.sexo || 'Prefiro não Informar');
+    setCelular(user.celular || '');
+    setCep(user.cep || '');
+    setLogradouro(user.logradouro || '');
+    setBairro(user.bairro || '');
+    setCidade(user.cidade || '');
+    setEstado(user.estado || '');
+    setNumero(user.numero || '');
+    setComplemento(user.complemento || '');
     setIsModalOpen(true);
+  };
+
+  const handleCepChange = async (val: string) => {
+    const formatted = formatCEP(val);
+    setCep(formatted);
+
+    const clean = formatted.replace(/\D/g, '');
+    if (clean.length === 8) {
+      try {
+        setSearchingCep(true);
+        const res = await fetch(`https://viacep.com.br/ws/${clean}/json/`);
+        const data = await res.json();
+        if (data.erro) {
+          toast.error('CEP não encontrado.');
+        } else {
+          setLogradouro(data.logradouro || '');
+          setBairro(data.bairro || '');
+          setCidade(data.localidade || '');
+          setEstado(data.uf || '');
+        }
+      } catch (err) {
+        console.error('Error fetching CEP:', err);
+        toast.error('Erro ao buscar o CEP.');
+      } finally {
+        setSearchingCep(false);
+      }
+    }
   };
 
   const handleCreateUser = async (e: React.FormEvent) => {
@@ -186,6 +316,9 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
     if (!name.trim()) return setFormError('O nome completo é obrigatório.');
     if (!email.trim()) return setFormError('O e-mail é obrigatório.');
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return setFormError('Digite um e-mail válido.');
+
+    if (!cpf.trim()) return setFormError('O CPF é obrigatório.');
+    if (!validateCPF(cpf)) return setFormError('O CPF informado é inválido.');
 
     if (!editingUserId && password.length < 4) {
       return setFormError('A senha deve conter pelo menos 4 caracteres.');
@@ -219,6 +352,16 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
           email: email.trim().toLowerCase(),
           password: '',
           profile,
+          cpf: cpf.trim(),
+          sexo,
+          celular: celular.trim(),
+          cep: cep.trim(),
+          logradouro: logradouro.trim(),
+          bairro: bairro.trim(),
+          cidade: cidade.trim(),
+          estado: estado.trim(),
+          numero: numero.trim(),
+          complemento: complemento.trim(),
           ...(profile.type === 'Responsável' ? { residentId: selectedResidentId } : {})
         };
 
@@ -243,6 +386,16 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
           email: email.trim().toLowerCase(),
           password,
           profile,
+          cpf: cpf.trim(),
+          sexo,
+          celular: celular.trim(),
+          cep: cep.trim(),
+          logradouro: logradouro.trim(),
+          bairro: bairro.trim(),
+          cidade: cidade.trim(),
+          estado: estado.trim(),
+          numero: numero.trim(),
+          complemento: complemento.trim(),
           ...(profile.type === 'Responsável' ? { residentId: selectedResidentId } : {})
         };
 
@@ -703,6 +856,134 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
                     disabled={!!editingUserId}
                     className={`${inputClass} pl-9 ${editingUserId ? 'bg-slate-100 cursor-not-allowed text-slate-500' : ''}`}
                   />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">CPF (Obrigatório)</label>
+                  <input
+                    required
+                    type="text"
+                    placeholder="000.000.000-00"
+                    value={cpf}
+                    onChange={e => setCpf(formatCPF(e.target.value))}
+                    className={inputClass}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">Sexo</label>
+                  <select
+                    value={sexo}
+                    onChange={e => setSexo(e.target.value)}
+                    className={inputClass}
+                  >
+                    <option value="Masculino">Masculino</option>
+                    <option value="Feminino">Feminino</option>
+                    <option value="Prefiro não Informar">Prefiro não Informar</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">Celular</label>
+                  <input
+                    type="text"
+                    placeholder="(00) 00000-0000"
+                    value={celular}
+                    onChange={e => setCelular(formatPhone(e.target.value))}
+                    className={inputClass}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">CEP (Busca automática)</label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="00000-000"
+                      value={cep}
+                      onChange={e => handleCepChange(e.target.value)}
+                      className={`${inputClass} ${searchingCep ? 'pr-8' : ''}`}
+                    />
+                    {searchingCep && (
+                      <div className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 border-2 border-primary-600 border-t-transparent rounded-full animate-spin"></div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-slate-50/50 p-4 border border-slate-100 rounded-xl space-y-3">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Endereço Residencial</p>
+                
+                <div>
+                  <label className="block text-xs font-semibold text-slate-650 mb-1">Logradouro</label>
+                  <input
+                    type="text"
+                    placeholder="Rua, Avenida, Praça, etc."
+                    value={logradouro}
+                    onChange={e => setLogradouro(e.target.value)}
+                    className={inputClass}
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-655 mb-1">Número</label>
+                    <input
+                      type="text"
+                      placeholder="Nº"
+                      value={numero}
+                      onChange={e => setNumero(e.target.value)}
+                      className={inputClass}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-655 mb-1">Complemento</label>
+                    <input
+                      type="text"
+                      placeholder="Apto/Casa/Bloco"
+                      value={complemento}
+                      onChange={e => setComplemento(e.target.value)}
+                      className={inputClass}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="col-span-1">
+                    <label className="block text-xs font-semibold text-slate-655 mb-1">Bairro</label>
+                    <input
+                      type="text"
+                      placeholder="Bairro"
+                      value={bairro}
+                      onChange={e => setBairro(e.target.value)}
+                      className={inputClass}
+                    />
+                  </div>
+                  <div className="col-span-1">
+                    <label className="block text-xs font-semibold text-slate-655 mb-1">Cidade</label>
+                    <input
+                      type="text"
+                      placeholder="Cidade"
+                      value={cidade}
+                      onChange={e => setCidade(e.target.value)}
+                      className={inputClass}
+                    />
+                  </div>
+                  <div className="col-span-1">
+                    <label className="block text-xs font-semibold text-slate-655 mb-1">UF</label>
+                    <input
+                      type="text"
+                      placeholder="UF"
+                      maxLength={2}
+                      value={estado}
+                      onChange={e => setEstado(e.target.value.toUpperCase())}
+                      className={inputClass}
+                    />
+                  </div>
                 </div>
               </div>
 

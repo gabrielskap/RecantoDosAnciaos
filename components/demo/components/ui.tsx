@@ -24,8 +24,17 @@ export const SectionCard: React.FC<{ title?: string; action?: React.ReactNode; c
   </div>
 );
 
-export const Avatar: React.FC<{ initials: string; color: string; size?: 'sm' | 'md' | 'lg' }> = ({ initials, color, size = 'md' }) => {
+export const Avatar: React.FC<{ initials: string; color: string; size?: 'sm' | 'md' | 'lg'; src?: string }> = ({ initials, color, size = 'md', src }) => {
   const dim = size === 'sm' ? 'w-8 h-8 text-xs' : size === 'lg' ? 'w-14 h-14 text-lg' : 'w-10 h-10 text-sm';
+  if (src) {
+    return (
+      <img
+        src={src}
+        alt="Avatar"
+        className={`${dim} rounded-full object-cover flex-shrink-0 border border-slate-100 shadow-sm`}
+      />
+    );
+  }
   return (
     <div className={`${color} ${dim} rounded-full flex items-center justify-center text-white font-bold flex-shrink-0`}>
       {initials}

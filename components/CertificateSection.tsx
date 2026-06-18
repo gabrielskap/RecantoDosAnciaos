@@ -276,8 +276,8 @@ const CertificateSection: React.FC<Props> = ({ user, onClose, onSave, onRemove }
                     {certDays < 0
                       ? `Expirado há ${Math.abs(certDays)} dia${Math.abs(certDays) !== 1 ? 's' : ''}`
                       : certDays === 0
-                      ? 'Expira hoje'
-                      : `${certDays} dias restantes`}
+                        ? 'Expira hoje'
+                        : `${certDays} dias restantes`}
                   </div>
                 </div>
               </div>
@@ -384,13 +384,12 @@ const CertificateSection: React.FC<Props> = ({ user, onClose, onSave, onRemove }
                 onDragLeave={handleDragLeave}
                 onDrop={handleDrop}
                 onClick={() => fileInputRef.current?.click()}
-                className={`relative border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all ${
-                  isDragging
+                className={`relative border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all ${isDragging
                     ? 'border-primary-500 bg-primary-50'
                     : file
-                    ? 'border-emerald-400 bg-emerald-50'
-                    : 'border-slate-300 hover:border-primary-400 hover:bg-slate-50'
-                }`}
+                      ? 'border-emerald-400 bg-emerald-50'
+                      : 'border-slate-300 hover:border-primary-400 hover:bg-slate-50'
+                  }`}
               >
                 <input
                   ref={fileInputRef}
