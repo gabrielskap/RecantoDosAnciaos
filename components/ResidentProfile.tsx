@@ -4,7 +4,7 @@ import {
   Thermometer, Heart, CheckCircle, PenTool, ShieldCheck,
   ClipboardList, History, Plus, User, Clock, File, Paperclip, CalendarCheck, AlertOctagon,
   BedDouble, Home, Wrench, PaintRoller, Edit2, X, Phone, FileHeart, Trash2, Users, Camera, Sun, Moon,
-  Key, Printer
+  Key, Printer, Upload
 } from 'lucide-react';
 import { Resident, CarePlan, AuditLog, DailyChecklist, Medication, RoomStatus, Room } from '../types';
 import { residentAvatarSrc } from '../lib/avatar';
@@ -12,7 +12,7 @@ import { toast } from '../services/toast';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import CustomSelect from './CustomSelect';
 import { useAuth } from '../contexts/AuthContext';
-import { compressImage, uploadResidentPhoto } from '../services/supabaseClient';
+import { compressImage, uploadResidentPhoto, uploadPrescriptionDocument } from '../services/supabaseClient';
 
 interface ChecklistMedication {
   id: string;
@@ -104,6 +104,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   }, [activeTab, resident.id]);
 
   const [isEditingStatus, setIsEditingStatus] = useState(false);
+  const [uploadingDoc, setUploadingDoc] = useState(false);
 
   const { currentUser } = useAuth();
   const [isVisitModalOpen, setIsVisitModalOpen] = useState(false);
@@ -524,7 +525,10 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     frequency: '12h em 12h',
     nextDose: '08:00',
     startDate: new Date().toISOString().split('T')[0],
-    endDate: ''
+    endDate: '',
+    observations: '',
+    documentUrl: '',
+    documentName: ''
   });
 
   // Keep track of the loaded prescription key to prevent race conditions
@@ -548,7 +552,10 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
         frequency: '12h em 12h',
         nextDose: '08:00',
         startDate: new Date().toISOString().split('T')[0],
-        endDate: ''
+        endDate: '',
+        observations: '',
+        documentUrl: '',
+        documentName: ''
       });
       return;
     }
@@ -1363,6 +1370,27 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     setChecklistDraft(null);
   };
 
+  const handlePrescriptionDocChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadingDoc(true);
+    try {
+      const finalUrl = await uploadPrescriptionDocument(file);
+      setPrescriptionData(prev => ({
+        ...prev,
+        documentUrl: finalUrl,
+        documentName: file.name
+      }));
+      toast.success('Documento da prescrição física carregado com sucesso!');
+    } catch (err) {
+      console.error('Erro ao fazer upload do documento da prescrição:', err);
+      toast.error('Erro ao fazer upload do documento da prescrição. Tente novamente.');
+    } finally {
+      setUploadingDoc(false);
+    }
+  };
+
   const handleSavePrescription = (e: React.FormEvent) => {
     e.preventDefault();
     if (!onUpdateResident || !prescriptionData.name || !prescriptionData.dosage || !prescriptionData.frequency) return;
@@ -1376,6 +1404,8 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
       nextDose: prescriptionData.nextDose || '08:00',
       startDate: prescriptionData.startDate || new Date().toISOString().split('T')[0],
       endDate: prescriptionData.endDate || undefined,
+      observations: prescriptionData.observations || undefined,
+      documentUrl: prescriptionData.documentUrl || undefined,
       logs: []
     };
 
@@ -1391,7 +1421,10 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
       frequency: '12h em 12h',
       nextDose: '08:00',
       startDate: new Date().toISOString().split('T')[0],
-      endDate: ''
+      endDate: '',
+      observations: '',
+      documentUrl: '',
+      documentName: ''
     });
     setIsPrescriptionModalOpen(false);
   };
@@ -1919,7 +1952,26 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                   <tbody className="divide-y divide-slate-100">
                     {resident.medications.map((med) => (
                       <tr key={med.id} className="hover:bg-slate-50 transition-colors">
-                        <td className="px-4 py-3 font-medium text-slate-800">{med.name}</td>
+                        <td className="px-4 py-3 font-medium text-slate-800">
+                          <div className="flex items-center gap-2">
+                            <span>{med.name}</span>
+                            {med.documentUrl && (
+                              <a 
+                                href={med.documentUrl} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-blue-500 hover:text-blue-700 inline-flex items-center gap-0.5 text-xs font-normal"
+                                title="Visualizar receita digitalizada"
+                              >
+                                <FileText size={14} className="text-blue-500" />
+                                <span className="underline">Receita</span>
+                              </a>
+                            )}
+                          </div>
+                          {med.observations && (
+                            <div className="text-xs text-slate-450 font-normal mt-0.5 max-w-xs break-words">{med.observations}</div>
+                          )}
+                        </td>
                         <td className="px-4 py-3">{med.dosage} ({med.route})</td>
                         <td className="px-4 py-3">{med.frequency}</td>
                         <td className="px-4 py-3">
@@ -4199,6 +4251,48 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                     onChange={e => setPrescriptionData({ ...prescriptionData, endDate: e.target.value })} 
                     className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                   />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1.5">Observações (Opcional)</label>
+                <textarea 
+                  rows={2} 
+                  value={prescriptionData.observations} 
+                  onChange={e => setPrescriptionData({ ...prescriptionData, observations: e.target.value })} 
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white resize-none"
+                  placeholder="Ex: Tomar após as refeições, diluir em água..."
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1.5">Prescrição Física Digitalizada (Opcional)</label>
+                <div className="flex items-center gap-3">
+                  <label className="flex items-center gap-2 bg-blue-50 hover:bg-blue-100 text-blue-700 px-4 py-2.5 rounded-xl text-xs font-semibold cursor-pointer transition-colors border border-blue-100">
+                    <Upload className="w-3.5 h-3.5" />
+                    {uploadingDoc ? 'Carregando...' : (prescriptionData.documentUrl ? 'Alterar Documento' : 'Upload de Arquivo')}
+                    <input
+                      type="file"
+                      accept="application/pdf, image/png, image/jpeg, image/jpg, image/webp"
+                      onChange={handlePrescriptionDocChange}
+                      disabled={uploadingDoc}
+                      className="hidden"
+                    />
+                  </label>
+                  {prescriptionData.documentUrl && (
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-xs text-slate-500 truncate max-w-[180px] font-medium" title={prescriptionData.documentName || 'Documento anexado'}>
+                        {prescriptionData.documentName || 'Documento anexado'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setPrescriptionData(prev => ({ ...prev, documentUrl: '', documentName: '' }))}
+                        className="text-rose-600 hover:text-rose-700 text-xs font-semibold shrink-0"
+                      >
+                        Remover
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
 

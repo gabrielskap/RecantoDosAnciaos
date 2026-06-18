@@ -25,10 +25,11 @@ import { toast } from './services/toast';
 import NotificationsPanel from './components/NotificationsPanel';
 import type { AlertItem } from './components/NotificationsPanel';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { Menu, HeartPulse, Bell } from 'lucide-react';
+import { Menu, HeartPulse, Bell, ChevronDown, UserCircle, LogOut, Building2 } from 'lucide-react';
 import { ViewState, Resident, FinancialRecord, StockItem, Employee, TrainingRecord, SystemAccessLog, Contract, Invoice, CalendarEvent, StockTransaction, Room } from './types';
 import { supabase } from './services/supabaseClient';
 import * as dataService from './services/dataService';
+import UserProfile from './components/UserProfile';
 
 // Path name to ViewState conversion
 const pathToView = (path: string): { view: ViewState; residentId?: string } => {
@@ -62,6 +63,8 @@ const pathToView = (path: string): { view: ViewState; residentId?: string } => {
       return { view: ViewState.ROOMS };
     case 'settings':
       return { view: ViewState.SETTINGS };
+    case 'profile':
+      return { view: ViewState.PROFILE };
     default:
       return { view: ViewState.DASHBOARD };
   }
@@ -93,19 +96,50 @@ const viewToPath = (view: ViewState, residentId?: string): string => {
       return '/rooms';
     case ViewState.SETTINGS:
       return '/settings';
+    case ViewState.PROFILE:
+      return '/profile';
     default:
       return '/';
   }
 };
 
 function AppInner() {
-  const { currentUser, loading } = useAuth();
+  const { currentUser, loading, logout } = useAuth();
   const [currentView, setCurrentView] = useState<ViewState>(ViewState.DASHBOARD);
   const [selectedResident, setSelectedResident] = useState<Resident | null>(null);
   const [dataLoaded, setDataLoaded] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [dismissedAlertIds, setDismissedAlertIds] = useState<Set<string>>(new Set());
+
+  // Profile dropdown and Company Name states
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [companyName, setCompanyName] = useState('RecantoCare');
+
+  // Compute user initials
+  const userInitials = useMemo(() => {
+    if (!currentUser?.name) return 'US';
+    const parts = currentUser.name.trim().split(/\s+/);
+    if (parts.length === 0 || !parts[0]) return 'US';
+    if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  }, [currentUser]);
+
+  // Handle click outside of dropdown to close it
+  useEffect(() => {
+    const handleGlobalClick = (e: MouseEvent) => {
+      const container = document.getElementById('profile-dropdown-container');
+      if (container && !container.contains(e.target as Node)) {
+        setProfileMenuOpen(false);
+      }
+    };
+    if (profileMenuOpen) {
+      window.addEventListener('click', handleGlobalClick);
+    }
+    return () => {
+      window.removeEventListener('click', handleGlobalClick);
+    };
+  }, [profileMenuOpen]);
 
   // Application State connected to database
   const [residents, setResidents] = useState<Resident[]>([]);
@@ -308,6 +342,23 @@ function AppInner() {
       fetchTrainingRecords();
       fetchEvents();
       fetchRooms();
+
+      // Buscar nome da instituição
+      const fetchCompanyInfo = async () => {
+        try {
+          const { data } = await supabase
+            .from('Recanto_Empresas')
+            .select('nome_instituicao')
+            .eq('empresa_id', currentUser.empresaId)
+            .maybeSingle();
+          if (data?.nome_instituicao) {
+            setCompanyName(data.nome_instituicao);
+          }
+        } catch (err) {
+          console.warn('Erro ao carregar nome da empresa no topo:', err);
+        }
+      };
+      fetchCompanyInfo();
     } else {
       setResidents([]);
       setFinancials([]);
@@ -320,6 +371,7 @@ function AppInner() {
       setEvents([]);
       setRooms([]);
       setDataLoaded(false);
+      setCompanyName('RecantoCare');
     }
   }, [currentUser]);
 
@@ -457,7 +509,7 @@ function AppInner() {
       [ViewState.REPORTS]: 'Relatórios & Indicadores',
       [ViewState.ROOMS]: 'Gerenciamento de Quartos',
       [ViewState.SETTINGS]: 'Configurações do Sistema',
-
+      [ViewState.PROFILE]: 'Meu Perfil',
     };
 
     const pageName = viewTitles[currentView] ?? 'Painel Geral';
@@ -673,7 +725,9 @@ function AppInner() {
               frequency: med.frequency,
               next_dose: med.nextDose,
               start_date: med.startDate || null,
-              end_date: med.endDate || null
+              end_date: med.endDate || null,
+              observations: med.observations || null,
+              document_url: med.documentUrl || null
             })
             .select()
             .single();
@@ -1356,6 +1410,8 @@ function AppInner() {
         );
       case ViewState.SETTINGS:
         return <SettingsModule />;
+      case ViewState.PROFILE:
+        return <UserProfile />;
       default:
         return <Dashboard residents={residents} financials={financials} />;
     }
@@ -1428,22 +1484,74 @@ function AppInner() {
         </div>
 
         {/* Desktop Top Bar */}
-        <div className="hidden lg:flex sticky top-0 z-20 px-8 py-3 bg-white/80 backdrop-blur-sm border-b border-slate-100 items-center justify-end shadow-sm">
-          <button
-            onClick={() => setShowNotifications(true)}
-            className="relative flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-600 hover:bg-slate-100 hover:text-slate-800 active:scale-95 transition-all"
-            aria-label="Notificações"
-          >
-            <div className="relative">
-              <Bell className="h-5 w-5" />
-              {visibleAlerts.length > 0 && (
-                <span className="absolute -top-1 -right-1 min-w-[16px] h-4 flex items-center justify-center bg-rose-500 text-white text-[9px] font-bold rounded-full px-1 shadow-sm animate-pulse">
-                  {visibleAlerts.length > 99 ? '99+' : visibleAlerts.length}
-                </span>
+        <div className="hidden lg:flex sticky top-0 z-20 px-8 py-3 bg-white/80 backdrop-blur-sm border-b border-slate-100 items-center justify-between shadow-sm">
+          {/* Left: Institution Info */}
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center shrink-0">
+              <Building2 className="h-4 w-4 text-blue-600" />
+            </div>
+            <div className="min-w-0 text-left">
+              <p className="text-sm font-semibold text-slate-800 truncate leading-tight">{companyName}</p>
+              <p className="text-[11px] text-slate-400 truncate">Painel administrativo</p>
+            </div>
+          </div>
+
+          {/* Right: Actions (Notifications & Profile) */}
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => setShowNotifications(true)}
+              className="relative flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-600 hover:bg-slate-100 hover:text-slate-800 active:scale-95 transition-all"
+              aria-label="Notificações"
+            >
+              <div className="relative">
+                <Bell className="h-5 w-5" />
+                {visibleAlerts.length > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-[16px] h-4 flex items-center justify-center bg-rose-500 text-white text-[9px] font-bold rounded-full px-1 shadow-sm animate-pulse">
+                    {visibleAlerts.length > 99 ? '99+' : visibleAlerts.length}
+                  </span>
+                )}
+              </div>
+              <span className="text-sm font-semibold">Alertas e Notificações</span>
+            </button>
+
+            {/* Profile Dropdown */}
+            <div className="relative" id="profile-dropdown-container">
+              <button
+                onClick={() => setProfileMenuOpen(!profileMenuOpen)}
+                className="flex items-center gap-2 pl-1.5 pr-2 py-1.5 rounded-xl hover:bg-slate-100 transition-colors select-none"
+              >
+                <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                  {userInitials}
+                </div>
+                <div className="hidden sm:block text-left">
+                  <p className="text-sm font-semibold text-slate-800 leading-tight">{currentUser.name}</p>
+                  <p className="text-[11px] text-slate-400">{currentUser.profile.name}</p>
+                </div>
+                <ChevronDown className="h-4 w-4 text-slate-400" />
+              </button>
+
+              {profileMenuOpen && (
+                <div className="absolute right-0 mt-2 w-56 bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden z-30">
+                  <div className="px-4 py-3 border-b border-slate-100 text-left">
+                    <p className="text-sm font-semibold text-slate-800 truncate">{currentUser.name}</p>
+                    <p className="text-xs text-slate-400 truncate">{currentUser.email}</p>
+                  </div>
+                  <button
+                    onClick={() => { setProfileMenuOpen(false); navigateTo(ViewState.PROFILE); }}
+                    className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-50 transition-colors text-left font-medium"
+                  >
+                    <UserCircle className="h-4 w-4 text-slate-400" /> Meu perfil
+                  </button>
+                  <button
+                    onClick={() => { setProfileMenuOpen(false); logout(); }}
+                    className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-rose-600 hover:bg-rose-50 transition-colors text-left font-medium"
+                  >
+                    <LogOut className="h-4 w-4" /> Sair do sistema
+                  </button>
+                </div>
               )}
             </div>
-            <span className="text-sm font-semibold">Alertas e Notificações</span>
-          </button>
+          </div>
         </div>
 
         <div className="p-4 md:p-8 max-w-7xl mx-auto">

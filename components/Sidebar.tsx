@@ -66,7 +66,13 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, isOpen, se
         {/* User info */}
         {currentUser && (
           <div className="px-3 py-3 border-b border-blue-100 shrink-0">
-            <div className="flex items-center gap-2.5 bg-white rounded-xl px-3 py-2.5 shadow-sm">
+            <div 
+              onClick={() => {
+                onChangeView(ViewState.PROFILE);
+                setIsOpen(false);
+              }}
+              className="flex items-center gap-2.5 bg-white hover:bg-blue-100/50 cursor-pointer rounded-xl px-3 py-2.5 shadow-sm transition-all duration-200 select-none"
+            >
               <div className="w-8 h-8 rounded-xl bg-blue-100 flex items-center justify-center shrink-0">
                 <UserCircle className="h-4 w-4 text-blue-600" />
               </div>

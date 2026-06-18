@@ -75,6 +75,8 @@ export async function fetchResidents(empresaId: string): Promise<Resident[]> {
       nextDose: m.next_dose || '',
       startDate: m.start_date || undefined,
       endDate: m.end_date || undefined,
+      observations: m.observations || undefined,
+      documentUrl: m.document_url || undefined,
       logs: (m.logs || []).map((log: any) => ({
         id: log.id,
         timestamp: log.timestamp,

@@ -102,3 +102,44 @@ export const uploadResidentPhoto = async (file: File, compressedBase64: string):
     return compressedBase64;
   }
 };
+
+// Helper to upload a digitalized prescription document to Supabase storage
+export const uploadPrescriptionDocument = async (file: File): Promise<string> => {
+  const fileExt = file.name.split('.').pop() || 'pdf';
+  const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}.${fileExt}`;
+  const filePath = `documents/${fileName}`;
+
+  // 1. Try to ensure storage bucket exists
+  try {
+    const { data: buckets } = await supabase.storage.listBuckets();
+    const bucketExists = buckets?.some(b => b.name === 'prescription-documents');
+    
+    if (!bucketExists) {
+      await supabase.storage.createBucket('prescription-documents', {
+        public: true,
+        fileSizeLimit: 10485760 // 10MB
+      });
+    }
+  } catch (bucketErr) {
+    console.warn('Could not verify/create prescription-documents bucket, attempting upload anyway:', bucketErr);
+  }
+
+  // 2. Upload file
+  const { error: uploadErr } = await supabase.storage
+    .from('prescription-documents')
+    .upload(filePath, file, {
+      contentType: file.type || 'application/pdf',
+      upsert: true
+    });
+
+  if (uploadErr) {
+    throw uploadErr;
+  }
+
+  // 3. Get public URL
+  const { data } = supabase.storage
+    .from('prescription-documents')
+    .getPublicUrl(filePath);
+
+  return data.publicUrl;
+};

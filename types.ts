@@ -16,6 +16,8 @@ export interface Medication {
   startDate?: string;
   endDate?: string;
   logs: MedicationLog[];
+  observations?: string;
+  documentUrl?: string;
 }
 
 export interface VitalSign {
@@ -370,7 +372,8 @@ export enum ViewState {
   AGENDA = 'AGENDA',
   USERS = 'USERS',
   ROOMS = 'ROOMS',
-  SETTINGS = 'SETTINGS'
+  SETTINGS = 'SETTINGS',
+  PROFILE = 'PROFILE'
 }
 
 // --- AUTH & RBAC TYPES ---
