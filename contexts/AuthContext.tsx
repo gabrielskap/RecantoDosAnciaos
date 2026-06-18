@@ -455,9 +455,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
 
-    // Configurações: visível para todos os perfis de staff, editável apenas pelo Administrador
+    // Configurações: visível de acordo com a permissão, editável apenas pelo Administrador
     if (module === ViewState.SETTINGS) {
-      return action === 'view';
+      if (action !== 'view') return false;
     }
     
     const perm = currentUser.profile.permissions.find(p => p.module === module);
@@ -630,9 +630,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     password: string;
   }): Promise<{ needsEmailConfirm: boolean }> => {
     const allModules = [
-      ViewState.DASHBOARD, ViewState.RESIDENTS, ViewState.FINANCE,
-      ViewState.STOCK, ViewState.TEAM, ViewState.NUTRITION,
-      ViewState.REPORTS, ViewState.AGENDA, ViewState.ROOMS,
+      ViewState.DASHBOARD,
+      ViewState.RESIDENTS,
+      ViewState.RESIDENT_DETAIL,
+      ViewState.AGENDA,
+      ViewState.NUTRITION,
+      ViewState.TEAM,
+      ViewState.FINANCE,
+      ViewState.STOCK,
+      ViewState.REPORTS,
+      ViewState.USERS,
+      ViewState.ROOMS,
+      ViewState.SETTINGS,
     ];
 
     const empresaId = gerarEmpresaId();

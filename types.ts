@@ -223,13 +223,13 @@ export interface Resident {
   mobilidadeSet?: 'independente' | 'auxilio' | 'acamado';
   higieneCorporal?: 'independente' | 'auxilio';
   higieneOralVestir?: 'independente' | 'auxilio';
-  reqHygiene?: boolean;
-  reqOralCare?: boolean;
-  reqFeeding?: boolean;
-  reqHydration?: boolean;
-  reqMobility?: boolean;
-  reqDressings?: boolean;
-  reqLeisure?: boolean;
+  reqHygiene?: boolean | null;
+  reqOralCare?: boolean | null;
+  reqFeeding?: boolean | null;
+  reqHydration?: boolean | null;
+  reqMobility?: boolean | null;
+  reqDressings?: boolean | null;
+  reqLeisure?: boolean | null;
 }
 
 // --- FINANCIAL & CONTRACTS TYPES ---

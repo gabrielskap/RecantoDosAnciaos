@@ -550,13 +550,13 @@ function AppInner() {
           mobilidade_usual: newResident.mobilidadeSet || 'independente',
           higiene_corporal_usual: newResident.higieneCorporal || 'independente',
           higiene_oral_vestir_usual: newResident.higieneOralVestir || 'independente',
-          req_hygiene: newResident.reqHygiene || false,
-          req_oral_care: newResident.reqOralCare || false,
-          req_feeding: newResident.reqFeeding || false,
-          req_hydration: newResident.reqHydration || false,
-          req_mobility: newResident.reqMobility || false,
-          req_dressings: newResident.reqDressings || false,
-          req_leisure: newResident.reqLeisure || false
+          req_hygiene: newResident.reqHygiene ?? null,
+          req_oral_care: newResident.reqOralCare ?? null,
+          req_feeding: newResident.reqFeeding ?? null,
+          req_hydration: newResident.reqHydration ?? null,
+          req_mobility: newResident.reqMobility ?? null,
+          req_dressings: newResident.reqDressings ?? null,
+          req_leisure: newResident.reqLeisure ?? null
         })
         .select()
         .single();
@@ -651,13 +651,13 @@ function AppInner() {
           mobilidade_usual: updated.mobilidadeSet || 'independente',
           higiene_corporal_usual: updated.higieneCorporal || 'independente',
           higiene_oral_vestir_usual: updated.higieneOralVestir || 'independente',
-          req_hygiene: updated.reqHygiene || false,
-          req_oral_care: updated.reqOralCare || false,
-          req_feeding: updated.reqFeeding || false,
-          req_hydration: updated.reqHydration || false,
-          req_mobility: updated.reqMobility || false,
-          req_dressings: updated.reqDressings || false,
-          req_leisure: updated.reqLeisure || false
+          req_hygiene: updated.reqHygiene ?? null,
+          req_oral_care: updated.reqOralCare ?? null,
+          req_feeding: updated.reqFeeding ?? null,
+          req_hydration: updated.reqHydration ?? null,
+          req_mobility: updated.reqMobility ?? null,
+          req_dressings: updated.reqDressings ?? null,
+          req_leisure: updated.reqLeisure ?? null
         })
         .eq('id', updated.id);
 

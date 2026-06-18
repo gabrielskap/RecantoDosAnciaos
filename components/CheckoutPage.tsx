@@ -385,8 +385,18 @@ const CheckoutPage: React.FC = () => {
     if (!profileId) {
       // 4. Criar perfil Administrador
       const allModules = [
-        'DASHBOARD','RESIDENTS','FINANCE','STOCK','TEAM',
-        'NUTRITION','REPORTS','AGENDA','ROOMS','SETTINGS'
+        'DASHBOARD',
+        'RESIDENTS',
+        'RESIDENT_DETAIL',
+        'AGENDA',
+        'NUTRITION',
+        'TEAM',
+        'FINANCE',
+        'STOCK',
+        'REPORTS',
+        'USERS',
+        'ROOMS',
+        'SETTINGS'
       ];
 
       const { data: profileData, error: profileError } = await supabase

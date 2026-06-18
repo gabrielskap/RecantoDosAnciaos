@@ -4,7 +4,7 @@ import {
   Thermometer, Heart, CheckCircle, PenTool, ShieldCheck,
   ClipboardList, History, Plus, User, Clock, File, Paperclip, CalendarCheck, AlertOctagon,
   BedDouble, Home, Wrench, PaintRoller, Edit2, X, Phone, FileHeart, Trash2, Users, Camera, Sun, Moon,
-  Key, Printer, Upload
+  Key, Printer, Upload, Wind
 } from 'lucide-react';
 import { Resident, CarePlan, AuditLog, DailyChecklist, Medication, RoomStatus, Room } from '../types';
 import { residentAvatarSrc } from '../lib/avatar';
@@ -250,13 +250,13 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
       mobilidadeSet: resident.mobilidadeSet || 'independente',
       higieneCorporal: resident.higieneCorporal || 'independente',
       higieneOralVestir: resident.higieneOralVestir || 'independente',
-      reqHygiene: resident.reqHygiene || false,
-      reqOralCare: resident.reqOralCare || false,
-      reqFeeding: resident.reqFeeding || false,
-      reqHydration: resident.reqHydration || false,
-      reqMobility: resident.reqMobility || false,
-      reqDressings: resident.reqDressings || false,
-      reqLeisure: resident.reqLeisure || false,
+      reqHygiene: resident.reqHygiene ?? null,
+      reqOralCare: resident.reqOralCare ?? null,
+      reqFeeding: resident.reqFeeding ?? null,
+      reqHydration: resident.reqHydration ?? null,
+      reqMobility: resident.reqMobility ?? null,
+      reqDressings: resident.reqDressings ?? null,
+      reqLeisure: resident.reqLeisure ?? null,
     });
     setModalActiveTab('personal');
     setIsEditModalOpen(true);
@@ -358,13 +358,13 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
       mobilidadeSet: formData.mobilidadeSet || 'independente',
       higieneCorporal: formData.higieneCorporal || 'independente',
       higieneOralVestir: formData.higieneOralVestir || 'independente',
-      reqHygiene: formData.reqHygiene || false,
-      reqOralCare: formData.reqOralCare || false,
-      reqFeeding: formData.reqFeeding || false,
-      reqHydration: formData.reqHydration || false,
-      reqMobility: formData.reqMobility || false,
-      reqDressings: formData.reqDressings || false,
-      reqLeisure: formData.reqLeisure || false,
+      reqHygiene: formData.reqHygiene ?? null,
+      reqOralCare: formData.reqOralCare ?? null,
+      reqFeeding: formData.reqFeeding ?? null,
+      reqHydration: formData.reqHydration ?? null,
+      reqMobility: formData.reqMobility ?? null,
+      reqDressings: formData.reqDressings ?? null,
+      reqLeisure: formData.reqLeisure ?? null,
     };
 
     onUpdateResident(updated);
@@ -1794,16 +1794,27 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                   <div className="border-t border-slate-200/60 pt-3">
                     <span className="block text-xs font-bold text-slate-750 mb-2">Cuidados Diários Programados:</span>
                     <div className="flex flex-wrap gap-2">
-                      {resident.reqHygiene && <span className="bg-blue-50 text-blue-800 px-2.5 py-1 rounded-lg text-xs font-bold border border-blue-100">Auxílio Banho/Higiene</span>}
-                      {resident.reqOralCare && <span className="bg-blue-50 text-blue-800 px-2.5 py-1 rounded-lg text-xs font-bold border border-blue-100">Higiene Oral assistida</span>}
-                      {resident.reqFeeding && <span className="bg-blue-50 text-blue-800 px-2.5 py-1 rounded-lg text-xs font-bold border border-blue-100">Auxílio Alimentação</span>}
-                      {resident.reqHydration && <span className="bg-blue-50 text-blue-800 px-2.5 py-1 rounded-lg text-xs font-bold border border-blue-100">Hidratação assistida</span>}
-                      {resident.reqMobility && <span className="bg-blue-50 text-blue-800 px-2.5 py-1 rounded-lg text-xs font-bold border border-blue-100">Mobilização/Mudança decúbito</span>}
-                      {resident.reqDressings && <span className="bg-blue-50 text-blue-800 px-2.5 py-1 rounded-lg text-xs font-bold border border-blue-100">Realização de Curativos</span>}
-                      {resident.reqLeisure && <span className="bg-blue-50 text-blue-800 px-2.5 py-1 rounded-lg text-xs font-bold border border-blue-100">Atividade Lazer/Social</span>}
-                      {!resident.reqHygiene && !resident.reqOralCare && !resident.reqFeeding && !resident.reqHydration && !resident.reqMobility && !resident.reqDressings && !resident.reqLeisure && (
-                        <span className="text-slate-400 text-xs italic font-medium">Nenhum cuidado diário programado.</span>
-                      )}
+                      {(() => {
+                        const activeCares = [
+                          { val: resident.reqHygiene, label: 'Banho / Higiene' },
+                          { val: resident.reqOralCare, label: 'Higiene Oral' },
+                          { val: resident.reqFeeding, label: 'Alimentação' },
+                          { val: resident.reqHydration, label: 'Hidratação' },
+                          { val: resident.reqMobility, label: 'Mobilização / Mudança de decúbito' },
+                          { val: resident.reqDressings, label: 'Realização de Curativos' },
+                          { val: resident.reqLeisure, label: 'Atividades de Lazer / Social' },
+                        ].filter(c => c.val !== null && c.val !== undefined);
+
+                        if (activeCares.length === 0) {
+                          return <span className="text-slate-400 text-xs italic font-medium">Nenhum cuidado diário programado.</span>;
+                        }
+
+                        return activeCares.map((c, i) => (
+                          <span key={i} className="bg-blue-50 text-blue-800 px-2.5 py-1 rounded-lg text-xs font-bold border border-blue-100">
+                            {c.label} ({c.val ? 'Assistido' : 'Não assistido'})
+                          </span>
+                        ));
+                      })()}
                     </div>
                   </div>
                 </div>
@@ -1869,7 +1880,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
 
             return (
               <div className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                   <div className="bg-slate-50 p-4 rounded-lg border border-slate-100 shadow-sm">
                     <div className="flex items-center text-slate-500 mb-2">
                       <Heart className="h-4 w-4 mr-2 text-rose-500" /> Frequência Cardíaca
@@ -1886,6 +1897,15 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                     <p className="text-2xl font-bold text-slate-800">
                       {latestVital?.bp || '—'}{' '}
                       <span className="text-sm font-normal text-slate-500">mmHg</span>
+                    </p>
+                  </div>
+                  <div className="bg-slate-50 p-4 rounded-lg border border-slate-100 shadow-sm">
+                     <div className="flex items-center text-slate-500 mb-2">
+                      <Wind className="h-4 w-4 mr-2 text-sky-500" /> Saturação (SpO2)
+                    </div>
+                    <p className="text-2xl font-bold text-slate-800">
+                      {latestVital?.spo2 ? `${latestVital.spo2}` : '—'}{' '}
+                      <span className="text-sm font-normal text-slate-500">%</span>
                     </p>
                   </div>
                   <div className="bg-slate-50 p-4 rounded-lg border border-slate-100 shadow-sm">
@@ -4099,24 +4119,62 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                     </span>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       {[
-                        { key: 'reqHygiene', label: 'Auxílio Banho/Higiene' },
-                        { key: 'reqOralCare', label: 'Higiene Oral assistida' },
-                        { key: 'reqFeeding', label: 'Auxílio Alimentação' },
-                        { key: 'reqHydration', label: 'Hidratação assistida' },
-                        { key: 'reqMobility', label: 'Mobilização/Mudança decúbito' },
+                        { key: 'reqHygiene', label: 'Banho / Higiene' },
+                        { key: 'reqOralCare', label: 'Higiene Oral' },
+                        { key: 'reqFeeding', label: 'Alimentação' },
+                        { key: 'reqHydration', label: 'Hidratação' },
+                        { key: 'reqMobility', label: 'Mobilização / Mudança de decúbito' },
                         { key: 'reqDressings', label: 'Realização de Curativos' },
-                        { key: 'reqLeisure', label: 'Atividade Lazer/Social' },
-                      ].map(item => (
-                        <label key={item.key} className="flex items-center gap-2.5 p-2 bg-white rounded-xl border border-slate-100 hover:bg-blue-50 cursor-pointer select-none transition-colors">
-                          <input
-                            type="checkbox"
-                            checked={!!(formData as any)[item.key]}
-                            onChange={e => setFormData({ ...formData, [item.key]: e.target.checked })}
-                            className="rounded text-blue-600 focus:ring-blue-500 h-4 w-4"
-                          />
-                          <span className="text-xs text-slate-600 font-semibold">{item.label}</span>
-                        </label>
-                      ))}
+                        { key: 'reqLeisure', label: 'Atividades de Lazer / Social' },
+                      ].map(item => {
+                        const isChecked = (formData as any)[item.key] !== null && (formData as any)[item.key] !== undefined;
+                        const isAssisted = (formData as any)[item.key] === true;
+
+                        return (
+                          <div key={item.key} className="flex flex-col gap-2 p-3 bg-white rounded-xl border border-slate-100 hover:bg-blue-50/20 transition-colors">
+                            <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={e => {
+                                  if (e.target.checked) {
+                                    setFormData({ ...formData, [item.key]: true });
+                                  } else {
+                                    setFormData({ ...formData, [item.key]: null });
+                                  }
+                                }}
+                                className="rounded text-blue-600 focus:ring-blue-500 h-4 w-4"
+                              />
+                              <span className="text-xs text-slate-700 font-bold">{item.label}</span>
+                            </label>
+                            
+                            {isChecked && (
+                              <div className="flex items-center gap-4 pl-6.5 mt-0.5" onClick={e => e.stopPropagation()}>
+                                <label className="flex items-center gap-1.5 cursor-pointer text-xs text-slate-650 select-none">
+                                  <input
+                                    type="radio"
+                                    name={`${item.key}-assisted`}
+                                    checked={isAssisted}
+                                    onChange={() => setFormData({ ...formData, [item.key]: true })}
+                                    className="text-blue-600 focus:ring-blue-500 h-3.5 w-3.5"
+                                  />
+                                  <span>Assistido</span>
+                                </label>
+                                <label className="flex items-center gap-1.5 cursor-pointer text-xs text-slate-650 select-none">
+                                  <input
+                                    type="radio"
+                                    name={`${item.key}-assisted`}
+                                    checked={!isAssisted}
+                                    onChange={() => setFormData({ ...formData, [item.key]: false })}
+                                    className="text-blue-600 focus:ring-blue-500 h-3.5 w-3.5"
+                                  />
+                                  <span>Não assistido</span>
+                                </label>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 </div>

@@ -36,12 +36,14 @@ BEGIN
       VALUES
         (v_profile_id, 'DASHBOARD', ARRAY['view', 'edit', 'create', 'delete']::public.recanto_acao_permissao[]),
         (v_profile_id, 'RESIDENTS', ARRAY['view', 'edit', 'create', 'delete']::public.recanto_acao_permissao[]),
+        (v_profile_id, 'RESIDENT_DETAIL', ARRAY['view', 'edit', 'create', 'delete']::public.recanto_acao_permissao[]),
+        (v_profile_id, 'AGENDA', ARRAY['view', 'edit', 'create', 'delete']::public.recanto_acao_permissao[]),
+        (v_profile_id, 'NUTRITION', ARRAY['view', 'edit', 'create', 'delete']::public.recanto_acao_permissao[]),
+        (v_profile_id, 'TEAM', ARRAY['view', 'edit', 'create', 'delete']::public.recanto_acao_permissao[]),
         (v_profile_id, 'FINANCE', ARRAY['view', 'edit', 'create', 'delete']::public.recanto_acao_permissao[]),
         (v_profile_id, 'STOCK', ARRAY['view', 'edit', 'create', 'delete']::public.recanto_acao_permissao[]),
-        (v_profile_id, 'TEAM', ARRAY['view', 'edit', 'create', 'delete']::public.recanto_acao_permissao[]),
-        (v_profile_id, 'NUTRITION', ARRAY['view', 'edit', 'create', 'delete']::public.recanto_acao_permissao[]),
         (v_profile_id, 'REPORTS', ARRAY['view', 'edit', 'create', 'delete']::public.recanto_acao_permissao[]),
-        (v_profile_id, 'AGENDA', ARRAY['view', 'edit', 'create', 'delete']::public.recanto_acao_permissao[]),
+        (v_profile_id, 'USERS', ARRAY['view', 'edit', 'create', 'delete']::public.recanto_acao_permissao[]),
         (v_profile_id, 'ROOMS', ARRAY['view', 'edit', 'create', 'delete']::public.recanto_acao_permissao[]),
         (v_profile_id, 'SETTINGS', ARRAY['view', 'edit', 'create', 'delete']::public.recanto_acao_permissao[]);
     END IF;
