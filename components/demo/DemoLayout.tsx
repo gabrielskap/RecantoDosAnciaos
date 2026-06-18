@@ -64,7 +64,7 @@ const DemoLayout: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
               onClick={() => go(ROUTES.subscribe)}
               className="bg-slate-900 text-white text-xs font-semibold px-4 py-1.5 rounded-lg hover:bg-slate-700 transition-colors whitespace-nowrap"
             >
-              Criar conta grátis
+              Quero Assinar
             </button>
             <button onClick={() => setShowBanner(false)} className="text-slate-700 hover:text-slate-900 transition-colors" aria-label="Fechar banner">
               <X className="h-4 w-4" />

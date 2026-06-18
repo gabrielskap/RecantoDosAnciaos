@@ -530,7 +530,7 @@ const TrialEnvironment: React.FC = () => {
               onClick={() => { window.history.pushState(null, '', '/'); window.location.reload(); }}
               className="bg-slate-900 text-white text-xs font-semibold px-4 py-1.5 rounded-lg hover:bg-slate-700 transition-colors whitespace-nowrap"
             >
-              Criar conta grátis
+              Quero Assinar
             </button>
             <button
               onClick={() => setShowBanner(false)}
