@@ -72,6 +72,16 @@ const LandingPage: React.FC = () => {
     window.location.reload();
   };
 
+  const navigateToFeatures = () => {
+    window.history.pushState(null, '', '/recursos');
+    window.location.reload();
+  };
+
+  const navigateToFeature = (slug: string) => {
+    window.history.pushState(null, '', `/recursos/${slug}`);
+    window.location.reload();
+  };
+
   const navigateToCheckout = (planoId?: string, periodo?: string) => {
     const params = new URLSearchParams();
     if (planoId) params.set('plano', planoId);
@@ -103,54 +113,63 @@ const LandingPage: React.FC = () => {
   const features = [
     {
       icon: Users,
+      slug: 'residentes',
       title: 'Gestão de Residentes',
       desc: 'Prontuários completos com histórico de saúde, fotos, documentos e acompanhamento individualizado para cada residente.',
       color: 'text-blue-600 bg-blue-50',
     },
     {
       icon: Stethoscope,
+      slug: 'saude',
       title: 'Saúde & Clínica',
       desc: 'Sinais vitais, checklists diários de cuidado, controle de medicações e planos assistenciais personalizados.',
       color: 'text-rose-600 bg-rose-50',
     },
     {
       icon: DollarSign,
+      slug: 'financeiro',
       title: 'Financeiro',
       desc: 'Contratos, mensalidades, receitas e despesas. Relatórios financeiros e controle de inadimplência.',
       color: 'text-emerald-600 bg-emerald-50',
     },
     {
       icon: Package,
+      slug: 'estoque',
       title: 'Estoque',
       desc: 'Controle de medicamentos e suprimentos com alertas automáticos de estoque mínimo e histórico.',
       color: 'text-amber-600 bg-amber-50',
     },
     {
       icon: Users,
+      slug: 'equipe',
       title: 'Equipe & RH',
       desc: 'Gestão de funcionários, escalas de trabalho, treinamentos e registros de acesso.',
       color: 'text-purple-600 bg-purple-50',
     },
     {
       icon: BarChart3,
+      slug: 'relatorios',
       title: 'Relatórios & BI',
       desc: 'Dashboards com indicadores de ocupação, saúde, financeiro e performance em tempo real.',
       color: 'text-cyan-600 bg-cyan-50',
     },
     {
       icon: Utensils,
+      slug: 'nutricao',
       title: 'Nutrição',
       desc: 'Planos dietéticos individuais, cardápios nutricionais e acompanhamento da alimentação.',
       color: 'text-orange-600 bg-orange-50',
     },
     {
       icon: Calendar,
+      slug: 'agenda',
       title: 'Agenda & Eventos',
       desc: 'Calendário integrado para atividades, consultas médicas, visitas e eventos institucionais.',
       color: 'text-indigo-600 bg-indigo-50',
     },
     {
       icon: Brain,
+      slug: 'ia',
       title: 'IA Assistente',
       desc: 'Assistente inteligente para resumos clínicos, análise de dados e insights automáticos sobre seus residentes.',
       color: 'text-violet-600 bg-violet-50',
@@ -302,10 +321,10 @@ const LandingPage: React.FC = () => {
                 Quero Assinar
               </button>
               <button
-                onClick={navigateToDemo}
+                onClick={navigateToFeatures}
                 className="bg-amber-400 hover:bg-amber-300 text-slate-900 text-sm font-semibold px-5 py-2 rounded-lg transition-all shadow"
               >
-                Começar grátis
+                Saiba mais
               </button>
             </div>
 
@@ -332,10 +351,10 @@ const LandingPage: React.FC = () => {
               Quero Assinar
             </button>
             <button
-              onClick={() => { setMobileMenuOpen(false); navigateToDemo(); }}
+              onClick={() => { setMobileMenuOpen(false); navigateToFeatures(); }}
               className="w-full bg-amber-400 text-slate-900 font-semibold py-3 rounded-lg text-sm mt-2"
             >
-              Começar grátis
+              Saiba mais
             </button>
           </div>
         )}
@@ -359,10 +378,10 @@ const LandingPage: React.FC = () => {
               </p>
               <div className="flex flex-col sm:flex-row gap-3">
                 <button
-                  onClick={() => setShowSignUpModal(true)}
+                  onClick={navigateToFeatures}
                   className="inline-flex items-center justify-center bg-amber-400 hover:bg-amber-300 text-slate-900 font-bold text-lg px-8 py-4 rounded-xl shadow-lg hover:shadow-xl transition-all"
                 >
-                  Cadastre-se grátis
+                  Saiba mais
                   <ArrowRight className="ml-2 h-5 w-5" />
                 </button>
                 <a
@@ -677,13 +696,21 @@ const LandingPage: React.FC = () => {
           {/* All features grid */}
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
             {features.map(feat => (
-              <div key={feat.title} className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm hover:shadow-md hover:-translate-y-1 transition-all">
+              <button
+                key={feat.title}
+                onClick={() => navigateToFeature(feat.slug)}
+                className="text-left bg-white rounded-2xl p-6 border border-slate-100 shadow-sm hover:shadow-md hover:-translate-y-1 transition-all group"
+              >
                 <div className={`w-11 h-11 rounded-xl flex items-center justify-center mb-4 ${feat.color}`}>
                   <feat.icon className="h-6 w-6" />
                 </div>
                 <h3 className="font-semibold text-slate-900 mb-2">{feat.title}</h3>
-                <p className="text-sm text-slate-500 leading-relaxed">{feat.desc}</p>
-              </div>
+                <p className="text-sm text-slate-500 leading-relaxed mb-4">{feat.desc}</p>
+                <span className="inline-flex items-center text-sm font-semibold text-blue-600">
+                  Saiba mais
+                  <ChevronRight className="ml-1 h-4 w-4 group-hover:translate-x-1 transition-transform" />
+                </span>
+              </button>
             ))}
           </div>
         </div>

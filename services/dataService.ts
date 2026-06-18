@@ -290,6 +290,7 @@ export async function fetchStockItems(empresaId: string): Promise<StockItem[]> {
     quantity: s.quantity,
     unit: s.unit,
     minThreshold: s.min_threshold,
+    expirationDate: s.expiration_date || undefined,
     residentId: s.resident_id || undefined,
     history: (s.history || []).map((h: any) => ({
       id: h.id,

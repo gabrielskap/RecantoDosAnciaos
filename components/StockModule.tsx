@@ -37,7 +37,7 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
   });
   const [newItem, setNewItem] = useState(() => {
     const saved = localStorage.getItem('modal_stock_new_item');
-    return saved ? JSON.parse(saved) : { name: '', category: 'medicamento', quantity: '', unit: '', minThreshold: '10', residentId: undefined };
+    return saved ? JSON.parse(saved) : { name: '', category: 'medicamento', quantity: '', unit: '', minThreshold: '10', expirationDate: '', residentId: undefined };
   });
 
   React.useEffect(() => {
@@ -65,6 +65,7 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
       quantity: '',
       unit: '',
       minThreshold: '10',
+      expirationDate: '',
       residentId: resId
     });
     setIsModalOpen(true);
@@ -73,6 +74,7 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newItem.name || !newItem.quantity) return;
+    if (newItem.category === 'medicamento' && !newItem.expirationDate) return;
     onAddItem({
       id: Math.random().toString(36).substr(2, 9),
       name: newItem.name,
@@ -80,10 +82,11 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
       quantity: parseInt(newItem.quantity),
       unit: newItem.unit || 'unid',
       minThreshold: parseInt(newItem.minThreshold) || 10,
+      expirationDate: newItem.category === 'medicamento' ? newItem.expirationDate : undefined,
       residentId: newItem.residentId,
       history: [],
     });
-    setNewItem({ name: '', category: 'medicamento', quantity: '', unit: '', minThreshold: '10', residentId: undefined });
+    setNewItem({ name: '', category: 'medicamento', quantity: '', unit: '', minThreshold: '10', expirationDate: '', residentId: undefined });
   };
 
   // Filter items for general stock (residentId is null or undefined)
@@ -592,6 +595,18 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
                   ]}
                 />
               </div>
+              {newItem.category === 'medicamento' && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">Data de Validade</label>
+                  <input
+                    required
+                    type="date"
+                    value={newItem.expirationDate || ''}
+                    onChange={e => setNewItem({ ...newItem, expirationDate: e.target.value })}
+                    className={inputClass}
+                  />
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1.5">Quantidade Inicial</label>

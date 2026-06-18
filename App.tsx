@@ -13,7 +13,8 @@ import AgendaModule from './components/AgendaModule';
 import LoginScreen from './components/LoginScreen';
 import LandingPage from './components/LandingPage';
 import SuperAdminPanel from './components/SuperAdminPanel';
-import TrialEnvironment from './components/TrialEnvironment';
+import DemoApp from './components/demo/DemoApp';
+import FeaturesRouter from './components/marketing/FeaturesRouter';
 import ResidentPortal from './components/ResidentPortal';
 import RoomsModule from './components/RoomsModule';
 import SettingsModule from './components/SettingsModule';
@@ -1021,6 +1022,7 @@ function AppInner() {
           quantity: 0,
           unit: newItem.unit,
           min_threshold: newItem.minThreshold,
+          expiration_date: newItem.expirationDate || null,
           resident_id: newItem.residentId || null
         })
         .select()
@@ -1466,12 +1468,11 @@ function App() {
   if (window.location.pathname.startsWith('/superadmin')) {
     return <SuperAdminPanel />;
   }
+  if (window.location.pathname.startsWith('/recursos')) {
+    return <FeaturesRouter />;
+  }
   if (window.location.pathname.startsWith('/demo')) {
-    return (
-      <AuthProvider>
-        <TrialEnvironment />
-      </AuthProvider>
-    );
+    return <DemoApp />;
   }
   if (window.location.pathname.startsWith('/assinar') || window.location.pathname.startsWith('/checkout')) {
     return <CheckoutPage />;
