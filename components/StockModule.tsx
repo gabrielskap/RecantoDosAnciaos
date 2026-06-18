@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { AlertTriangle, CheckCircle2, Package, Plus, Minus, X, History, ArrowDownCircle, ArrowUpCircle, PackageSearch, Search, User, ChevronRight } from 'lucide-react';
 import { StockItem, Resident } from '../types';
 import CustomSelect from './CustomSelect';
+import { residentAvatarSrc } from '../lib/avatar';
 
 interface StockModuleProps {
   items: StockItem[];
@@ -331,7 +332,7 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <img
-                        src={resident.photoUrl}
+                        src={residentAvatarSrc(resident.name, resident.photoUrl)}
                         alt=""
                         className={`w-10 h-10 rounded-xl object-cover shrink-0 border ${
                           isSelected ? 'border-blue-400' : 'border-slate-100'
@@ -380,7 +381,7 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
                 <div className="p-4 bg-slate-50 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                   <div className="flex items-center gap-3">
                     <img
-                      src={selectedResident.photoUrl}
+                      src={residentAvatarSrc(selectedResident.name, selectedResident.photoUrl)}
                       alt={selectedResident.name}
                       className="w-12 h-12 rounded-xl object-cover border border-slate-200 shrink-0"
                     />

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Utensils, AlertTriangle, CheckCircle2, PieChart as PieIcon, FileText, Droplets, Plus, X } from 'lucide-react';
 import { Resident, DietPlan, DietConsistency, DietType, MealTime, NutritionalLog } from '../types';
 import { PieChart as RechartPie, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
+import { residentAvatarSrc } from '../lib/avatar';
 
 interface NutritionModuleProps {
   residents: Resident[];
@@ -236,7 +237,7 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
               <h3 className="font-bold text-slate-800 text-sm">Distribuição de Dietas</h3>
             </div>
             <div className="h-52">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height={208} minWidth={0}>
                 <RechartPie>
                   <Pie data={dietChartData} cx="50%" cy="50%" innerRadius={50} outerRadius={72} paddingAngle={4} dataKey="value">
                     {dietChartData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
@@ -360,7 +361,7 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
           {residents.map(r => (
             <div key={r.id} className="bg-white rounded-2xl shadow-sm shadow-blue-100/40 p-5">
               <div className="flex items-center gap-3 mb-4">
-                <img src={r.photoUrl} alt="" className="w-10 h-10 rounded-xl object-cover border-2 border-blue-100" />
+                <img src={residentAvatarSrc(r.name, r.photoUrl)} alt="" className="w-10 h-10 rounded-xl object-cover border-2 border-blue-100" />
                 <div className="min-w-0">
                   <h3 className="font-bold text-slate-800 text-sm truncate">{r.name}</h3>
                   <p className="text-xs text-slate-400">Quarto {r.room}</p>

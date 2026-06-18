@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
-import { Search, Filter, FileText, X, User, Phone, FileHeart, Plus, AlertCircle, BedDouble, Home, Edit2, ClipboardList, Pill, Camera } from 'lucide-react';
+import { Search, Filter, FileText, X, User, Phone, FileHeart, Plus, AlertCircle, BedDouble, Home, Edit2, Pill, Camera } from 'lucide-react';
 import { Resident, Room } from '../types';
 import CustomSelect from './CustomSelect';
 import { compressImage, uploadResidentPhoto } from '../services/supabaseClient';
+import { residentAvatarSrc } from '../lib/avatar';
+import { toast } from '../services/toast';
 
 interface ResidentsListProps {
   residents: Resident[];
@@ -43,7 +45,7 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
   const [editingResidentId, setEditingResidentId] = useState<string | null>(() => {
     return localStorage.getItem('modal_residents_editing_id') || null;
   });
-  const [activeTab, setActiveTab] = useState<'personal' | 'contacts' | 'clinical' | 'routine'>(() => {
+  const [activeTab, setActiveTab] = useState<'personal' | 'contacts' | 'clinical'>(() => {
     return (localStorage.getItem('modal_residents_active_tab') as any) || 'personal';
   });
   const [search, setSearch] = useState('');
@@ -201,7 +203,7 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
       setFormData(prev => ({ ...prev, photoUrl: finalUrl }));
     } catch (err) {
       console.error('Erro ao processar imagem:', err);
-      alert('Erro ao processar a foto. Tente novamente.');
+      toast.error('Erro ao processar a foto. Tente novamente.');
     } finally {
       setPhotoUploading(false);
     }
@@ -258,7 +260,7 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
         name: formData.name!, age: formData.age || 0, room: formData.room!,
         careLevel: (formData.careLevel as 'I' | 'II' | 'III') || 'I',
         cpf: formData.cpf, rg: formData.rg, birthDate: formData.birthDate,
-        photoUrl: formData.photoUrl || `https://picsum.photos/200/200?random=${Math.floor(Math.random() * 1000)}`,
+        photoUrl: formData.photoUrl || '',
         admissionDate: new Date().toISOString(),
         addressCep: formData.addressCep,
         addressState: formData.addressState,
@@ -317,7 +319,6 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
     { id: 'personal' as const, label: 'Dados Pessoais', icon: User },
     { id: 'contacts' as const, label: 'Contatos', icon: Phone },
     { id: 'clinical' as const, label: 'Clínico', icon: FileHeart },
-    { id: 'routine' as const, label: 'Plano de Rotina', icon: ClipboardList },
   ];
 
   return (
@@ -386,7 +387,7 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
               <div className="p-5">
                 <div className="flex items-center gap-3 mb-4">
                   <img
-                    src={resident.photoUrl}
+                    src={residentAvatarSrc(resident.name, resident.photoUrl)}
                     alt={resident.name}
                     className="w-14 h-14 rounded-2xl object-cover border-2 border-blue-100"
                   />
@@ -772,95 +773,6 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
                       <textarea rows={3} placeholder={f.placeholder} value={(formData as any)[f.key] || ''} onChange={e => setFormData({ ...formData, [f.key]: e.target.value })} className={inputClass + ' resize-none'} />
                     </div>
                   ))}
-                </div>
-              )}
-
-              {activeTab === 'routine' && (
-                <div className="space-y-4">
-                  <h4 className="font-bold text-slate-700 text-sm border-b border-slate-100 pb-2 flex items-center gap-1.5">
-                    <ClipboardList className="h-4 w-4 text-blue-500" />
-                    Plano de Rotina Usual & Cuidados
-                  </h4>
-                  
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">Uso de Fraldas</label>
-                      <select
-                        value={formData.usoFraldas || 'nao'}
-                        onChange={e => setFormData({ ...formData, usoFraldas: e.target.value as any })}
-                        className={inputClass}
-                      >
-                        <option value="nao">Não usa fraldas</option>
-                        <option value="sim">Sim, usa fraldas</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">Mobilidade Usual</label>
-                      <select
-                        value={formData.mobilidadeSet || 'independente'}
-                        onChange={e => setFormData({ ...formData, mobilidadeSet: e.target.value as any })}
-                        className={inputClass}
-                      >
-                        <option value="independente">Independente</option>
-                        <option value="auxilio">Necessita de Auxílio</option>
-                        <option value="acamado">Acamado</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">Higiene Corporal Usual</label>
-                      <select
-                        value={formData.higieneCorporal || 'independente'}
-                        onChange={e => setFormData({ ...formData, higieneCorporal: e.target.value as any })}
-                        className={inputClass}
-                      >
-                        <option value="independente">Independente</option>
-                        <option value="auxilio">Necessita de Auxílio</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">Higiene Oral & Vestir Usual</label>
-                      <select
-                        value={formData.higieneOralVestir || 'independente'}
-                        onChange={e => setFormData({ ...formData, higieneOralVestir: e.target.value as any })}
-                        className={inputClass}
-                      >
-                        <option value="independente">Independente</option>
-                        <option value="auxilio">Necessita de Auxílio</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="bg-blue-50/50 border border-blue-100 rounded-2xl p-4 mt-2">
-                    <span className="block text-xs font-bold text-slate-700 mb-3">
-                      Necessidades de Cuidado Diário Programado (Plano):
-                    </span>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {[
-                        { key: 'reqHygiene', label: 'Auxílio Banho/Higiene' },
-                        { key: 'reqOralCare', label: 'Higiene Oral assistida' },
-                        { key: 'reqFeeding', label: 'Auxílio Alimentação' },
-                        { key: 'reqHydration', label: 'Hidratação assistida' },
-                        { key: 'reqMobility', label: 'Mobilização/Mudança decúbito' },
-                        { key: 'reqDressings', label: 'Realização de Curativos' },
-                        { key: 'reqLeisure', label: 'Atividade Lazer/Social' },
-                      ].map(item => (
-                        <label key={item.key} className="flex items-center gap-2.5 p-2 bg-white rounded-xl border border-slate-100 hover:bg-blue-50 cursor-pointer select-none transition-colors">
-                          <input
-                            type="checkbox"
-                            checked={!!(formData as any)[item.key]}
-                            onChange={e => setFormData({ ...formData, [item.key]: e.target.checked })}
-                            className="rounded text-blue-600 focus:ring-blue-500 h-4 w-4"
-                          />
-                          <span className="text-xs text-slate-600 font-semibold">{item.label}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
                 </div>
               )}
 

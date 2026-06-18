@@ -1,6 +1,7 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { X, Upload, Key, Lock, Trash2, RefreshCw, AlertCircle, CheckCircle, Clock, File } from 'lucide-react';
 import { AuthUser, DigitalCertificate } from '../types';
+import { toast } from '../services/toast';
 
 // ── Utilities ────────────────────────────────────────────────────────────────
 
@@ -196,7 +197,7 @@ const CertificateSection: React.FC<Props> = ({ user, onClose, onSave, onRemove }
     try {
       await onRemove();
     } catch (err: any) {
-      alert(err.message || 'Erro ao remover o certificado.');
+      toast.error(err.message || 'Erro ao remover o certificado.');
     }
   };
 

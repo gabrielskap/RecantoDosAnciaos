@@ -3,6 +3,7 @@ import {
   Plus, X, Search, Trash2, Mail, Lock, User, UserPlus, AlertCircle, ShieldAlert,
   Edit, Key, CheckCircle, Clock,
 } from 'lucide-react';
+import { toast } from '../services/toast';
 import { useAuth } from '../contexts/AuthContext';
 import { AuthUser, Resident, SystemAccessLog, Profile, Employee, DigitalCertificate } from '../types';
 import CustomSelect from './CustomSelect';
@@ -273,7 +274,7 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
     if (!userToDelete) return;
 
     if (currentUser && currentUser.id === userToDelete.id) {
-      alert('Você não pode excluir o seu próprio usuário enquanto está logado.');
+      toast.warning('Você não pode excluir o seu próprio usuário enquanto está logado.');
       setUserToDelete(null);
       return;
     }

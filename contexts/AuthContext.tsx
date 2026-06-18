@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { AuthUser, Profile, Permission, PermissionAction, ViewState, ProfileType, DigitalCertificate } from '../types';
 import { supabase } from '../services/supabaseClient';
+import { gerarEmpresaId } from '../lib/empresaId';
+import { toast } from '../services/toast';
 
 // --- Context ---
 
@@ -507,7 +509,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     } catch (err: any) {
       console.error(err);
-      alert(err.message || 'Erro ao atualizar o perfil.');
+      toast.error(err.message || 'Erro ao atualizar o perfil.');
     }
   };
 
@@ -519,7 +521,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .insert({
           name: profile.name,
           type: profile.type,
-          is_editable: true
+          is_editable: true,
+          empresa_id: currentUser?.empresaId ?? null,
         })
         .select()
         .single();
@@ -543,16 +546,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await fetchAllProfiles();
     } catch (err: any) {
       console.error(err);
-      alert(err.message || 'Erro ao adicionar o perfil.');
+      toast.error(err.message || 'Erro ao adicionar o perfil.');
     }
   };
 
   const addUser = async (userData: Omit<AuthUser, 'id'> & { employeeId?: string }): Promise<string | undefined> => {
     try {
+      if (!userData.password || userData.password.trim().length < 8) {
+        throw new Error('A senha é obrigatória e deve ter no mínimo 8 caracteres.');
+      }
       // 1. Criar o usuário no Supabase Auth com metadados para que a trigger possa ler
       const { data, error } = await supabase.auth.signUp({
         email: userData.email,
-        password: userData.password || '123456', // Senha padrão se vazia
+        password: userData.password,
         options: {
           data: {
             name: userData.name,
@@ -593,27 +599,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return data.user.id;
     } catch (err: any) {
       console.error(err);
-      alert(err.message || 'Erro ao adicionar o usuário.');
+      toast.error(err.message || 'Erro ao adicionar o usuário.');
       return undefined;
     }
   };
 
   const deleteUser = async (id: string) => {
     try {
-      // Desvincula primeiro de Recanto_Funcionarios
-      await supabase
-        .from('Recanto_Funcionarios')
-        .update({ auth_user_id: null })
-        .eq('auth_user_id', id);
-
-      // Remove da tabela Recanto_Usuarios (a FK com auth.users é cascade no delete, mas
-      // como não temos permissão de service_role para apagar de auth.users, removemos da nossa tabela de negócio).
-      const { error } = await supabase
-        .from('Recanto_Usuarios')
-        .delete()
-        .eq('auth_user_id', id);
-
+      const { data, error } = await supabase.functions.invoke('delete-user', {
+        body: { targetUserId: id },
+      });
       if (error) throw error;
+      if (data?.error) throw new Error(data.error);
 
       await fetchAllUsers();
       if (currentUser && currentUser.id === id) {
@@ -621,7 +618,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     } catch (err: any) {
       console.error(err);
-      alert(err.message || 'Erro ao excluir o usuário.');
+      throw new Error(err.message || 'Erro ao excluir o usuário.');
     }
   };
 
@@ -638,19 +635,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       ViewState.REPORTS, ViewState.AGENDA, ViewState.ROOMS,
     ];
 
-    const empresaId = 'emp_' + Math.random().toString(36).substring(2, 9);
+    const empresaId = gerarEmpresaId();
 
-    // 1. Criar Empresa
+    // 1. Criar Empresa (pendente até confirmação de pagamento)
     const { error: empError } = await supabase
       .from('Recanto_Empresas')
       .insert({
         empresa_id: empresaId,
         nome_instituicao: params.companyName,
         cidade: params.city || null,
-        status: 'ativa'
+        status: 'pendente',
       });
 
     if (empError) throw empError;
+
+    // 1b. Criar assinatura em trial (sem cobrança ainda — será ativada após pagamento)
+    const hoje = new Date();
+    const trialEnd = new Date(hoje);
+    trialEnd.setDate(trialEnd.getDate() + 14);
+    await supabase.from('Recanto_Assinaturas').insert({
+      empresa_id: empresaId,
+      plano_id: 'profissional',
+      plano_nome: 'Profissional (trial)',
+      valor_mensal: 0,
+      periodicidade: 'mensal',
+      gateway_pagamento: 'trial',
+      status: 'em_trial',
+      data_inicio: hoje.toISOString().split('T')[0],
+      data_vencimento: trialEnd.toISOString().split('T')[0],
+    });
 
     // 2. Criar Auth User
     const { data: authData, error: signUpError } = await supabase.auth.signUp({
@@ -711,13 +724,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const updateUser = async (updatedUser: AuthUser) => {
     try {
+      // Se o e-mail mudou, atualiza em auth.users via Edge Function (requer service_role)
+      const existingUser = users.find(u => u.id === updatedUser.id);
+      if (existingUser && existingUser.email !== updatedUser.email) {
+        const { data: fnData, error: fnError } = await supabase.functions.invoke('update-user-email', {
+          body: { targetUserId: updatedUser.id, newEmail: updatedUser.email },
+        });
+        if (fnError) throw fnError;
+        if (fnData?.error) throw new Error(fnData.error);
+      }
+
+      // Atualiza os demais campos na tabela de negócio
       const { error } = await supabase
         .from('Recanto_Usuarios')
         .update({
           name: updatedUser.name,
           email: updatedUser.email,
           profile_id: updatedUser.profile.id,
-          resident_id: updatedUser.residentId || null
+          resident_id: updatedUser.residentId || null,
         })
         .eq('auth_user_id', updatedUser.id);
 
@@ -731,7 +755,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     } catch (err: any) {
       console.error(err);
-      alert(err.message || 'Erro ao atualizar o usuário.');
+      throw new Error(err.message || 'Erro ao atualizar o usuário.');
     }
   };
 

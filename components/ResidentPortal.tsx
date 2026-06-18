@@ -119,7 +119,7 @@ const ResidentPortal: React.FC<ResidentPortalProps> = ({ resident, events }) => 
         <div className="relative max-w-2xl mx-auto flex items-center gap-4">
           <div className="relative shrink-0">
             <img
-              src={resident.photoUrl || `https://picsum.photos/80/80?random=${resident.id}`}
+              src={resident.photoUrl || undefined}
               alt={resident.name}
               className="w-20 h-20 rounded-2xl object-cover border-2 border-white/30 shadow-xl"
             />

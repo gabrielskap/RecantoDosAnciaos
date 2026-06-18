@@ -18,12 +18,16 @@ import ResidentPortal from './components/ResidentPortal';
 import RoomsModule from './components/RoomsModule';
 import SettingsModule from './components/SettingsModule';
 import CheckoutPage from './components/CheckoutPage';
+import ResetPassword from './components/ResetPassword';
+import ToastContainer from './components/ToastContainer';
+import { toast } from './services/toast';
 import NotificationsPanel from './components/NotificationsPanel';
 import type { AlertItem } from './components/NotificationsPanel';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { Menu, HeartPulse, Bell } from 'lucide-react';
 import { ViewState, Resident, FinancialRecord, StockItem, Employee, TrainingRecord, SystemAccessLog, Contract, Invoice, CalendarEvent, StockTransaction, Room } from './types';
 import { supabase } from './services/supabaseClient';
+import * as dataService from './services/dataService';
 
 // Path name to ViewState conversion
 const pathToView = (path: string): { view: ViewState; residentId?: string } => {
@@ -117,227 +121,11 @@ function AppInner() {
   // --- Supabase Data Fetchers ---
 
   const fetchResidents = async () => {
+    if (!currentUser?.empresaId) return;
     try {
-      const { data, error } = await supabase
-        .from('Recanto_Residentes')
-        .select(`
-          *,
-          emergencyContacts:Recanto_ContatosEmergencia(*),
-          legalGuardian:Recanto_ResponsaveisLegais(*),
-          medications:Recanto_Medicacoes(*, logs:Recanto_LogsMedicacao(*)),
-          vitals:Recanto_SinaisVitais(*),
-          carePlan:Recanto_PlanosAssistencia(*),
-          dailyChecklists:Recanto_ChecklistDiario(*, carePlanAdherence:Recanto_AcompanhamentoPlano(*)),
-          documents:Recanto_Documentos(*),
-          auditLogs:Recanto_LogsAuditoria(*),
-          dietPlan:Recanto_PlanosDieta(*),
-          nutritionalLogs:Recanto_LogsNutricao(*),
-          visits:Recanto_Visitas(*)
-        `);
-
-      if (error) throw error;
-
-
-      const mapped: Resident[] = (data || []).map((r: any) => ({
-        id: r.id,
-        name: r.name,
-        cpf: r.cpf || undefined,
-        rg: r.rg || undefined,
-        birthDate: r.birth_date || undefined,
-        age: r.age,
-        room: r.room,
-        roomStatus: r.room_status,
-        careLevel: r.care_level,
-        photoUrl: r.photo_url || `https://picsum.photos/200/200?random=${r.id}`,
-        admissionDate: r.admission_date,
-        addressCep: r.address_cep || undefined,
-        addressState: r.address_state || undefined,
-        addressCity: r.address_city || undefined,
-        addressNeighborhood: r.address_neighborhood || undefined,
-        addressStreet: r.address_street || undefined,
-        addressNumber: r.address_number || undefined,
-        addressComplement: r.address_complement || undefined,
-        emergencyContacts: (r.emergencyContacts || []).map((c: any) => ({
-          name: c.name,
-          relation: c.relation,
-          phone: c.phone
-        })),
-        legalGuardian: r.legalGuardian && r.legalGuardian.length > 0 ? {
-          name: r.legalGuardian[0].name,
-          cpf: r.legalGuardian[0].cpf,
-          phone: r.legalGuardian[0].phone,
-          address: r.legalGuardian[0].address
-        } : undefined,
-        clinicalCondition: r.clinical_condition || '',
-        functionalCondition: r.functional_condition || '',
-        socialHistory: r.social_history || '',
-        usoFraldas: r.uso_fraldas || 'nao',
-        mobilidadeSet: r.mobilidade_usual || 'independente',
-        higieneCorporal: r.higiene_corporal_usual || 'independente',
-        higieneOralVestir: r.higiene_oral_vestir_usual || 'independente',
-        reqHygiene: r.req_hygiene ?? false,
-        reqOralCare: r.req_oral_care ?? false,
-        reqFeeding: r.req_feeding ?? false,
-        reqHydration: r.req_hydration ?? false,
-        reqMobility: r.req_mobility ?? false,
-        reqDressings: r.req_dressings ?? false,
-        reqLeisure: r.req_leisure ?? false,
-        medications: (r.medications || []).map((m: any) => ({
-          id: m.id,
-          name: m.name,
-          dosage: m.dosage,
-          route: m.route,
-          frequency: m.frequency,
-          nextDose: m.next_dose || '',
-          startDate: m.start_date || undefined,
-          endDate: m.end_date || undefined,
-          logs: (m.logs || []).map((log: any) => ({
-            id: log.id,
-            timestamp: log.timestamp,
-            administeredBy: log.administered_by,
-            status: log.status,
-            note: log.note || undefined
-          }))
-        })),
-        allergies: (r.allergies || []).map((a: any) => a.description),
-        vitals: (r.vitals || []).map((v: any) => ({
-          timestamp: v.timestamp,
-          bp: v.bp || '',
-          hr: v.hr || 0,
-          temp: v.temp ? parseFloat(v.temp) : 36.5,
-          spo2: v.spo2 || 0,
-          painLevel: v.pain_level || undefined
-        })),
-        carePlan: (r.carePlan || []).map((cp: any) => ({
-          id: cp.id,
-          title: cp.title,
-          description: cp.description || '',
-          frequency: cp.frequency || '',
-          assignedTo: cp.assigned_to || '',
-          status: cp.status,
-          createdAt: cp.created_at
-        })),
-        dailyChecklists: (r.dailyChecklists || []).map((chk: any) => {
-          const shift = chk.shift || 'diurno';
-          const match = (r.vitals || []).find((v: any) => {
-            const vDate = new Date(v.timestamp);
-            const year = vDate.getFullYear();
-            const month = String(vDate.getMonth() + 1).padStart(2, '0');
-            const day = String(vDate.getDate()).padStart(2, '0');
-            const localDateStr = `${year}-${month}-${day}`;
-            
-            if (localDateStr !== chk.date) return false;
-            
-            const hour = vDate.getHours();
-            if (shift === 'noturno') {
-              return hour >= 18 || hour < 6;
-            } else {
-              return hour >= 6 && hour < 18;
-            }
-          });
-
-          return {
-            date: chk.date,
-            shift,
-            hygiene: chk.hygiene,
-            oralCare: chk.oral_care,
-            feeding: chk.feeding,
-            hydration: chk.hydration,
-            mobility: chk.mobility,
-            dressings: chk.dressings,
-            leisure: chk.leisure,
-            queixaDor: chk.queixa_dor || undefined,
-            queixaDorDesc: chk.queixa_dor_desc || undefined,
-            estadoNeurologico: chk.estado_neurologico || undefined,
-            arAmbiente: chk.ar_ambiente !== null ? chk.ar_ambiente : undefined,
-            alimentacao: chk.alimentacao || undefined,
-            alimentacaoDesc: chk.alimentacao_desc || undefined,
-            agitado: chk.agitado !== null ? chk.agitado : undefined,
-            prostrado: chk.prostrado !== null ? chk.prostrado : undefined,
-            sonolento: chk.sonolento !== null ? chk.sonolento : undefined,
-            eliminacaoEvacuacao: chk.eliminacao_evacuacao || undefined,
-            eliminacaoEvacuacaoDias: chk.eliminacao_evacuacao_dias || undefined,
-            aspectoEvacuacoes: chk.aspecto_evacuacoes || undefined,
-            diurese: chk.diurese || undefined,
-            diureseAspecto: chk.diurese_aspecto || undefined,
-            usoFraldas: chk.uso_fraldas || undefined,
-            mobilidadeSet: chk.mobilidade_set || undefined,
-            higieneCorporal: chk.higiene_corporal || undefined,
-            higieneOralVestir: chk.higiene_oral_vestir || undefined,
-            alteracoesPele: chk.alteracoes_pele || undefined,
-            alteracoesPeleDesc: chk.alteracoes_pele_desc || undefined,
-            sono: chk.sono || undefined,
-            sonoDesc: chk.sono_desc || undefined,
-            medicacoesAdministradas: chk.medicacoes_administradas || undefined,
-            atividadesConsulta: chk.atividades_consulta || undefined,
-            intercorrencia: chk.intercorrencia || undefined,
-            intercorrenciaDesc: chk.intercorrencia_desc || undefined,
-            photoUrl: chk.photo_url || undefined,
-            signedBy: chk.signed_by || undefined,
-            signedAt: chk.signed_at || undefined,
-            signatureInfo: chk.signature_info || undefined,
-            frequenciaCardiaca: match && match.hr ? String(match.hr) : undefined,
-            pressaoArterial: match && match.bp ? match.bp : undefined,
-            saturacao: match && match.spo2 ? String(match.spo2) : undefined,
-            temperatura: match && match.temp ? String(match.temp) : undefined,
-            carePlanAdherence: (chk.carePlanAdherence || []).map((adh: any) => ({
-              id: adh.id,
-              checklistId: adh.checklist_id,
-              carePlanId: adh.care_plan_id,
-              status: adh.status,
-              comment: adh.comment || undefined
-            }))
-          };
-        }),
-        documents: (r.documents || []).map((doc: any) => ({
-          id: doc.id,
-          name: doc.name,
-          type: doc.type,
-          url: doc.url,
-          uploadDate: doc.upload_date
-        })),
-        auditLogs: (r.auditLogs || []).map((al: any) => ({
-          id: al.id,
-          timestamp: al.timestamp,
-          userId: al.user_id,
-          userName: al.user_name,
-          action: al.action,
-          details: al.details || ''
-        })),
-        dietPlan: r.dietPlan && r.dietPlan.length > 0 ? {
-          consistency: r.dietPlan[0].consistency,
-          type: r.dietPlan[0].type,
-          restrictions: [],
-          fluidRestriction: r.dietPlan[0].fluid_restriction || undefined,
-          observations: r.dietPlan[0].observations || undefined,
-          updatedAt: r.dietPlan[0].updated_at
-        } : undefined,
-        nutritionalLogs: (r.nutritionalLogs || []).map((n: any) => ({
-          id: n.id,
-          date: n.date,
-          meal: n.meal,
-          acceptance: n.acceptance,
-          fluidIntake: n.fluid_intake || undefined,
-          notes: n.notes || undefined
-        })),
-        visits: (r.visits || []).map((v: any) => ({
-          id: v.id,
-          residentId: v.resident_id,
-          visitorName: v.visitor_name,
-          relation: v.relation,
-          cpf: v.cpf || undefined,
-          phone: v.phone || undefined,
-          date: v.date,
-          temperature: v.temperature ? parseFloat(v.temperature) : undefined,
-          observations: v.observations || undefined,
-          createdBy: v.created_by
-        })).sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())
-      }));
-
+      const mapped = await dataService.fetchResidents(currentUser.empresaId);
       setResidents(mapped);
       setDataLoaded(true);
-
-      // Update selected resident context if it is active
       if (selectedResident) {
         const found = mapped.find(res => res.id === selectedResident.id);
         if (found) setSelectedResident(found);
@@ -348,244 +136,83 @@ function AppInner() {
   };
 
   const fetchFinancials = async () => {
+    if (!currentUser?.empresaId) return;
     try {
-      const { data, error } = await supabase
-        .from('Recanto_RegistrosFinanceiros')
-        .select('*')
-        .order('date', { ascending: false });
-
-      if (error) throw error;
-
-      const mapped: FinancialRecord[] = (data || []).map((f: any) => ({
-        id: f.id,
-        type: f.type,
-        category: f.category,
-        description: f.description,
-        amount: parseFloat(f.amount),
-        date: f.date,
-        status: f.status,
-        invoiceId: f.invoice_id || undefined
-      }));
-      setFinancials(mapped);
+      setFinancials(await dataService.fetchFinancials(currentUser.empresaId));
     } catch (err) {
       console.error('Erro ao buscar financeiro:', err);
     }
   };
 
   const fetchContracts = async () => {
+    if (!currentUser?.empresaId) return;
     try {
-      const { data, error } = await supabase
-        .from('Recanto_Contratos')
-        .select(`
-          *,
-          resident:Recanto_Residentes(name)
-        `);
-
-      if (error) throw error;
-
-      const mapped: Contract[] = (data || []).map((c: any) => ({
-        id: c.id,
-        residentId: c.resident_id,
-        residentName: c.resident?.name || 'Residente',
-        startDate: c.start_date,
-        endDate: c.end_date || undefined,
-        monthlyValue: parseFloat(c.monthly_value),
-        dueDay: c.due_day,
-        status: c.status,
-        fileUrl: c.file_url || undefined
-      }));
-      setContracts(mapped);
+      setContracts(await dataService.fetchContracts(currentUser.empresaId));
     } catch (err) {
       console.error('Erro ao buscar contratos:', err);
     }
   };
 
   const fetchInvoices = async () => {
+    if (!currentUser?.empresaId) return;
     try {
-      const { data, error } = await supabase
-        .from('Recanto_Mensalidades')
-        .select(`
-          *,
-          resident:Recanto_Residentes(name)
-        `);
-
-      if (error) throw error;
-
-      const mapped: Invoice[] = (data || []).map((i: any) => ({
-        id: i.id,
-        contractId: i.contract_id,
-        residentName: i.resident?.name || 'Residente',
-        amount: parseFloat(i.amount),
-        dueDate: i.due_date,
-        status: i.status,
-        monthYear: i.month_year,
-        paidDate: i.paid_date || undefined
-      }));
-      setInvoices(mapped);
+      setInvoices(await dataService.fetchInvoices(currentUser.empresaId));
     } catch (err) {
       console.error('Erro ao buscar mensalidades:', err);
     }
   };
 
   const fetchStockItems = async () => {
+    if (!currentUser?.empresaId) return;
     try {
-      const { data, error } = await supabase
-        .from('Recanto_Estoque')
-        .select(`
-          *,
-          history:Recanto_MovimentacoesEstoque(*)
-        `);
-
-      if (error) throw error;
-
-      const mapped: StockItem[] = (data || []).map((s: any) => ({
-        id: s.id,
-        name: s.name,
-        category: s.category,
-        quantity: s.quantity,
-        unit: s.unit,
-        minThreshold: s.min_threshold,
-        residentId: s.resident_id || undefined,
-        history: (s.history || []).map((h: any) => ({
-          id: h.id,
-          type: h.type,
-          quantity: h.quantity,
-          date: h.date,
-          user: h.user_name,
-          notes: h.notes || undefined
-        })).sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())
-      }));
-      setStockItems(mapped);
+      setStockItems(await dataService.fetchStockItems(currentUser.empresaId));
     } catch (err) {
       console.error('Erro ao buscar estoque:', err);
     }
   };
 
   const fetchEmployees = async () => {
+    if (!currentUser?.empresaId) return;
     try {
-      const { data, error } = await supabase
-        .from('Recanto_Funcionarios')
-        .select('*');
-
-      if (error) throw error;
-
-      const mapped: Employee[] = (data || []).map((e: any) => ({
-        id: e.id,
-        auth_user_id: e.auth_user_id || undefined,
-        name: e.name,
-        role: e.role,
-        cpf: e.cpf,
-        email: e.email,
-        phone: e.phone || '',
-        registrationNumber: e.registration_number || undefined,
-        isTechnicalLead: e.is_technical_lead,
-        shift: e.shift,
-        status: e.status,
-        admissionDate: e.admission_date
-      }));
-      setEmployees(mapped);
+      setEmployees(await dataService.fetchEmployees(currentUser.empresaId));
     } catch (err) {
       console.error('Erro ao buscar equipe:', err);
     }
   };
 
   const fetchAccessLogs = async () => {
+    if (!currentUser?.empresaId) return;
     try {
-      const { data, error } = await supabase
-        .from('Recanto_LogsAcesso')
-        .select('*')
-        .order('timestamp', { ascending: false });
-
-      if (error) throw error;
-
-      const mapped: SystemAccessLog[] = (data || []).map((l: any) => ({
-        id: l.id,
-        timestamp: l.timestamp,
-        userId: l.user_id,
-        userName: l.user_name,
-        role: l.role || 'Cuidador',
-        action: l.action,
-        resource: l.resource || undefined,
-        ipAddress: l.ip_address || ''
-      }));
-      setAccessLogs(mapped);
+      setAccessLogs(await dataService.fetchAccessLogs(currentUser.empresaId));
     } catch (err) {
       console.error('Erro ao buscar logs de acesso:', err);
     }
   };
 
   const fetchTrainingRecords = async () => {
+    if (!currentUser?.empresaId) return;
     try {
-      const { data, error } = await supabase
-        .from('Recanto_Treinamentos')
-        .select(`
-          *,
-          participants:Recanto_TreinamentosParticipantes(*)
-        `);
-
-      if (error) throw error;
-
-      const mapped: TrainingRecord[] = (data || []).map((t: any) => ({
-        id: t.id,
-        title: t.title,
-        date: t.date,
-        instructor: t.instructor,
-        participants: (t.participants || []).map((p: any) => p.employee_name),
-        validUntil: t.valid_until || undefined,
-        description: t.description || ''
-      }));
-      setTrainingRecords(mapped);
+      setTrainingRecords(await dataService.fetchTrainingRecords(currentUser.empresaId));
     } catch (err) {
       console.error('Erro ao buscar treinamentos:', err);
     }
   };
 
   const fetchEvents = async () => {
+    if (!currentUser?.empresaId) return;
     try {
-      const { data, error } = await supabase
-        .from('Recanto_Eventos')
-        .select('*');
-
-      if (error) throw error;
-
-      const mapped: CalendarEvent[] = (data || []).map((ev: any) => ({
-        id: ev.id,
-        title: ev.title,
-        start: ev.start_time,
-        end: ev.end_time || undefined,
-        type: ev.type,
-        residentId: ev.resident_id || undefined,
-        description: ev.description || undefined,
-        location: ev.location || undefined,
-        createdBy: ev.created_by
-      }));
-      setEvents(mapped);
+      setEvents(await dataService.fetchEvents(currentUser.empresaId));
     } catch (err) {
       console.error('Erro ao buscar eventos:', err);
     }
   };
 
   const fetchRooms = async () => {
+    if (!currentUser?.empresaId) return;
     try {
-      const { data, error } = await supabase
-        .from('Recanto_Quartos')
-        .select('*')
-        .order('number', { ascending: true });
-
-      if (error) throw error;
-
-      if (data) {
-        const mapped: Room[] = data.map((q: any) => ({
-          id: q.id,
-          number: q.number,
-          type: q.type,
-          capacity: q.capacity,
-          assets: q.assets || [],
-          status: q.status || undefined
-        }));
-        setRooms(mapped);
-        localStorage.setItem('recanto_rooms', JSON.stringify(mapped));
-      }
+      const mapped = await dataService.fetchRooms(currentUser.empresaId);
+      setRooms(mapped);
+      localStorage.setItem('recanto_rooms', JSON.stringify(mapped));
     } catch (err) {
       console.warn('Erro ao buscar quartos do Supabase, usando localStorage:', err);
       const saved = localStorage.getItem('recanto_rooms');
@@ -911,7 +538,7 @@ function AppInner() {
       await fetchResidents();
     } catch (err: any) {
       console.error('Error adding resident:', err);
-      alert(err.message || 'Erro ao cadastrar residente no servidor.');
+      toast.error(err.message || 'Erro ao cadastrar residente no servidor.');
     }
   };
 
@@ -1298,7 +925,7 @@ function AppInner() {
       await fetchResidents();
     } catch (err) {
       console.error('Error updating resident:', err);
-      alert('Erro ao atualizar dados do residente no servidor.');
+      toast.error('Erro ao atualizar dados do residente no servidor.');
     }
   };
 
@@ -1587,10 +1214,6 @@ function AppInner() {
   const lowStockItems = stockItems.filter(item => item.quantity < item.minThreshold);
 
   const allAlerts = useMemo<AlertItem[]>(() => {
-    const staticAlerts: AlertItem[] = [
-      { id: 'a1', text: 'Maria Silva apresentou pressão arterial elevada (160/95)', time: '10:30', type: 'critical' },
-      { id: 'a2', text: 'João Santos recusou medicação matinal', time: '08:45', type: 'info' },
-    ];
     const stockAlertItems: AlertItem[] = lowStockItems.map(item => ({
       id: `stock-${item.id}`,
       text: `Estoque crítico: ${item.name} (${item.quantity} ${item.unit})`,
@@ -1605,7 +1228,7 @@ function AppInner() {
         type: 'medication' as const,
       }))
     );
-    return [...stockAlertItems, ...medicationAlerts, ...staticAlerts].sort((a, b) => {
+    return [...stockAlertItems, ...medicationAlerts].sort((a, b) => {
       if (a.time === 'Agora' && b.time !== 'Agora') return -1;
       if (b.time === 'Agora' && a.time !== 'Agora') return 1;
       return a.time.localeCompare(b.time);
@@ -1625,8 +1248,8 @@ function AppInner() {
           <Dashboard
             residents={residents}
             financials={financials}
+            events={events}
             stockAlerts={lowStockItems}
-            allAlerts={allAlerts}
           />
         );
       case ViewState.RESIDENTS:
@@ -1833,6 +1456,8 @@ function AppInner() {
           onClearAll={handleClearAllAlerts}
         />
       )}
+
+      <ToastContainer />
     </div>
   );
 }
@@ -1850,6 +1475,9 @@ function App() {
   }
   if (window.location.pathname.startsWith('/assinar') || window.location.pathname.startsWith('/checkout')) {
     return <CheckoutPage />;
+  }
+  if (window.location.pathname.startsWith('/reset-password')) {
+    return <ResetPassword />;
   }
   return (
     <AuthProvider>

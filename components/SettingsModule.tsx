@@ -4,10 +4,12 @@ import {
   CheckCircle, ChevronRight, AlertTriangle, Clock, Lock,
   Eye, EyeOff, Package, HeartPulse, Phone, Mail, MapPin,
   FileText, Wifi, Database, Download, Upload, Users,
-  PenTool, Trash2, CheckSquare
+  PenTool, Trash2, CheckSquare,
+  CreditCard, X, Star, RefreshCw, Zap, XCircle, ArrowLeft
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../services/supabaseClient';
+import { toast } from '../services/toast';
 
 interface InstitutionSettings {
   name: string;
@@ -87,13 +89,14 @@ const defaultSettings: SystemSettings = {
   },
 };
 
-type TabId = 'institution' | 'notifications' | 'security' | 'about';
+type TabId = 'institution' | 'notifications' | 'security' | 'about' | 'subscription';
 
 const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'institution', label: 'Instituição', icon: Building2 },
   { id: 'notifications', label: 'Notificações', icon: Bell },
   { id: 'security', label: 'Segurança', icon: Shield },
   { id: 'about', label: 'Sobre', icon: Info },
+  { id: 'subscription', label: 'Assinatura', icon: CreditCard },
 ];
 
 const STATES_BR = [
@@ -223,7 +226,7 @@ const SettingsModule: React.FC = () => {
       setTimeout(() => setSaved(false), 2500);
     } catch (err: any) {
       console.error('Erro ao salvar configurações:', err);
-      alert('Erro ao salvar configurações: ' + (err.message || err));
+      toast.error('Erro ao salvar configurações: ' + (err.message || err));
     } finally {
       setLoading(false);
     }
@@ -262,7 +265,7 @@ const SettingsModule: React.FC = () => {
         setDirty(false);
       } catch (err: any) {
         console.error('Erro ao redefinir configurações:', err);
-        alert('Erro ao redefinir: ' + (err.message || err));
+        toast.error('Erro ao redefinir: ' + (err.message || err));
       } finally {
         setLoading(false);
       }
@@ -282,7 +285,7 @@ const SettingsModule: React.FC = () => {
             <p className="text-sm text-slate-500">Gerencie as preferências e parâmetros da plataforma</p>
           </div>
         </div>
-        {isAdmin && (
+        {isAdmin && activeTab !== 'subscription' && (
           <div className="flex items-center gap-2">
             {saved && (
               <span className="flex items-center gap-1.5 text-sm text-emerald-600 font-medium bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 animate-pulse">
@@ -375,6 +378,9 @@ const SettingsModule: React.FC = () => {
               )}
 
               {activeTab === 'about' && <AboutTab />}
+              {activeTab === 'subscription' && (
+                <SubscriptionTab empresaId={currentUser?.empresaId} isAdmin={isAdmin} />
+              )}
             </>
           )}
         </div>
@@ -394,7 +400,7 @@ const InstitutionTab: React.FC<{
     const file = e.target.files?.[0];
     if (!file) return;
     if (file.size > 1500000) {
-      alert('A imagem é muito grande. Escolha uma imagem de até 1.5MB.');
+      toast.warning('A imagem é muito grande. Escolha uma imagem de até 1.5MB.');
       return;
     }
     const reader = new FileReader();
@@ -859,6 +865,891 @@ const AboutTab: React.FC = () => (
     </SectionCard>
   </div>
 );
+
+/* ─── Subscription Tab ─── */
+
+interface AssinaturaData {
+  id: string;
+  empresa_id: string;
+  plano_id: string;
+  plano_nome: string;
+  valor_mensal: number;
+  periodicidade: string;
+  status: string;
+  data_inicio?: string;
+  data_vencimento?: string;
+}
+
+const PLANOS_INFO = [
+  {
+    id: 'essencial',
+    nome: 'Essencial',
+    precoMensal: 399,
+    precoAnual: 299,
+    desc: 'Ideal para ILPIs com até 30 residentes',
+    features: ['Até 30 residentes', '5 usuários', 'Gestão de residentes', 'Saúde & checklists', 'Financeiro básico', 'Estoque', 'Suporte por e-mail'],
+    popular: false,
+    colorClass: 'bg-slate-500',
+  },
+  {
+    id: 'profissional',
+    nome: 'Profissional',
+    precoMensal: 799,
+    precoAnual: 599,
+    desc: 'Para ILPIs de médio porte com mais recursos',
+    features: ['Até 100 residentes', '20 usuários', 'Todos os módulos', 'Relatórios avançados', 'IA Assistente', 'Portal do familiar', 'Suporte prioritário'],
+    popular: true,
+    colorClass: 'bg-blue-600',
+  },
+  {
+    id: 'enterprise',
+    nome: 'Enterprise',
+    precoMensal: 0,
+    precoAnual: 0,
+    desc: 'Para redes e grupos com múltiplas unidades',
+    features: ['Residentes ilimitados', 'Usuários ilimitados', 'Múltiplas unidades', 'Dashboard consolidado', 'Onboarding dedicado', 'SLA 99,9%', 'Gerente de sucesso'],
+    popular: false,
+    colorClass: 'bg-violet-600',
+  },
+];
+
+function getStatusConfig(status: string) {
+  switch (status) {
+    case 'ativa': return { label: 'Em Dia', className: 'bg-emerald-50 text-emerald-700 border-emerald-200', dot: 'bg-emerald-500' };
+    case 'em_trial': return { label: 'Em Trial', className: 'bg-blue-50 text-blue-700 border-blue-200', dot: 'bg-blue-500' };
+    case 'pendente': return { label: 'Pendente', className: 'bg-amber-50 text-amber-700 border-amber-200', dot: 'bg-amber-500' };
+    case 'vencida': return { label: 'Vencida', className: 'bg-rose-50 text-rose-700 border-rose-200', dot: 'bg-rose-500' };
+    case 'pagamento_recusado': return { label: 'Pgto. Recusado', className: 'bg-rose-50 text-rose-700 border-rose-200', dot: 'bg-rose-500' };
+    case 'cancelada': return { label: 'Cancelada', className: 'bg-slate-50 text-slate-600 border-slate-200', dot: 'bg-slate-400' };
+    default: return { label: status, className: 'bg-slate-50 text-slate-600 border-slate-200', dot: 'bg-slate-400' };
+  }
+}
+
+function formatDateBR(dateStr?: string) {
+  if (!dateStr) return '—';
+  return new Date(dateStr).toLocaleDateString('pt-BR');
+}
+
+const SubscriptionTab: React.FC<{ empresaId?: string; isAdmin: boolean }> = ({ empresaId, isAdmin }) => {
+  const [assinatura, setAssinatura] = useState<AssinaturaData | null>(null);
+  const [loadingSub, setLoadingSub] = useState(true);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [showPlanModal, setShowPlanModal] = useState(false);
+  const [planModalInitialId, setPlanModalInitialId] = useState<string | undefined>();
+
+  useEffect(() => {
+    const fetchAssinatura = async () => {
+      if (!empresaId) { setLoadingSub(false); return; }
+      try {
+        const { data, error } = await supabase
+          .from('Recanto_Assinaturas')
+          .select('*')
+          .eq('empresa_id', empresaId)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single();
+        if (!error && data) setAssinatura(data);
+      } catch (err) {
+        console.error('Erro ao buscar assinatura:', err);
+      } finally {
+        setLoadingSub(false);
+      }
+    };
+    fetchAssinatura();
+  }, [empresaId]);
+
+  const handlePaymentSuccess = () => {
+    if (assinatura) setAssinatura({ ...assinatura, status: 'ativa' });
+    setShowPaymentModal(false);
+  };
+
+  const handlePlanChange = (newPlanId: string) => {
+    const plan = PLANOS_INFO.find(p => p.id === newPlanId);
+    if (assinatura && plan) {
+      setAssinatura({
+        ...assinatura,
+        plano_id: plan.id,
+        plano_nome: plan.nome,
+        valor_mensal: assinatura.periodicidade === 'anual' ? plan.precoAnual : plan.precoMensal,
+      });
+    }
+    setShowPlanModal(false);
+  };
+
+  if (loadingSub) {
+    return (
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-12 flex flex-col items-center justify-center min-h-[400px]">
+        <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+        <p className="text-sm text-slate-500 mt-4 font-medium">Carregando informações da assinatura...</p>
+      </div>
+    );
+  }
+
+  if (!assinatura) {
+    return (
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-12 flex flex-col items-center justify-center min-h-[300px] text-center">
+        <CreditCard className="h-10 w-10 text-slate-300 mb-3" />
+        <p className="text-slate-600 font-medium">Nenhuma assinatura encontrada</p>
+        <p className="text-sm text-slate-400 mt-1">Entre em contato com o suporte para regularizar sua assinatura.</p>
+      </div>
+    );
+  }
+
+  const planoAtual = PLANOS_INFO.find(p => p.id === assinatura.plano_id);
+  const statusConfig = getStatusConfig(assinatura.status);
+  const isInadimplente = assinatura.status === 'vencida' || assinatura.status === 'pagamento_recusado';
+  const isCancelada = assinatura.status === 'cancelada';
+
+  return (
+    <div className="space-y-4">
+      {isInadimplente && (
+        <div className="flex items-start gap-3 bg-rose-50 border border-rose-200 rounded-xl px-4 py-3">
+          <AlertTriangle className="h-5 w-5 text-rose-500 shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-rose-800">
+              {assinatura.status === 'pagamento_recusado' ? 'Pagamento recusado' : 'Assinatura vencida'}
+            </p>
+            <p className="text-xs text-rose-600 mt-0.5">
+              {assinatura.status === 'pagamento_recusado'
+                ? 'Seu último pagamento foi recusado. Regularize para manter acesso completo ao sistema.'
+                : 'Sua assinatura está vencida. Efetue o pagamento para restabelecer todos os recursos.'}
+            </p>
+          </div>
+          {isAdmin && (
+            <button
+              onClick={() => setShowPaymentModal(true)}
+              className="shrink-0 px-3 py-1.5 bg-rose-600 text-white text-xs font-semibold rounded-lg hover:bg-rose-700 transition-colors"
+            >
+              Pagar agora
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Current plan */}
+      <SectionCard title="Plano Atual" icon={CreditCard}>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm ${planoAtual?.colorClass ?? 'bg-blue-600'}`}>
+              <Zap className="h-7 w-7 text-white" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-lg font-bold text-slate-900">{assinatura.plano_nome}</h3>
+                <span className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-0.5 rounded-full border ${statusConfig.className}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${statusConfig.dot}`} />
+                  {statusConfig.label}
+                </span>
+              </div>
+              <p className="text-sm text-slate-500 mt-0.5">{planoAtual?.desc ?? ''}</p>
+              <p className="text-base font-semibold text-blue-600 mt-1">
+                {assinatura.valor_mensal === 0
+                  ? 'Sob consulta'
+                  : `R$ ${assinatura.valor_mensal.toFixed(2).replace('.', ',')} / ${assinatura.periodicidade === 'anual' ? 'mês (anual)' : 'mês'}`}
+              </p>
+            </div>
+          </div>
+          {isAdmin && !isCancelada && (
+            <button
+              onClick={() => { setPlanModalInitialId(undefined); setShowPlanModal(true); }}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-semibold border border-blue-200 text-blue-600 hover:bg-blue-50 rounded-xl transition-all shrink-0"
+            >
+              <RefreshCw className="h-4 w-4" />
+              Trocar Plano
+            </button>
+          )}
+        </div>
+
+        <div className="mt-4 pt-4 border-t border-slate-50 grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {[
+            { label: 'Periodicidade', value: assinatura.periodicidade === 'anual' ? 'Anual' : 'Mensal' },
+            { label: 'Início', value: formatDateBR(assinatura.data_inicio) },
+            { label: 'Vencimento', value: formatDateBR(assinatura.data_vencimento), highlight: isInadimplente },
+            { label: 'Status Pgto.', value: isInadimplente ? 'Inadimplente' : assinatura.status === 'em_trial' ? 'Trial' : 'Em dia', highlight: isInadimplente },
+          ].map(({ label, value, highlight }) => (
+            <div key={label} className="bg-slate-50 rounded-xl p-3">
+              <p className="text-xs text-slate-400 font-medium uppercase tracking-wide">{label}</p>
+              <p className={`text-sm font-semibold mt-1 ${highlight ? 'text-rose-600' : 'text-slate-700'}`}>{value}</p>
+            </div>
+          ))}
+        </div>
+
+        {planoAtual && (
+          <div className="mt-4 pt-4 border-t border-slate-50">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Recursos incluídos</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+              {planoAtual.features.map(f => (
+                <div key={f} className="flex items-center gap-2 text-sm text-slate-600">
+                  <CheckCircle className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+                  {f}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {isAdmin && (
+          <div className="mt-4 pt-4 border-t border-slate-50 flex justify-end">
+            <button
+              onClick={() => setShowPaymentModal(true)}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all shadow-sm"
+            >
+              <CreditCard className="h-4 w-4" />
+              Realizar Pagamento
+            </button>
+          </div>
+        )}
+      </SectionCard>
+
+      {/* Plan comparison */}
+      <SectionCard title="Comparar Planos" icon={Star}>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {PLANOS_INFO.map(plano => {
+            const isCurrent = plano.id === assinatura.plano_id;
+            return (
+              <div
+                key={plano.id}
+                className={`relative rounded-2xl border-2 p-4 transition-all ${
+                  isCurrent ? 'border-blue-500 bg-blue-50/30 shadow-md' : 'border-slate-100 bg-white'
+                }`}
+              >
+                {plano.popular && !isCurrent && (
+                  <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 px-3 py-0.5 bg-blue-600 text-white text-xs font-bold rounded-full shadow-sm whitespace-nowrap">
+                    Popular
+                  </span>
+                )}
+                {isCurrent && (
+                  <span className="absolute -top-2.5 right-3 px-3 py-0.5 bg-emerald-500 text-white text-xs font-bold rounded-full shadow-sm">
+                    Plano atual
+                  </span>
+                )}
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-3 ${plano.colorClass}`}>
+                  <Zap className="h-5 w-5 text-white" />
+                </div>
+                <h4 className="font-bold text-slate-900">{plano.nome}</h4>
+                <p className="text-xs text-slate-500 mt-0.5 mb-2">{plano.desc}</p>
+                <p className="font-bold text-blue-700 text-sm mb-3">
+                  {plano.precoMensal === 0 ? 'Sob consulta' : `R$ ${plano.precoMensal}/mês`}
+                </p>
+                <ul className="space-y-1.5">
+                  {plano.features.map(f => (
+                    <li key={f} className="flex items-start gap-1.5 text-xs text-slate-600">
+                      <CheckCircle className="h-3.5 w-3.5 text-emerald-500 shrink-0 mt-0.5" />
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+                {isAdmin && !isCurrent && !isCancelada && (
+                  <button
+                    onClick={() => { setPlanModalInitialId(plano.id); setShowPlanModal(true); }}
+                    className={`mt-4 w-full py-2 text-xs font-semibold rounded-xl transition-all ${plano.colorClass} text-white hover:opacity-90`}
+                  >
+                    Migrar para este plano
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </SectionCard>
+
+      {showPaymentModal && (
+        <PaymentModal
+          assinatura={assinatura}
+          onClose={() => setShowPaymentModal(false)}
+          onSuccess={handlePaymentSuccess}
+        />
+      )}
+      {showPlanModal && (
+        <PlanChangeModal
+          currentPlanId={assinatura.plano_id}
+          periodicidade={assinatura.periodicidade}
+          empresaId={empresaId!}
+          initialPlanId={planModalInitialId}
+          onClose={() => setShowPlanModal(false)}
+          onSuccess={handlePlanChange}
+        />
+      )}
+    </div>
+  );
+};
+
+/* ─── Payment Modal ─── */
+
+function calcVencimento(periodicidade: string): string {
+  const d = new Date();
+  if (periodicidade === 'anual') d.setFullYear(d.getFullYear() + 1);
+  else d.setMonth(d.getMonth() + 1);
+  return d.toISOString().split('T')[0];
+}
+
+const PaymentModal: React.FC<{
+  assinatura: AssinaturaData;
+  onClose: () => void;
+  onSuccess: () => void;
+}> = ({ assinatura, onClose, onSuccess }) => {
+  const [method, setMethod] = useState<'cartao' | 'pix' | 'boleto'>('cartao');
+  const [step, setStep] = useState<'form' | 'processing' | 'success' | 'error'>('form');
+  const [dbError, setDbError] = useState('');
+  const [cardNumber, setCardNumber] = useState('');
+  const [cardName, setCardName] = useState('');
+  const [cardExpiry, setCardExpiry] = useState('');
+  const [cardCvv, setCardCvv] = useState('');
+
+  const fmtCartao = (v: string) => v.replace(/\D/g, '').slice(0, 16).replace(/(\d{4})/g, '$1 ').trim();
+  const fmtValidade = (v: string) => v.replace(/\D/g, '').slice(0, 4).replace(/(\d{2})(\d)/, '$1/$2');
+
+  const handleConfirm = async () => {
+    setStep('processing');
+    await new Promise(r => setTimeout(r, 2500));
+    try {
+      const novoVencimento = calcVencimento(assinatura.periodicidade);
+      const { error } = await supabase
+        .from('Recanto_Assinaturas')
+        .update({ status: 'ativa', data_vencimento: novoVencimento })
+        .eq('id', assinatura.id);
+      if (error) throw error;
+
+      await supabase.from('Recanto_Logs_Empresa').insert({
+        empresa_id: assinatura.empresa_id,
+        tipo: 'pagamento_aprovado',
+        descricao: `Pagamento do plano ${assinatura.plano_nome} via ${method}`,
+        metadata: { plano_nome: assinatura.plano_nome, valor: assinatura.valor_mensal, forma_pagamento: method, vencimento: novoVencimento },
+      });
+
+      setStep('success');
+    } catch (err: any) {
+      console.error('Erro ao registrar pagamento:', err);
+      setDbError(err?.message ?? 'Erro desconhecido');
+      setStep('error');
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+          <div className="flex items-center gap-2">
+            <CreditCard className="h-5 w-5 text-blue-600" />
+            <h2 className="font-bold text-slate-900">Realizar Pagamento</h2>
+          </div>
+          {step !== 'processing' && (
+            <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+
+        <div className="p-6">
+          {step === 'form' && (
+            <>
+              <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-3 mb-4">
+                <p className="text-sm text-blue-800 font-medium">Plano {assinatura.plano_nome}
+                  {assinatura.valor_mensal > 0 && (
+                    <span className="font-normal"> — R$ {assinatura.valor_mensal.toFixed(2).replace('.', ',')}/mês</span>
+                  )}
+                </p>
+              </div>
+
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Forma de pagamento</p>
+              <div className="grid grid-cols-3 gap-2 mb-4">
+                {(['cartao', 'pix', 'boleto'] as const).map(m => (
+                  <button
+                    key={m}
+                    onClick={() => setMethod(m)}
+                    className={`py-2.5 rounded-xl text-xs font-semibold border transition-all ${
+                      method === m ? 'bg-blue-600 text-white border-blue-600 shadow-sm' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'
+                    }`}
+                  >
+                    {m === 'cartao' ? 'Cartão' : m === 'pix' ? 'PIX' : 'Boleto'}
+                  </button>
+                ))}
+              </div>
+
+              {method === 'cartao' && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Número do Cartão</label>
+                    <input
+                      value={cardNumber}
+                      onChange={e => setCardNumber(fmtCartao(e.target.value))}
+                      placeholder="0000 0000 0000 0000"
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:border-blue-400 focus:ring-2 focus:ring-blue-50 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Nome no Cartão</label>
+                    <input
+                      value={cardName}
+                      onChange={e => setCardName(e.target.value.toUpperCase())}
+                      placeholder="NOME COMPLETO"
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:border-blue-400 focus:ring-2 focus:ring-blue-50 outline-none"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Validade</label>
+                      <input
+                        value={cardExpiry}
+                        onChange={e => setCardExpiry(fmtValidade(e.target.value))}
+                        placeholder="MM/AA"
+                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:border-blue-400 focus:ring-2 focus:ring-blue-50 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">CVV</label>
+                      <input
+                        value={cardCvv}
+                        onChange={e => setCardCvv(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                        placeholder="000"
+                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:border-blue-400 focus:ring-2 focus:ring-blue-50 outline-none"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-xs text-slate-400 bg-slate-50 rounded-lg px-3 py-2">
+                    <Lock className="h-3.5 w-3.5 shrink-0" />
+                    Pagamento simulado — nenhuma cobrança real será efetuada
+                  </div>
+                </div>
+              )}
+
+              {method === 'pix' && (
+                <div className="text-center space-y-3">
+                  <div className="bg-slate-50 border border-slate-100 rounded-2xl p-5 flex flex-col items-center">
+                    <div className="w-36 h-36 bg-white border-2 border-slate-200 rounded-xl flex items-center justify-center mb-3">
+                      <div className="grid grid-cols-5 gap-0.5 opacity-25">
+                        {[1,0,1,1,0,0,1,0,1,1,1,0,1,0,0,0,1,1,0,1,1,1,0,0,1].map((v, i) => (
+                          <div key={i} className={`w-5 h-5 rounded-sm ${v ? 'bg-slate-900' : 'bg-transparent'}`} />
+                        ))}
+                      </div>
+                    </div>
+                    <p className="font-mono text-xs text-slate-500 bg-white border border-slate-100 rounded-lg px-3 py-1.5 max-w-full truncate">
+                      00020126580014br.gov.bcb.pix0136mock-key
+                    </p>
+                    <button className="mt-1.5 text-xs font-semibold text-blue-600 hover:text-blue-700">
+                      Copiar chave PIX
+                    </button>
+                  </div>
+                  <p className="text-xs text-slate-500">QR Code simulado. Confirme para registrar o pagamento.</p>
+                </div>
+              )}
+
+              {method === 'boleto' && (
+                <div className="space-y-3">
+                  <div className="bg-slate-50 border border-slate-100 rounded-xl p-4 text-center">
+                    <p className="font-mono text-xs text-slate-700 bg-white border border-slate-200 rounded-lg px-4 py-3 tracking-widest leading-relaxed break-all">
+                      23791.12345 67890.12345 67890.12345 6 00000000000000
+                    </p>
+                    <button className="mt-2 text-xs font-semibold text-blue-600 hover:text-blue-700">
+                      Copiar código de barras
+                    </button>
+                  </div>
+                  <p className="text-xs text-slate-500 text-center">Boleto simulado com vencimento em 3 dias úteis.</p>
+                </div>
+              )}
+
+              <button
+                onClick={handleConfirm}
+                className="mt-5 w-full py-3 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 transition-colors shadow-sm"
+              >
+                {method === 'cartao' ? 'Confirmar Pagamento' : method === 'pix' ? 'Confirmar PIX' : 'Confirmar Boleto'}
+              </button>
+            </>
+          )}
+
+          {step === 'processing' && (
+            <div className="flex flex-col items-center py-10 gap-4">
+              <div className="w-14 h-14 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+              <p className="text-slate-700 font-semibold">Processando pagamento...</p>
+              <p className="text-sm text-slate-400">Aguarde, não feche esta janela</p>
+            </div>
+          )}
+
+          {step === 'success' && (
+            <div className="flex flex-col items-center py-10 gap-4 text-center">
+              <div className="w-16 h-16 bg-emerald-50 border-2 border-emerald-200 rounded-full flex items-center justify-center">
+                <CheckCircle className="h-8 w-8 text-emerald-500" />
+              </div>
+              <div>
+                <p className="text-slate-900 font-bold text-lg">Pagamento realizado!</p>
+                <p className="text-sm text-slate-500 mt-1">Sua assinatura foi regularizada com sucesso.</p>
+              </div>
+              <button
+                onClick={onSuccess}
+                className="px-6 py-2.5 bg-emerald-600 text-white text-sm font-semibold rounded-xl hover:bg-emerald-700 transition-colors"
+              >
+                Fechar
+              </button>
+            </div>
+          )}
+
+          {step === 'error' && (
+            <div className="flex flex-col items-center py-10 gap-4 text-center">
+              <div className="w-16 h-16 bg-rose-50 border-2 border-rose-200 rounded-full flex items-center justify-center">
+                <XCircle className="h-8 w-8 text-rose-500" />
+              </div>
+              <div>
+                <p className="text-slate-900 font-bold text-lg">Erro ao processar</p>
+                <p className="text-sm text-slate-500 mt-1">
+                  {dbError || 'Não foi possível salvar o pagamento. Tente novamente.'}
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => { setStep('form'); setDbError(''); }} className="px-4 py-2 border border-slate-200 text-slate-600 text-sm font-semibold rounded-xl hover:bg-slate-50 transition-colors">
+                  Tentar novamente
+                </button>
+                <button onClick={onClose} className="px-4 py-2 bg-slate-600 text-white text-sm font-semibold rounded-xl hover:bg-slate-700 transition-colors">
+                  Fechar
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* ─── Plan Change Modal ─── */
+
+const PlanChangeModal: React.FC<{
+  currentPlanId: string;
+  periodicidade: string;
+  empresaId: string;
+  initialPlanId?: string;
+  onClose: () => void;
+  onSuccess: (newPlanId: string) => void;
+}> = ({ currentPlanId, periodicidade, empresaId, initialPlanId, onClose, onSuccess }) => {
+  const [selectedPlan, setSelectedPlan] = useState(initialPlanId ?? currentPlanId);
+  const [selectedPeriod, setSelectedPeriod] = useState<'mensal' | 'anual'>(periodicidade as 'mensal' | 'anual');
+  const [step, setStep] = useState<'select' | 'payment' | 'processing' | 'success' | 'error'>('select');
+  const [dbError, setDbError] = useState('');
+  const [payMethod, setPayMethod] = useState<'cartao' | 'pix' | 'boleto'>('cartao');
+  const [cardNumber, setCardNumber] = useState('');
+  const [cardName, setCardName] = useState('');
+  const [cardExpiry, setCardExpiry] = useState('');
+  const [cardCvv, setCardCvv] = useState('');
+
+  const planInfo = PLANOS_INFO.find(p => p.id === selectedPlan);
+  const price = planInfo ? (selectedPeriod === 'anual' ? planInfo.precoAnual : planInfo.precoMensal) : 0;
+
+  const fmtCartao = (v: string) => v.replace(/\D/g, '').slice(0, 16).replace(/(\d{4})/g, '$1 ').trim();
+  const fmtValidade = (v: string) => v.replace(/\D/g, '').slice(0, 4).replace(/(\d{2})(\d)/, '$1/$2');
+
+  const handlePagar = async () => {
+    setStep('processing');
+    await new Promise(r => setTimeout(r, 2500));
+    try {
+      const plan = PLANOS_INFO.find(p => p.id === selectedPlan);
+      if (!plan) throw new Error('Plano não encontrado');
+
+      const novoVencimento = calcVencimento(selectedPeriod);
+      const { error } = await supabase
+        .from('Recanto_Assinaturas')
+        .update({
+          plano_id: plan.id,
+          plano_nome: plan.nome,
+          valor_mensal: price,
+          periodicidade: selectedPeriod,
+          status: 'ativa',
+          data_vencimento: novoVencimento,
+        })
+        .eq('empresa_id', empresaId);
+      if (error) throw error;
+
+      await supabase.from('Recanto_Logs_Empresa').insert({
+        empresa_id: empresaId,
+        tipo: 'pagamento_aprovado',
+        descricao: `Migração para plano ${plan.nome} via ${payMethod}`,
+        metadata: { plano_id: plan.id, plano_nome: plan.nome, valor: price, periodicidade: selectedPeriod, forma_pagamento: payMethod, vencimento: novoVencimento },
+      });
+
+      setStep('success');
+    } catch (err: any) {
+      console.error('Erro ao migrar plano:', err);
+      setDbError(err?.message ?? 'Erro desconhecido');
+      setStep('error');
+    }
+  };
+
+  const stepTitle: Record<string, string> = {
+    select: 'Trocar Plano',
+    payment: 'Pagamento',
+    processing: 'Processando',
+    success: 'Concluído',
+    error: 'Erro',
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh]">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 shrink-0">
+          <div className="flex items-center gap-2">
+            <RefreshCw className="h-5 w-5 text-blue-600" />
+            <h2 className="font-bold text-slate-900">{stepTitle[step]}</h2>
+          </div>
+          {step !== 'processing' && (
+            <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+
+        {/* Step indicator */}
+        {(step === 'select' || step === 'payment') && (
+          <div className="flex items-center gap-0 px-6 pt-4 pb-2 shrink-0">
+            {['Escolha o plano', 'Pagamento'].map((label, i) => {
+              const active = (i === 0 && step === 'select') || (i === 1 && step === 'payment');
+              const done = (i === 0 && step === 'payment');
+              return (
+                <React.Fragment key={label}>
+                  <div className="flex items-center gap-2">
+                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                      done ? 'bg-emerald-500 text-white' : active ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-400'
+                    }`}>
+                      {done ? <CheckCircle className="h-4 w-4" /> : i + 1}
+                    </div>
+                    <span className={`text-xs font-semibold ${active ? 'text-slate-800' : 'text-slate-400'}`}>{label}</span>
+                  </div>
+                  {i < 1 && <div className="flex-1 h-px bg-slate-200 mx-3" />}
+                </React.Fragment>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="p-6 overflow-y-auto flex-1">
+          {/* Step 1 — Select plan */}
+          {step === 'select' && (
+            <>
+              <div className="flex items-center gap-3 mb-5">
+                <p className="text-sm text-slate-600">Cobrança:</p>
+                <div className="flex bg-slate-100 rounded-xl p-0.5 gap-0.5">
+                  {(['mensal', 'anual'] as const).map(p => (
+                    <button
+                      key={p}
+                      onClick={() => setSelectedPeriod(p)}
+                      className={`px-4 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+                        selectedPeriod === p ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                      }`}
+                    >
+                      {p === 'mensal' ? 'Mensal' : 'Anual (-25%)'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {PLANOS_INFO.map(plano => {
+                  const isSelected = selectedPlan === plano.id;
+                  const isCurrent = currentPlanId === plano.id;
+                  const p = selectedPeriod === 'anual' ? plano.precoAnual : plano.precoMensal;
+                  return (
+                    <button
+                      key={plano.id}
+                      onClick={() => setSelectedPlan(plano.id)}
+                      className={`relative text-left rounded-2xl border-2 p-4 transition-all ${
+                        isSelected ? 'border-blue-500 bg-blue-50/30 shadow-md' : 'border-slate-100 bg-white hover:border-slate-300'
+                      }`}
+                    >
+                      {isCurrent && (
+                        <span className="absolute -top-2.5 right-3 px-2.5 py-0.5 bg-emerald-500 text-white text-xs font-bold rounded-full">Atual</span>
+                      )}
+                      {plano.popular && !isCurrent && (
+                        <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 px-2.5 py-0.5 bg-blue-600 text-white text-xs font-bold rounded-full whitespace-nowrap">Popular</span>
+                      )}
+                      <div className={`w-9 h-9 rounded-xl flex items-center justify-center mb-2 ${plano.colorClass}`}>
+                        <Zap className="h-5 w-5 text-white" />
+                      </div>
+                      <p className="font-bold text-slate-900 text-sm">{plano.nome}</p>
+                      <p className="text-xs font-bold text-blue-700 mt-0.5">{p === 0 ? 'Sob consulta' : `R$ ${p}/mês`}</p>
+                      <ul className="mt-2 space-y-1">
+                        {plano.features.slice(0, 4).map(f => (
+                          <li key={f} className="flex items-start gap-1.5 text-xs text-slate-500">
+                            <CheckCircle className="h-3 w-3 text-emerald-500 shrink-0 mt-0.5" />{f}
+                          </li>
+                        ))}
+                        {plano.features.length > 4 && (
+                          <li className="text-xs text-blue-600 font-medium pl-4">+{plano.features.length - 4} recursos</li>
+                        )}
+                      </ul>
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          )}
+
+          {/* Step 2 — Payment */}
+          {step === 'payment' && planInfo && (
+            <>
+              <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-3 mb-5 flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-blue-900">Plano {planInfo.nome}</p>
+                  <p className="text-xs text-blue-600 mt-0.5">
+                    {price === 0 ? 'Sob consulta' : `R$ ${price.toFixed(2).replace('.', ',')}/mês`}
+                    {selectedPeriod === 'anual' && ' · cobrança anual'}
+                  </p>
+                </div>
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${planInfo.colorClass}`}>
+                  <Zap className="h-5 w-5 text-white" />
+                </div>
+              </div>
+
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Forma de pagamento</p>
+              <div className="grid grid-cols-3 gap-2 mb-4">
+                {(['cartao', 'pix', 'boleto'] as const).map(m => (
+                  <button
+                    key={m}
+                    onClick={() => setPayMethod(m)}
+                    className={`py-2.5 rounded-xl text-xs font-semibold border transition-all ${
+                      payMethod === m ? 'bg-blue-600 text-white border-blue-600 shadow-sm' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'
+                    }`}
+                  >
+                    {m === 'cartao' ? 'Cartão' : m === 'pix' ? 'PIX' : 'Boleto'}
+                  </button>
+                ))}
+              </div>
+
+              {payMethod === 'cartao' && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Número do Cartão</label>
+                    <input value={cardNumber} onChange={e => setCardNumber(fmtCartao(e.target.value))} placeholder="0000 0000 0000 0000"
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:border-blue-400 focus:ring-2 focus:ring-blue-50 outline-none" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Nome no Cartão</label>
+                    <input value={cardName} onChange={e => setCardName(e.target.value.toUpperCase())} placeholder="NOME COMPLETO"
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:border-blue-400 focus:ring-2 focus:ring-blue-50 outline-none" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Validade</label>
+                      <input value={cardExpiry} onChange={e => setCardExpiry(fmtValidade(e.target.value))} placeholder="MM/AA"
+                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:border-blue-400 focus:ring-2 focus:ring-blue-50 outline-none" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">CVV</label>
+                      <input value={cardCvv} onChange={e => setCardCvv(e.target.value.replace(/\D/g, '').slice(0, 4))} placeholder="000"
+                        className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:border-blue-400 focus:ring-2 focus:ring-blue-50 outline-none" />
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-xs text-slate-400 bg-slate-50 rounded-lg px-3 py-2">
+                    <Lock className="h-3.5 w-3.5 shrink-0" />
+                    Pagamento simulado — nenhuma cobrança real será efetuada
+                  </div>
+                </div>
+              )}
+
+              {payMethod === 'pix' && (
+                <div className="text-center space-y-3">
+                  <div className="bg-slate-50 border border-slate-100 rounded-2xl p-5 flex flex-col items-center">
+                    <div className="w-36 h-36 bg-white border-2 border-slate-200 rounded-xl flex items-center justify-center mb-3">
+                      <div className="grid grid-cols-5 gap-0.5 opacity-25">
+                        {[1,0,1,1,0,0,1,0,1,1,1,0,1,0,0,0,1,1,0,1,1,1,0,0,1].map((v, i) => (
+                          <div key={i} className={`w-5 h-5 rounded-sm ${v ? 'bg-slate-900' : 'bg-transparent'}`} />
+                        ))}
+                      </div>
+                    </div>
+                    <p className="font-mono text-xs text-slate-500 bg-white border border-slate-100 rounded-lg px-3 py-1.5 max-w-full truncate">
+                      00020126580014br.gov.bcb.pix0136mock-key
+                    </p>
+                  </div>
+                  <p className="text-xs text-slate-500">QR Code simulado. Confirme para registrar o pagamento.</p>
+                </div>
+              )}
+
+              {payMethod === 'boleto' && (
+                <div className="space-y-3">
+                  <div className="bg-slate-50 border border-slate-100 rounded-xl p-4 text-center">
+                    <p className="font-mono text-xs text-slate-700 bg-white border border-slate-200 rounded-lg px-4 py-3 tracking-widest break-all">
+                      23791.12345 67890.12345 67890.12345 6 00000000000000
+                    </p>
+                  </div>
+                  <p className="text-xs text-slate-500 text-center">Boleto simulado com vencimento em 3 dias úteis.</p>
+                </div>
+              )}
+            </>
+          )}
+
+          {step === 'processing' && (
+            <div className="flex flex-col items-center py-10 gap-4">
+              <div className="w-14 h-14 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+              <p className="text-slate-700 font-semibold">Processando pagamento e atualizando plano...</p>
+            </div>
+          )}
+
+          {step === 'success' && (
+            <div className="flex flex-col items-center py-10 gap-4 text-center">
+              <div className="w-16 h-16 bg-emerald-50 border-2 border-emerald-200 rounded-full flex items-center justify-center">
+                <CheckCircle className="h-8 w-8 text-emerald-500" />
+              </div>
+              <div>
+                <p className="text-slate-900 font-bold text-lg">Plano atualizado!</p>
+                <p className="text-sm text-slate-500 mt-1">Migrado com sucesso para o plano <strong>{planInfo?.nome}</strong>. Pagamento registrado.</p>
+              </div>
+              <button onClick={() => onSuccess(selectedPlan)} className="px-6 py-2.5 bg-emerald-600 text-white text-sm font-semibold rounded-xl hover:bg-emerald-700 transition-colors">
+                Fechar
+              </button>
+            </div>
+          )}
+
+          {step === 'error' && (
+            <div className="flex flex-col items-center py-10 gap-4 text-center">
+              <div className="w-16 h-16 bg-rose-50 border-2 border-rose-200 rounded-full flex items-center justify-center">
+                <XCircle className="h-8 w-8 text-rose-500" />
+              </div>
+              <div>
+                <p className="text-slate-900 font-bold text-lg">Erro ao processar</p>
+                <p className="text-sm text-slate-500 mt-1">{dbError || 'Não foi possível atualizar o plano. Tente novamente.'}</p>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => { setStep('payment'); setDbError(''); }} className="px-4 py-2 border border-slate-200 text-slate-600 text-sm font-semibold rounded-xl hover:bg-slate-50 transition-colors">
+                  Tentar novamente
+                </button>
+                <button onClick={onClose} className="px-4 py-2 bg-slate-600 text-white text-sm font-semibold rounded-xl hover:bg-slate-700 transition-colors">
+                  Fechar
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {(step === 'select' || step === 'payment') && (
+          <div className="px-6 py-4 border-t border-slate-100 flex justify-between items-center shrink-0">
+            {step === 'payment' ? (
+              <>
+                <button onClick={() => setStep('select')} className="flex items-center gap-1.5 px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-xl transition-all border border-slate-200">
+                  <ArrowLeft className="h-4 w-4" />
+                  Voltar
+                </button>
+                <button onClick={handlePagar} className="flex items-center gap-1.5 px-5 py-2 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 transition-colors shadow-sm">
+                  <CreditCard className="h-4 w-4" />
+                  {payMethod === 'cartao' ? 'Confirmar Pagamento' : payMethod === 'pix' ? 'Confirmar PIX' : 'Confirmar Boleto'}
+                </button>
+              </>
+            ) : (
+              <>
+                <button onClick={onClose} className="flex items-center gap-1.5 px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-xl transition-all border border-slate-200">
+                  Cancelar
+                </button>
+                <button
+                  disabled={selectedPlan === currentPlanId}
+                  onClick={() => setStep('payment')}
+                  className="flex items-center gap-1.5 px-5 py-2 bg-blue-600 text-white text-sm font-semibold rounded-xl hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Avançar para Pagamento
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
 
 /* ─── Shared UI helpers ─── */
 

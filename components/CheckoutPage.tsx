@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '../services/supabaseClient';
 import type { CheckoutFormData, PlanoId, Periodicidade, FormaPagamento } from '../types';
+import { gerarEmpresaId } from '../lib/empresaId';
 
 // ─── Planos disponíveis ───────────────────────────────────────────────────────
 const PLANOS = [
@@ -78,11 +79,6 @@ function formatValidade(v: string) {
   return v.replace(/\D/g, '').slice(0, 4).replace(/(\d{2})(\d)/, '$1/$2');
 }
 
-function gerarEmpresaId(): string {
-  const ts = Date.now().toString(36).toUpperCase();
-  const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
-  return `EMP-${ts}-${rand}`;
-}
 
 function validarCNPJ(cnpj: string): boolean {
   const d = cnpj.replace(/\D/g, '');
@@ -279,13 +275,22 @@ const CheckoutPage: React.FC = () => {
     vencimento.setFullYear(vencimento.getFullYear() + (form.periodicidade === 'anual' ? 1 : 0));
     vencimento.setMonth(vencimento.getMonth() + (form.periodicidade === 'mensal' ? 1 : 0));
 
-    // 1. Criar empresa
+    // 0. Verifica CNPJ duplicado antes de criar
+    const cnpjNumerico = form.cnpj.replace(/\D/g, '');
+    const { data: cnpjExistente } = await supabase
+      .from('Recanto_Empresas')
+      .select('empresa_id')
+      .eq('cnpj', cnpjNumerico)
+      .maybeSingle();
+    if (cnpjExistente) throw new Error('Já existe uma empresa cadastrada com este CNPJ. Entre em contato com o suporte se isso for um erro.');
+
+    // 1. Criar empresa (pendente — ativa após confirmação de pagamento)
     const { error: empresaError } = await supabase
       .from('Recanto_Empresas')
       .insert({
         empresa_id: empresaId,
         nome_instituicao: form.nomeInstituicao,
-        cnpj: form.cnpj.replace(/\D/g, ''),
+        cnpj: cnpjNumerico,
         razao_social: form.razaoSocial,
         nome_fantasia: form.nomeFantasia || form.nomeInstituicao,
         telefone: form.telefoneEmpresa,
@@ -296,7 +301,7 @@ const CheckoutPage: React.FC = () => {
         cep: form.cep.replace(/\D/g, ''),
         qtd_residentes: parseInt(form.qtdResidentes) || 0,
         qtd_usuarios: parseInt(form.qtdUsuarios) || 1,
-        status: 'ativa',
+        status: 'pendente',
       });
 
     if (empresaError) throw new Error('Falha ao registrar empresa: ' + empresaError.message);

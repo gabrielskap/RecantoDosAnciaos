@@ -3,6 +3,7 @@ import {
   Search, Plus, X, Bed, Tv, Wind, Bell, Sofa, Trash2, Edit3, Users,
   Check, AlertCircle, UserPlus, ArrowRightLeft, Bath, DoorClosed, Refrigerator, ShieldAlert
 } from 'lucide-react';
+import { toast } from '../services/toast';
 import { Room, Resident, RoomStatus } from '../types';
 import CustomSelect from './CustomSelect';
 
@@ -178,7 +179,7 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
       } else {
         // Check uniqueness of number
         if (rooms.some(r => r.number.toLowerCase() === roomNumber.trim().toLowerCase())) {
-          alert('Já existe um quarto cadastrado com este número.');
+          toast.error('Já existe um quarto cadastrado com este número.');
           return;
         }
         await onAddRoom(roomData);
@@ -186,7 +187,7 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
       setEditingRoom(null);
     } catch (err) {
       console.error(err);
-      alert('Erro ao salvar o quarto.');
+      toast.error('Erro ao salvar o quarto.');
     }
   };
 
@@ -226,7 +227,7 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
 
     const residentsInRoom = residents.filter(r => r.room === linkingRoom.number);
     if (residentsInRoom.length >= linkingRoom.capacity) {
-      alert('Este quarto já está com a capacidade máxima ocupada!');
+      toast.warning('Este quarto já está com a capacidade máxima ocupada!');
       return;
     }
 
@@ -250,7 +251,7 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
       setLinkingRoom(null);
     } catch (err) {
       console.error(err);
-      alert('Erro ao vincular o residente.');
+      toast.error('Erro ao vincular o residente.');
     }
   };
 
@@ -477,7 +478,7 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
                         <div key={res.id} className="flex items-center justify-between bg-slate-50/50 hover:bg-slate-50 border border-slate-100/50 rounded-xl p-2 group/item">
                           <div className="flex items-center gap-2 min-w-0">
                             <img
-                              src={res.photoUrl || `https://picsum.photos/100/100?random=${res.id}`}
+                              src={res.photoUrl || undefined}
                               alt={res.name}
                               className="w-7 h-7 rounded-lg object-cover"
                             />
@@ -545,7 +546,7 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
                     <button
                       onClick={() => {
                         if (roomResidents.length > 0) {
-                          alert('Não é possível excluir um quarto que possua residentes vinculados.');
+                          toast.warning('Não é possível excluir um quarto que possua residentes vinculados.');
                           return;
                         }
                         if (window.confirm(`Tem certeza que deseja excluir o Quarto ${room.number}?`)) {

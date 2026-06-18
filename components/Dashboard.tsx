@@ -3,17 +3,16 @@ import {
   Users, AlertTriangle, TrendingUp, Calendar, Activity,
   PackageX, ShieldAlert
 } from 'lucide-react';
-import { Resident, FinancialRecord, StockItem } from '../types';
-import type { AlertItem } from './NotificationsPanel';
+import { Resident, FinancialRecord, StockItem, CalendarEvent } from '../types';
 
 interface DashboardProps {
   residents: Resident[];
   financials: FinancialRecord[];
+  events?: CalendarEvent[];
   stockAlerts?: StockItem[];
-  allAlerts?: AlertItem[];
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ residents, financials, stockAlerts = [], allAlerts: allAlertsProp }) => {
+const Dashboard: React.FC<DashboardProps> = ({ residents, financials, events = [], stockAlerts = [] }) => {
 
   const totalResidents = residents.length;
   const highCare = residents.filter(r => r.careLevel === 'III').length;
@@ -21,31 +20,9 @@ const Dashboard: React.FC<DashboardProps> = ({ residents, financials, stockAlert
   const capacity = 40;
   const occupancyRate = Math.round((totalResidents / capacity) * 100);
 
-  const allAlerts: AlertItem[] = allAlertsProp ?? (() => {
-    const staticAlerts: AlertItem[] = [
-      { id: 'a1', text: 'Maria Silva apresentou pressão arterial elevada (160/95)', time: '10:30', type: 'critical' },
-      { id: 'a2', text: 'João Santos recusou medicação matinal', time: '08:45', type: 'info' },
-    ];
-    const dynamicStockAlerts: AlertItem[] = stockAlerts.map(item => ({
-      id: `stock-${item.id}`,
-      text: `Estoque crítico: ${item.name} (${item.quantity} ${item.unit})`,
-      time: 'Agora',
-      type: 'warning' as const,
-    }));
-    const medicationAlerts: AlertItem[] = residents.flatMap(resident =>
-      (resident.medications || []).map(med => ({
-        id: `med-${resident.id}-${med.id}`,
-        text: `Prescrição: ${resident.name} - ${med.name} (${med.dosage})`,
-        time: med.nextDose || '08:00',
-        type: 'medication' as const,
-      }))
-    );
-    return [...dynamicStockAlerts, ...medicationAlerts, ...staticAlerts].sort((a, b) => {
-      if (a.time === 'Agora' && b.time !== 'Agora') return -1;
-      if (b.time === 'Agora' && a.time !== 'Agora') return 1;
-      return a.time.localeCompare(b.time);
-    });
-  })();
+  const todayStr = new Date().toISOString().split('T')[0];
+  const todayEvents = events.filter(e => e.start?.startsWith(todayStr));
+  const nextEvent = todayEvents[0];
 
   const kpis = [
     {
@@ -76,8 +53,8 @@ const Dashboard: React.FC<DashboardProps> = ({ residents, financials, stockAlert
     },
     {
       label: 'Eventos Hoje',
-      value: '3',
-      sub: 'Musicoterapia às 14h',
+      value: String(todayEvents.length),
+      sub: nextEvent ? nextEvent.title : 'Nenhum evento hoje',
       icon: Calendar,
       iconBg: 'bg-emerald-50',
       iconColor: 'text-emerald-500',

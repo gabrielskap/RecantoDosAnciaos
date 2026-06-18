@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { FinancialRecord, Contract, Invoice, Resident } from '../types';
 import { DollarSign, TrendingUp, TrendingDown, Plus, X, FileText, Calendar, CheckCircle2, AlertCircle, FileCheck, Wallet } from 'lucide-react';
@@ -60,12 +60,20 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
   const overdueAmount = invoices.filter(i => i.status === 'Atrasado').reduce((acc, cur) => acc + cur.amount, 0);
   const pendingAmount = invoices.filter(i => i.status === 'Pendente').reduce((acc, cur) => acc + cur.amount, 0);
 
-  const chartData = [
-    { name: 'Jan', Receita: 45000, Despesa: 38000 },
-    { name: 'Fev', Receita: 46000, Despesa: 39500 },
-    { name: 'Mar', Receita: 44500, Despesa: 41000 },
-    { name: 'Abr', Receita: 48000, Despesa: 37000 },
-  ];
+  const chartData = useMemo(() => {
+    const now = new Date();
+    return Array.from({ length: 6 }, (_, i) => {
+      const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
+      const yearMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const label = d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '');
+      const monthRecords = records.filter(r => r.date?.startsWith(yearMonth));
+      return {
+        name: label.charAt(0).toUpperCase() + label.slice(1),
+        Receita: monthRecords.filter(r => r.type === 'receita').reduce((s, r) => s + r.amount, 0),
+        Despesa: monthRecords.filter(r => r.type === 'despesa').reduce((s, r) => s + r.amount, 0),
+      };
+    });
+  }, [records]);
 
   const handleRecordSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -161,7 +169,7 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
               </div>
             </div>
             <div className="h-72">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height={288} minWidth={0}>
                 <BarChart data={chartData} barGap={4}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                   <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#94a3b8' }} />
@@ -226,7 +234,7 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
 
           <div className="bg-white rounded-2xl shadow-sm shadow-blue-100/40 overflow-hidden">
             <div className="px-6 py-4 border-b border-slate-100">
-              <h3 className="font-bold text-slate-800 text-sm">Competência: Maio/2024</h3>
+              <h3 className="font-bold text-slate-800 text-sm">Competência: {new Date().toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}</h3>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">

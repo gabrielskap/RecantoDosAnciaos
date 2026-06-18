@@ -7,6 +7,8 @@ import {
   Key, Printer
 } from 'lucide-react';
 import { Resident, CarePlan, AuditLog, DailyChecklist, Medication, RoomStatus, Room } from '../types';
+import { residentAvatarSrc } from '../lib/avatar';
+import { toast } from '../services/toast';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import CustomSelect from './CustomSelect';
 import { useAuth } from '../contexts/AuthContext';
@@ -302,7 +304,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
       handleChecklistFieldChange('photoUrl', finalUrl);
     } catch (err) {
       console.error('Erro ao processar imagem do boletim:', err);
-      alert('Erro ao processar a foto. Tente novamente.');
+      toast.error('Erro ao processar a foto. Tente novamente.');
     } finally {
       setChecklistPhotoUploading(false);
     }
@@ -319,7 +321,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
       setFormData(prev => ({ ...prev, photoUrl: finalUrl }));
     } catch (err) {
       console.error('Erro ao processar imagem:', err);
-      alert('Erro ao processar a foto. Tente novamente.');
+      toast.error('Erro ao processar a foto. Tente novamente.');
     } finally {
       setPhotoUploading(false);
     }
@@ -708,7 +710,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
 
     const win = window.open('', '_blank', 'width=960,height=720');
     if (!win) {
-      alert('Permita popups para gerar a impressão.');
+      toast.warning('Permita popups para gerar a impressão.');
       return;
     }
 
@@ -1426,7 +1428,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     // Validate that at least one day is selected
     const hasSelectedDay = Object.values(freqObj).some(times => times > 0);
     if (!hasSelectedDay) {
-      alert("Por favor, selecione pelo menos um dia da semana para a frequência do plano.");
+      toast.warning('Selecione pelo menos um dia da semana para a frequência do plano.');
       return;
     }
 
@@ -1622,7 +1624,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
         <div className="p-4 md:p-6 flex flex-col md:flex-row justify-between items-start gap-4 bg-gradient-to-r from-blue-500 to-blue-600">
           <div className="flex items-center w-full md:w-auto">
             <img
-              src={resident.photoUrl}
+              src={residentAvatarSrc(resident.name, resident.photoUrl)}
               alt={resident.name}
               className="h-16 w-16 md:h-20 md:w-20 rounded-2xl object-cover border-4 border-white/30 shadow-md"
             />

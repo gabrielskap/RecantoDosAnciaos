@@ -3,6 +3,7 @@ import { Users, Calendar, Award, Shield, Plus, X, Search, CheckCircle, AlertOcta
 import { Employee, TrainingRecord, SystemAccessLog, UserRole, Resident, ViewState } from '../types';
 import ProfileManager from './ProfileManager';
 import { useAuth } from '../contexts/AuthContext';
+import { toast } from '../services/toast';
 import CustomSelect from './CustomSelect';
 import UsersModule from './UsersModule';
 
@@ -147,15 +148,15 @@ const TeamModule: React.FC<TeamModuleProps> = ({
 
     if (linkUserMode === 'create') {
       if (!newEmp.email || !newEmp.email.trim()) {
-        alert('O e-mail é obrigatório para criar um usuário de acesso.');
+        toast.warning('O e-mail é obrigatório para criar um usuário de acesso.');
         return;
       }
       if (!accessPassword || accessPassword.length < 4) {
-        alert('A senha deve conter pelo menos 4 caracteres.');
+        toast.warning('A senha deve conter pelo menos 8 caracteres.');
         return;
       }
       if (!accessProfileId) {
-        alert('Selecione um perfil de acesso válido.');
+        toast.warning('Selecione um perfil de acesso válido.');
         return;
       }
     }
@@ -205,7 +206,7 @@ const TeamModule: React.FC<TeamModuleProps> = ({
       setEditingEmpId(null);
     } catch (err: any) {
       console.error(err);
-      alert(err.message || 'Erro ao salvar colaborador.');
+      toast.error(err.message || 'Erro ao salvar colaborador.');
     }
   };
 

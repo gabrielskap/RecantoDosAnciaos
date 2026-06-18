@@ -13,6 +13,7 @@ import {
   Download, Calendar, Package, DollarSign, Utensils,
   AlertTriangle, Archive,
 } from 'lucide-react';
+import { toast } from '../services/toast';
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -163,7 +164,7 @@ tr:last-child td { border-bottom: none; }
 
 const openPrintWindow = (title: string, body: string) => {
   const win = window.open('', '_blank', 'width=960,height=720');
-  if (!win) { alert('Permita popups para gerar o PDF.'); return; }
+  if (!win) { toast.warning('Permita popups para gerar o PDF.'); return; }
 
   let watermarkSrc = '';
   let hasLetterhead = false;
@@ -559,6 +560,9 @@ const ReportsModule: React.FC<ReportsModuleProps> = ({
   const compliance = Math.round((rdcChecklist.filter(i => i.status).length / rdcChecklist.length) * 100);
   const totalResidents = residents.length || 1;
 
+  const polypharmacyCount = residents.filter(r => (r.medications || []).length > 5).length;
+  const polypharmacyPct = residents.length > 0 ? Math.round((polypharmacyCount / residents.length) * 100) : 0;
+
   const income = filteredFinancials.filter(f=>f.type==='receita').reduce((a,f)=>a+f.amount,0);
   const expense = filteredFinancials.filter(f=>f.type==='despesa').reduce((a,f)=>a+f.amount,0);
   const lowStock = stockItems.filter(i=>i.quantity<=i.minThreshold);
@@ -689,10 +693,10 @@ const ReportsModule: React.FC<ReportsModuleProps> = ({
 
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {[
-              { label: 'Total Residentes', value: String(residents.length), sub: `Idade média: ${residents.length ? Math.round(residents.reduce((a,r)=>a+r.age,0)/residents.length) : '—'} anos`, icon: Users, bg:'bg-blue-50', color:'text-blue-600' },
-              { label: 'Quedas (mock)',    value: '2',   sub: '2 incidentes',           icon: AlertTriangle, bg:'bg-amber-50',   color:'text-amber-600' },
-              { label: 'Polifarmácia',    value: '15%', sub: 'Uso de >5 medicamentos',  icon: Pill,          bg:'bg-rose-50',    color:'text-rose-600'  },
-              { label: 'Satisfação',      value: '4.8/5',sub: 'Pesquisa familiar',      icon: TrendingUp,    bg:'bg-emerald-50', color:'text-emerald-600'},
+              { label: 'Total Residentes', value: String(residents.length), sub: `Idade média: ${residents.length ? Math.round(residents.reduce((a, r) => a + r.age, 0) / residents.length) : '—'} anos`, icon: Users, bg:'bg-blue-50', color:'text-blue-600' },
+              { label: 'Medicados',        value: String(residents.filter(r => (r.medications || []).length > 0).length), sub: 'Com prescrição ativa', icon: Pill, bg:'bg-amber-50', color:'text-amber-600' },
+              { label: 'Polifarmácia',     value: `${polypharmacyPct}%`, sub: `${polypharmacyCount} residente(s) com >5 medicamentos`, icon: AlertTriangle, bg:'bg-rose-50', color:'text-rose-600' },
+              { label: 'Alta Complexidade',value: String(residents.filter(r => r.careLevel === 'III').length), sub: 'Residentes Grau III', icon: TrendingUp, bg:'bg-emerald-50', color:'text-emerald-600'},
             ].map(kpi => (
               <div key={kpi.label} className="bg-white rounded-2xl shadow-sm p-5">
                 <div className="flex items-start justify-between mb-3">
@@ -719,7 +723,8 @@ const ReportsModule: React.FC<ReportsModuleProps> = ({
                 </div>
               </div>
               <div className="flex items-center gap-6 h-48">
-                <ResponsiveContainer width="60%" height="100%">
+                <div style={{ width: '60%', height: 192, minWidth: 0, flexShrink: 0 }}>
+                <ResponsiveContainer width="100%" height={192} minWidth={0}>
                   <PieChart>
                     <Pie data={dependencyData} cx="50%" cy="50%" innerRadius={50} outerRadius={72} paddingAngle={4} dataKey="value">
                       {dependencyData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i]} />)}
@@ -727,6 +732,7 @@ const ReportsModule: React.FC<ReportsModuleProps> = ({
                     <Tooltip />
                   </PieChart>
                 </ResponsiveContainer>
+                </div>
                 <div className="space-y-3 flex-1">
                   {dependencyData.map((entry, i) => (
                     <div key={entry.name} className="flex items-center justify-between">
