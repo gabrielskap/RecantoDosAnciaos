@@ -11,10 +11,11 @@ import {
   ClipboardCheck, Users, Pill, TrendingUp, TrendingDown,
   CheckCircle2, XCircle, PieChart as PieIcon, FileBarChart,
   Download, Calendar, Package, DollarSign, Utensils,
-  AlertTriangle, Archive,
+  AlertTriangle, Archive, Upload, ExternalLink, FileText,
 } from 'lucide-react';
 import { toast } from '../services/toast';
 import { useAuth } from '../contexts/AuthContext';
+import { uploadComplianceDocument } from '../services/supabaseClient';
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -39,6 +40,17 @@ interface ModuleOption {
   accentBg: string;
   accentText: string;
 }
+
+interface ComplianceDoc {
+  fileUrl: string;
+  fileName: string;
+  validade: string;
+}
+
+const isDocValid = (doc: ComplianceDoc | null): boolean => {
+  if (!doc?.fileUrl || !doc?.validade) return false;
+  return new Date(doc.validade + 'T23:59:59') >= new Date();
+};
 
 const MODULES: ModuleOption[] = [
   { id: 'conformidade', label: 'Conformidade RDC', icon: ClipboardCheck, hasDateRange: false, accent: 'border-emerald-400', accentBg: 'bg-emerald-50', accentText: 'text-emerald-700' },
@@ -525,6 +537,40 @@ const ReportsModule: React.FC<ReportsModuleProps> = ({
   const [startDate, setStartDate] = useState(defaultStart);
   const [endDate, setEndDate] = useState(defaultEnd);
 
+  const [licencaDoc, setLicencaDoc] = useState<ComplianceDoc | null>(() => {
+    try { return JSON.parse(localStorage.getItem('compliance_licenca_sanitaria') || 'null'); } catch { return null; }
+  });
+  const [ilpiDoc, setIlpiDoc] = useState<ComplianceDoc | null>(() => {
+    try { return JSON.parse(localStorage.getItem('compliance_ilpi_doc') || 'null'); } catch { return null; }
+  });
+  const [uploadingDoc, setUploadingDoc] = useState<'licenca' | 'ilpi' | null>(null);
+
+  const saveDoc = (key: 'licenca' | 'ilpi', doc: ComplianceDoc) => {
+    const storageKey = key === 'licenca' ? 'compliance_licenca_sanitaria' : 'compliance_ilpi_doc';
+    localStorage.setItem(storageKey, JSON.stringify(doc));
+    if (key === 'licenca') setLicencaDoc(doc);
+    else setIlpiDoc(doc);
+  };
+
+  const handleValidadeChange = (key: 'licenca' | 'ilpi', validade: string) => {
+    const current = key === 'licenca' ? licencaDoc : ilpiDoc;
+    saveDoc(key, { fileUrl: current?.fileUrl ?? '', fileName: current?.fileName ?? '', validade });
+  };
+
+  const handleFileUpload = async (key: 'licenca' | 'ilpi', file: File) => {
+    setUploadingDoc(key);
+    try {
+      const fileUrl = await uploadComplianceDocument(file);
+      const current = key === 'licenca' ? licencaDoc : ilpiDoc;
+      saveDoc(key, { fileUrl, fileName: file.name, validade: current?.validade ?? '' });
+      toast.success('Documento enviado com sucesso!');
+    } catch {
+      toast.error('Erro ao enviar documento. Tente novamente.');
+    } finally {
+      setUploadingDoc(null);
+    }
+  };
+
   const mod = MODULES.find(m => m.id === selectedModule)!;
 
   const PIE_COLORS = ['#10b981', '#f59e0b', '#f43f5e'];
@@ -535,13 +581,14 @@ const ReportsModule: React.FC<ReportsModuleProps> = ({
     { name: 'Grau III', value: residents.filter(r => r.careLevel === 'III').length },
   ];
 
-  const rdcChecklist = [
-    { item: 'Responsável Técnico (RT) vigente',      status: employees.some(e => e.isTechnicalLead && e.status === 'Ativo') },
-    { item: 'Proporção Cuidador/Idoso (Diurno)',     status: true  },
-    { item: 'Proporção Cuidador/Idoso (Noturno)',    status: true  },
-    { item: 'Plano de Atenção Integral à Saúde',     status: residents.every(r => r.carePlan && r.carePlan.length > 0) },
-    { item: 'Registro de Intercorrências Diárias',   status: true  },
-    { item: 'Licença Sanitária Atualizada',          status: false },
+  const rdcChecklist: { item: string; status: boolean; uploadKey?: 'licenca' | 'ilpi' }[] = [
+    { item: 'Responsável Técnico (RT) vigente',                    status: employees.some(e => e.isTechnicalLead && e.status === 'Ativo') },
+    { item: 'Proporção Cuidador/Idoso (Diurno)',                   status: true  },
+    { item: 'Proporção Cuidador/Idoso (Noturno)',                  status: true  },
+    { item: 'Plano de Atenção Integral à Saúde',                   status: residents.every(r => r.carePlan && r.carePlan.length > 0) },
+    { item: 'Registro de Intercorrências Diárias',                 status: true  },
+    { item: 'Licença Sanitária Atualizada',                        status: isDocValid(licencaDoc), uploadKey: 'licenca' },
+    { item: 'Instituições de Longa Permanência para Idosos (ILPIs)', status: isDocValid(ilpiDoc),   uploadKey: 'ilpi'   },
   ];
 
   const medData = useMemo(() => {
@@ -789,14 +836,88 @@ const ReportsModule: React.FC<ReportsModuleProps> = ({
               </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {rdcChecklist.map((item, idx) => (
-                <div key={idx} className={`flex items-center justify-between p-3.5 rounded-xl border ${item.status ? 'bg-emerald-50 border-emerald-100' : 'bg-rose-50 border-rose-100'}`}>
-                  <span className={`text-sm font-medium ${item.status ? 'text-emerald-800' : 'text-rose-800'}`}>{item.item}</span>
-                  {item.status
-                    ? <CheckCircle2 className="h-5 w-5 text-emerald-500 shrink-0 ml-2" />
-                    : <XCircle className="h-5 w-5 text-rose-500 shrink-0 ml-2" />}
-                </div>
-              ))}
+              {rdcChecklist.map((item, idx) => {
+                if (!item.uploadKey) {
+                  return (
+                    <div key={idx} className={`flex items-center justify-between p-3.5 rounded-xl border ${item.status ? 'bg-emerald-50 border-emerald-100' : 'bg-rose-50 border-rose-100'}`}>
+                      <span className={`text-sm font-medium ${item.status ? 'text-emerald-800' : 'text-rose-800'}`}>{item.item}</span>
+                      {item.status
+                        ? <CheckCircle2 className="h-5 w-5 text-emerald-500 shrink-0 ml-2" />
+                        : <XCircle className="h-5 w-5 text-rose-500 shrink-0 ml-2" />}
+                    </div>
+                  );
+                }
+
+                const doc = item.uploadKey === 'licenca' ? licencaDoc : ilpiDoc;
+                const isUploading = uploadingDoc === item.uploadKey;
+
+                return (
+                  <div key={idx} className={`flex flex-col gap-3 p-4 rounded-xl border col-span-1 md:col-span-2 ${item.status ? 'bg-emerald-50 border-emerald-200' : 'bg-rose-50 border-rose-200'}`}>
+                    <div className="flex items-center justify-between">
+                      <span className={`text-sm font-semibold ${item.status ? 'text-emerald-800' : 'text-rose-800'}`}>{item.item}</span>
+                      {item.status
+                        ? <CheckCircle2 className="h-5 w-5 text-emerald-500 shrink-0 ml-2" />
+                        : <XCircle className="h-5 w-5 text-rose-500 shrink-0 ml-2" />}
+                    </div>
+
+                    <div className={`flex flex-wrap items-end gap-3 pt-3 border-t ${item.status ? 'border-emerald-200' : 'border-rose-200'}`}>
+                      {/* File upload button */}
+                      <label className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold cursor-pointer transition-colors select-none ${isUploading ? 'opacity-60 cursor-not-allowed bg-slate-300 text-slate-600' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}>
+                        <Upload className="h-3.5 w-3.5 shrink-0" />
+                        {isUploading ? 'Enviando…' : doc?.fileUrl ? 'Trocar arquivo' : 'Enviar arquivo'}
+                        <input
+                          type="file"
+                          accept=".pdf,.jpg,.jpeg,.png"
+                          className="hidden"
+                          disabled={isUploading}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) handleFileUpload(item.uploadKey!, file);
+                            e.target.value = '';
+                          }}
+                        />
+                      </label>
+
+                      {/* Validade field */}
+                      <div className="flex flex-col gap-1">
+                        <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Validade</label>
+                        <input
+                          type="date"
+                          value={doc?.validade ?? ''}
+                          onChange={(e) => handleValidadeChange(item.uploadKey!, e.target.value)}
+                          className="border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-300 bg-white"
+                        />
+                      </div>
+
+                      {/* View uploaded file */}
+                      {doc?.fileUrl && (
+                        <a
+                          href={doc.fileUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-blue-700 bg-blue-100 hover:bg-blue-200 transition-colors"
+                        >
+                          <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+                          Ver documento
+                        </a>
+                      )}
+                    </div>
+
+                    {/* File name + validade info */}
+                    {doc?.fileUrl && (
+                      <div className="flex items-center gap-2 text-xs text-slate-500">
+                        <FileText className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                        <span className="truncate">{doc.fileName}</span>
+                        {doc.validade && (
+                          <span className={`ml-auto shrink-0 font-medium ${isDocValid(doc) ? 'text-emerald-600' : 'text-rose-600'}`}>
+                            Validade: {doc.validade.split('-').reverse().join('/')}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>

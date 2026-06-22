@@ -196,3 +196,45 @@ export const uploadUserPhoto = async (file: File, compressedBase64: string): Pro
   }
 };
 
+// Helper to upload an institutional compliance document (PDF/image) to Supabase storage
+export const uploadComplianceDocument = async (file: File): Promise<string> => {
+  const fileExt = file.name.split('.').pop() || 'pdf';
+  const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}.${fileExt}`;
+  const filePath = `compliance/${fileName}`;
+
+  try {
+    const { data: buckets } = await supabase.storage.listBuckets();
+    const bucketExists = buckets?.some(b => b.name === 'compliance-documents');
+
+    if (!bucketExists) {
+      await supabase.storage.createBucket('compliance-documents', {
+        public: true,
+        fileSizeLimit: 10485760,
+      });
+    }
+  } catch (bucketErr) {
+    console.warn('Could not verify/create compliance-documents bucket:', bucketErr);
+  }
+
+  const { error: uploadErr } = await supabase.storage
+    .from('compliance-documents')
+    .upload(filePath, file, {
+      contentType: file.type || 'application/pdf',
+      upsert: true,
+    });
+
+  if (uploadErr) {
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(new Error('Failed to read file'));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  const { data } = supabase.storage
+    .from('compliance-documents')
+    .getPublicUrl(filePath);
+
+  return data.publicUrl;
+};
