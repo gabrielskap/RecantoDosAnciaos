@@ -11,7 +11,7 @@ import {
   ClipboardCheck, Users, Pill, TrendingUp, TrendingDown,
   CheckCircle2, XCircle, PieChart as PieIcon, FileBarChart,
   Download, Calendar, Package, DollarSign, Utensils,
-  AlertTriangle, Archive, Upload, ExternalLink, FileText,
+  AlertTriangle, Archive, Upload, ExternalLink, FileText, Trash2,
 } from 'lucide-react';
 import { toast } from '../services/toast';
 import { useAuth } from '../contexts/AuthContext';
@@ -571,6 +571,14 @@ const ReportsModule: React.FC<ReportsModuleProps> = ({
     }
   };
 
+  const handleRemoveDoc = (key: 'licenca' | 'ilpi') => {
+    const storageKey = key === 'licenca' ? 'compliance_licenca_sanitaria' : 'compliance_ilpi_doc';
+    localStorage.removeItem(storageKey);
+    if (key === 'licenca') setLicencaDoc(null);
+    else setIlpiDoc(null);
+    toast.success('Arquivo removido.');
+  };
+
   const mod = MODULES.find(m => m.id === selectedModule)!;
 
   const PIE_COLORS = ['#10b981', '#f59e0b', '#f43f5e'];
@@ -900,6 +908,18 @@ const ReportsModule: React.FC<ReportsModuleProps> = ({
                           <ExternalLink className="h-3.5 w-3.5 shrink-0" />
                           Ver documento
                         </a>
+                      )}
+
+                      {/* Remove uploaded file */}
+                      {doc?.fileUrl && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveDoc(item.uploadKey!)}
+                          className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-rose-700 bg-rose-100 hover:bg-rose-200 transition-colors"
+                        >
+                          <Trash2 className="h-3.5 w-3.5 shrink-0" />
+                          Remover arquivo
+                        </button>
                       )}
                     </div>
 
