@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Users, Calendar, Award, Shield, Plus, X, Search, CheckCircle, AlertOctagon, UserCheck, Edit } from 'lucide-react';
+import { Users, Calendar, Award, Shield, Plus, X, Search, CheckCircle, AlertOctagon, UserCheck, Edit, Trash2, ShieldAlert } from 'lucide-react';
 import { Employee, TrainingRecord, SystemAccessLog, UserRole, Resident, ViewState } from '../types';
 import ProfileManager from './ProfileManager';
 import { useAuth } from '../contexts/AuthContext';
@@ -13,17 +13,19 @@ interface TeamModuleProps {
   accessLogs: SystemAccessLog[];
   onAddEmployee: (emp: Omit<Employee, 'id'>) => Promise<Employee>;
   onUpdateEmployee: (emp: Employee) => Promise<Employee>;
+  onDeleteEmployee: (id: string) => Promise<void>;
   onAddTraining: (training: TrainingRecord) => void;
   residents: Resident[];
   onAddAccessLog: (log: SystemAccessLog) => void;
 }
 
-const TeamModule: React.FC<TeamModuleProps> = ({ 
-  employees, 
-  trainings, 
-  accessLogs, 
-  onAddEmployee, 
+const TeamModule: React.FC<TeamModuleProps> = ({
+  employees,
+  trainings,
+  accessLogs,
+  onAddEmployee,
   onUpdateEmployee,
+  onDeleteEmployee,
   onAddTraining,
   residents,
   onAddAccessLog
@@ -62,13 +64,35 @@ const TeamModule: React.FC<TeamModuleProps> = ({
   const [linkUserMode, setLinkUserMode] = useState<string>('none');
   const [accessPassword, setAccessPassword] = useState('');
   const [accessProfileId, setAccessProfileId] = useState('');
+  const [autoOpenUsersCreate, setAutoOpenUsersCreate] = useState(false);
+  const [empToDelete, setEmpToDelete] = useState<Employee | null>(null);
+
+  const handleDeleteEmployee = async () => {
+    if (!empToDelete) return;
+    try {
+      await onDeleteEmployee(empToDelete.id);
+      setEmpToDelete(null);
+    } catch (err: any) {
+      toast.error(err.message || 'Erro ao excluir colaborador.');
+    }
+  };
 
   const employeeProfiles = profiles.filter(p => p.type !== 'Responsável');
   const currentEmpUserId = editingEmpId ? employees.find(e => e.id === editingEmpId)?.auth_user_id : undefined;
-  const linkableUsers = users.filter(u => 
-    u.profile.type !== 'Responsável' && 
+  const linkableUsers = users.filter(u =>
+    u.profile.type !== 'Responsável' &&
     (!employees.some(e => e.auth_user_id === u.id) || u.id === currentEmpUserId)
   );
+
+  const mapProfileTypeToRole = (type: string): string => {
+    if (type === 'Administrador') return 'Admin';
+    const valid = ['Enfermeiro', 'Cuidador', 'Médico', 'Nutricionista'];
+    return valid.includes(type) ? type : 'Cuidador';
+  };
+
+  const linkedUser = !editingEmpId && linkUserMode !== 'none'
+    ? users.find(u => u.id === linkUserMode) ?? null
+    : null;
 
   // New Training Form State
   const [newTrain, setNewTrain] = useState<Partial<TrainingRecord>>(() => {
@@ -312,13 +336,22 @@ const TeamModule: React.FC<TeamModuleProps> = ({
                       }`}>
                         {emp.status}
                       </span>
-                      <button
-                        onClick={() => handleEditEmployee(emp)}
-                        className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100 transition-colors bg-white shadow-sm flex items-center justify-center"
-                        title="Editar colaborador"
-                      >
-                        <Edit className="h-3.5 w-3.5" />
-                      </button>
+                      <div className="flex gap-1.5">
+                        <button
+                          onClick={() => handleEditEmployee(emp)}
+                          className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100 transition-colors bg-white shadow-sm flex items-center justify-center"
+                          title="Editar colaborador"
+                        >
+                          <Edit className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={() => setEmpToDelete(emp)}
+                          className="p-1.5 rounded-lg border border-rose-100 text-rose-500 hover:bg-rose-50 transition-colors bg-white shadow-sm flex items-center justify-center"
+                          title="Excluir colaborador"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </div>
                   </div>
 
@@ -382,13 +415,22 @@ const TeamModule: React.FC<TeamModuleProps> = ({
                         </span>
                       </td>
                       <td className="px-4 py-3 text-center">
-                        <button
-                          onClick={() => handleEditEmployee(emp)}
-                          className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-800 transition-colors"
-                          title="Editar colaborador"
-                        >
-                          <Edit className="h-4 w-4" />
-                        </button>
+                        <div className="flex items-center justify-center gap-1.5">
+                          <button
+                            onClick={() => handleEditEmployee(emp)}
+                            className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-800 transition-colors"
+                            title="Editar colaborador"
+                          >
+                            <Edit className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => setEmpToDelete(emp)}
+                            className="p-1.5 rounded-lg border border-rose-100 text-rose-500 hover:bg-rose-50 hover:text-rose-600 transition-colors"
+                            title="Excluir colaborador"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -406,6 +448,8 @@ const TeamModule: React.FC<TeamModuleProps> = ({
               employees={employees}
               onAddEmployee={onAddEmployee}
               onAddAccessLog={onAddAccessLog}
+              autoOpenCreate={autoOpenUsersCreate}
+              onAutoOpenDone={() => setAutoOpenUsersCreate(false)}
             />
           </div>
         )}
@@ -552,137 +596,253 @@ const TeamModule: React.FC<TeamModuleProps> = ({
                </button>
              </div>
              <form onSubmit={handleEmpSubmit} className="p-6 space-y-4 flex-1 overflow-y-auto">
-                  <div>
-                     <label className="block text-xs font-semibold text-slate-600 mb-1.5">Nome Completo</label>
-                     <input required type="text" value={newEmp.name} onChange={e => setNewEmp({...newEmp, name: e.target.value})} className={inputClass} />
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">Função (Perfil)</label>
-                      <CustomSelect
-                        value={newEmp.role || 'Cuidador'}
-                        onChange={v => setNewEmp({ ...newEmp, role: v as any })}
-                        options={[
-                          { value: 'Admin', label: 'Admin' },
-                          { value: 'Enfermeiro', label: 'Enfermeiro' },
-                          { value: 'Cuidador', label: 'Cuidador' },
-                          { value: 'Médico', label: 'Médico' },
-                          { value: 'Nutricionista', label: 'Nutricionista' },
-                        ]}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">CPF</label>
-                      <input required type="text" value={newEmp.cpf} onChange={e => setNewEmp({...newEmp, cpf: e.target.value})} className={inputClass} />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">E-mail</label>
-                      <input type="email" autoComplete="new-password" value={newEmp.email} onChange={e => setNewEmp({...newEmp, email: e.target.value})} className={inputClass} placeholder="exemplo@recanto.com" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">Telefone</label>
-                      <input type="text" value={newEmp.phone} onChange={e => setNewEmp({...newEmp, phone: e.target.value})} className={inputClass} placeholder="(00) 00000-0000" />
-                    </div>
-                  </div>
-                  <div>
-                     <label className="block text-xs font-semibold text-slate-600 mb-1.5">Nº Registro (CRM/COREN)</label>
-                     <input type="text" value={newEmp.registrationNumber} onChange={e => setNewEmp({...newEmp, registrationNumber: e.target.value})} className={inputClass} />
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                     <div>
-                       <label className="block text-xs font-semibold text-slate-600 mb-1.5">Turno</label>
-                       <CustomSelect
-                         value={newEmp.shift || 'Matutino'}
-                         onChange={v => setNewEmp({ ...newEmp, shift: v as any })}
-                         options={[
-                           { value: 'Matutino', label: 'Matutino', desc: '07h – 13h' },
-                           { value: 'Vespertino', label: 'Vespertino', desc: '13h – 19h' },
-                           { value: 'Noturno', label: 'Noturno', desc: '19h – 07h' },
-                           { value: '12x36', label: '12x36', desc: 'Regime 12 horas' },
-                         ]}
-                       />
-                     </div>
-                     <div>
-                       <label className="block text-xs font-semibold text-slate-600 mb-1.5">Status</label>
-                       <CustomSelect
-                         value={newEmp.status || 'Ativo'}
-                         onChange={v => setNewEmp({ ...newEmp, status: v as any })}
-                         options={[
-                           { value: 'Ativo', label: 'Ativo' },
-                           { value: 'Férias', label: 'Férias' },
-                           { value: 'Afastado', label: 'Afastado' },
-                         ]}
-                       />
-                     </div>
-                  </div>
-                  <div className="flex items-center">
-                    <label className="flex items-center space-x-2 cursor-pointer w-full min-h-[44px]">
-                      <input type="checkbox" checked={newEmp.isTechnicalLead} onChange={e => setNewEmp({...newEmp, isTechnicalLead: e.target.checked})} className="rounded text-primary-600 focus:ring-primary-500 h-5 w-5 sm:h-4 sm:w-4" />
-                      <span className="text-sm font-medium text-slate-700">Resp. Técnico</span>
-                    </label>
-                  </div>
-                  <div className="pt-4 border-t border-slate-100 space-y-4">
-                     <div>
-                       <label className="block text-xs font-semibold text-slate-650 mb-1.5">Vincular a Usuário do Sistema</label>
-                       <CustomSelect
-                         value={linkUserMode}
-                         onChange={(val) => {
-                           setLinkUserMode(val);
-                           if (val === 'create' && employeeProfiles.length > 0 && !accessProfileId) {
-                             setAccessProfileId(employeeProfiles[0].id);
-                           }
-                           if (val !== 'none' && val !== 'create') {
-                             const u = users.find(user => user.id === val);
-                             if (u) {
-                               setNewEmp(prev => ({
-                                 ...prev,
-                                 name: prev.name || u.name,
-                                 email: prev.email || u.email
-                               }));
-                             }
-                           }
-                         }}
-                         options={[
-                           { value: 'none', label: 'Não vincular a nenhum usuário' },
-                           { value: 'create', label: '➕ Criar Novo Usuário de Acesso...', desc: 'Criar novas credenciais de acesso' },
-                           ...linkableUsers.map(u => ({
-                             value: u.id,
-                             label: `${u.name} (${u.profile.name})`,
-                             desc: `E-mail: ${u.email}`
-                           }))
-                         ]}
-                         placeholder="Selecione..."
-                       />
-                     </div>
-                     
-                     {linkUserMode === 'create' && (
-                       <div className="bg-primary-50/20 p-4 border border-primary-100 rounded-xl space-y-3 animate-fadeIn">
-                         <div>
-                           <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1 text-slate-600">Perfil de Acesso</label>
-                           <CustomSelect
-                             value={accessProfileId}
-                             onChange={setAccessProfileId}
-                             options={employeeProfiles.map(p => ({ value: p.id, label: p.name, desc: p.type }))}
-                             placeholder="Selecione um perfil..."
-                           />
-                         </div>
-                         <div>
-                           <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1 text-slate-600">Senha Inicial</label>
-                           <input
-                             required={linkUserMode === 'create'}
-                             type="password"
-                             autoComplete="new-password"
-                             placeholder="••••••••"
-                             value={accessPassword}
-                             onChange={e => setAccessPassword(e.target.value)}
-                             className={inputClass}
-                           />
-                         </div>
-                       </div>
-                     )}
-                  </div>
+                  {editingEmpId ? (
+                    <>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1.5">Nome Completo</label>
+                        <input required type="text" value={newEmp.name} onChange={e => setNewEmp({...newEmp, name: e.target.value})} className={inputClass} />
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1.5">Função (Perfil)</label>
+                          <CustomSelect
+                            value={newEmp.role || 'Cuidador'}
+                            onChange={v => setNewEmp({ ...newEmp, role: v as any })}
+                            options={[
+                              { value: 'Admin', label: 'Admin' },
+                              { value: 'Enfermeiro', label: 'Enfermeiro' },
+                              { value: 'Cuidador', label: 'Cuidador' },
+                              { value: 'Médico', label: 'Médico' },
+                              { value: 'Nutricionista', label: 'Nutricionista' },
+                            ]}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1.5">CPF</label>
+                          <input required type="text" value={newEmp.cpf} onChange={e => setNewEmp({...newEmp, cpf: e.target.value})} className={inputClass} />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1.5">E-mail</label>
+                          <input type="email" autoComplete="new-password" value={newEmp.email} onChange={e => setNewEmp({...newEmp, email: e.target.value})} className={inputClass} placeholder="exemplo@recanto.com" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1.5">Telefone</label>
+                          <input type="text" value={newEmp.phone} onChange={e => setNewEmp({...newEmp, phone: e.target.value})} className={inputClass} placeholder="(00) 00000-0000" />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1.5">Nº Registro (CRM/COREN)</label>
+                        <input type="text" value={newEmp.registrationNumber} onChange={e => setNewEmp({...newEmp, registrationNumber: e.target.value})} className={inputClass} />
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1.5">Turno</label>
+                          <CustomSelect
+                            value={newEmp.shift || 'Matutino'}
+                            onChange={v => setNewEmp({ ...newEmp, shift: v as any })}
+                            options={[
+                              { value: 'Matutino', label: 'Matutino', desc: '07h – 13h' },
+                              { value: 'Vespertino', label: 'Vespertino', desc: '13h – 19h' },
+                              { value: 'Noturno', label: 'Noturno', desc: '19h – 07h' },
+                              { value: '12x36', label: '12x36', desc: 'Regime 12 horas' },
+                            ]}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1.5">Status</label>
+                          <CustomSelect
+                            value={newEmp.status || 'Ativo'}
+                            onChange={v => setNewEmp({ ...newEmp, status: v as any })}
+                            options={[
+                              { value: 'Ativo', label: 'Ativo' },
+                              { value: 'Férias', label: 'Férias' },
+                              { value: 'Afastado', label: 'Afastado' },
+                            ]}
+                          />
+                        </div>
+                      </div>
+                      <div className="flex items-center">
+                        <label className="flex items-center space-x-2 cursor-pointer w-full min-h-[44px]">
+                          <input type="checkbox" checked={newEmp.isTechnicalLead} onChange={e => setNewEmp({...newEmp, isTechnicalLead: e.target.checked})} className="rounded text-primary-600 focus:ring-primary-500 h-5 w-5 sm:h-4 sm:w-4" />
+                          <span className="text-sm font-medium text-slate-700">Resp. Técnico</span>
+                        </label>
+                      </div>
+                      <div className="pt-4 border-t border-slate-100 space-y-4">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-650 mb-1.5">Vincular a Usuário do Sistema</label>
+                          <CustomSelect
+                            value={linkUserMode}
+                            onChange={(val) => {
+                              setLinkUserMode(val);
+                              if (val === 'create' && employeeProfiles.length > 0 && !accessProfileId) {
+                                setAccessProfileId(employeeProfiles[0].id);
+                              }
+                              if (val !== 'none' && val !== 'create') {
+                                const u = users.find(user => user.id === val);
+                                if (u) {
+                                  setNewEmp(prev => ({
+                                    ...prev,
+                                    name: prev.name || u.name,
+                                    email: prev.email || u.email
+                                  }));
+                                }
+                              }
+                            }}
+                            options={[
+                              { value: 'none', label: 'Não vincular a nenhum usuário' },
+                              { value: 'create', label: '➕ Criar Novo Usuário de Acesso...', desc: 'Criar novas credenciais de acesso' },
+                              ...linkableUsers.map(u => ({
+                                value: u.id,
+                                label: `${u.name} (${u.profile.name})`,
+                                desc: `E-mail: ${u.email}`
+                              }))
+                            ]}
+                            placeholder="Selecione..."
+                          />
+                        </div>
+                        {linkUserMode === 'create' && (
+                          <div className="bg-primary-50/20 p-4 border border-primary-100 rounded-xl space-y-3 animate-fadeIn">
+                            <div>
+                              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1 text-slate-600">Perfil de Acesso</label>
+                              <CustomSelect
+                                value={accessProfileId}
+                                onChange={setAccessProfileId}
+                                options={employeeProfiles.map(p => ({ value: p.id, label: p.name, desc: p.type }))}
+                                placeholder="Selecione um perfil..."
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1 text-slate-600">Senha Inicial</label>
+                              <input
+                                required={linkUserMode === 'create'}
+                                type="password"
+                                autoComplete="new-password"
+                                placeholder="••••••••"
+                                value={accessPassword}
+                                onChange={e => setAccessPassword(e.target.value)}
+                                className={inputClass}
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="space-y-2">
+                        <label className="block text-xs font-semibold text-slate-600 mb-1.5">Vincular a Usuário do Sistema</label>
+                        <CustomSelect
+                          value={linkUserMode}
+                          onChange={(val) => {
+                            setLinkUserMode(val);
+                            if (val !== 'none') {
+                              const u = users.find(user => user.id === val);
+                              if (u) {
+                                setNewEmp(prev => ({
+                                  ...prev,
+                                  name: u.name,
+                                  email: u.email,
+                                  cpf: u.cpf || prev.cpf || '',
+                                  role: mapProfileTypeToRole(u.profile.type) as any,
+                                }));
+                              }
+                            } else {
+                              setNewEmp(prev => ({ ...prev, name: '', email: '', cpf: '', role: 'Cuidador' as any }));
+                            }
+                          }}
+                          options={[
+                            { value: 'none', label: 'Selecione um usuário...' },
+                            ...linkableUsers.map(u => ({
+                              value: u.id,
+                              label: `${u.name} (${u.profile.name})`,
+                              desc: `E-mail: ${u.email}`
+                            }))
+                          ]}
+                        />
+                        {showUsersTab && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsEmpModalOpen(false);
+                              setActiveTab('users');
+                              setAutoOpenUsersCreate(true);
+                            }}
+                            className="flex items-center gap-1.5 text-sm text-primary-600 hover:text-primary-700 font-medium pt-1"
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                            Criar Novo Usuário de Acesso
+                          </button>
+                        )}
+                      </div>
+
+                      {linkedUser && (
+                        <>
+                          <div className="bg-slate-50 rounded-xl p-3 border border-slate-100">
+                            <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Usuário vinculado</p>
+                            <p className="font-semibold text-slate-800 mt-1">{linkedUser.name}</p>
+                            <p className="text-xs text-slate-500">{linkedUser.email}</p>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Função (Perfil)</label>
+                            <CustomSelect
+                              value={newEmp.role || 'Cuidador'}
+                              onChange={v => setNewEmp({ ...newEmp, role: v as any })}
+                              options={[
+                                { value: 'Admin', label: 'Admin' },
+                                { value: 'Enfermeiro', label: 'Enfermeiro' },
+                                { value: 'Cuidador', label: 'Cuidador' },
+                                { value: 'Médico', label: 'Médico' },
+                                { value: 'Nutricionista', label: 'Nutricionista' },
+                              ]}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-600 mb-1.5">CPF</label>
+                            <input required type="text" value={newEmp.cpf || ''} onChange={e => setNewEmp({...newEmp, cpf: e.target.value})} className={inputClass} placeholder="000.000.000-00" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Nº Registro (CRM/COREN)</label>
+                            <input type="text" value={newEmp.registrationNumber || ''} onChange={e => setNewEmp({...newEmp, registrationNumber: e.target.value})} className={inputClass} />
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Turno</label>
+                              <CustomSelect
+                                value={newEmp.shift || 'Matutino'}
+                                onChange={v => setNewEmp({ ...newEmp, shift: v as any })}
+                                options={[
+                                  { value: 'Matutino', label: 'Matutino', desc: '07h – 13h' },
+                                  { value: 'Vespertino', label: 'Vespertino', desc: '13h – 19h' },
+                                  { value: 'Noturno', label: 'Noturno', desc: '19h – 07h' },
+                                  { value: '12x36', label: '12x36', desc: 'Regime 12 horas' },
+                                ]}
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Status</label>
+                              <CustomSelect
+                                value={newEmp.status || 'Ativo'}
+                                onChange={v => setNewEmp({ ...newEmp, status: v as any })}
+                                options={[
+                                  { value: 'Ativo', label: 'Ativo' },
+                                  { value: 'Férias', label: 'Férias' },
+                                  { value: 'Afastado', label: 'Afastado' },
+                                ]}
+                              />
+                            </div>
+                          </div>
+                          <div className="flex items-center">
+                            <label className="flex items-center space-x-2 cursor-pointer w-full min-h-[44px]">
+                              <input type="checkbox" checked={newEmp.isTechnicalLead} onChange={e => setNewEmp({...newEmp, isTechnicalLead: e.target.checked})} className="rounded text-primary-600 focus:ring-primary-500 h-5 w-5 sm:h-4 sm:w-4" />
+                              <span className="text-sm font-medium text-slate-700">Resp. Técnico</span>
+                            </label>
+                          </div>
+                        </>
+                      )}
+                    </>
+                  )}
                   <div className="pt-4 border-t border-slate-100 flex gap-3 shrink-0">
                     <button
                       type="button"
@@ -693,12 +853,55 @@ const TeamModule: React.FC<TeamModuleProps> = ({
                     </button>
                     <button
                       type="submit"
-                      className="flex-1 sm:flex-none px-6 py-2.5 bg-primary-600 hover:bg-primary-700 text-white rounded-xl font-semibold text-sm transition-colors shadow-sm"
+                      disabled={!editingEmpId && linkUserMode === 'none'}
+                      className="flex-1 sm:flex-none px-6 py-2.5 bg-primary-600 hover:bg-primary-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl font-semibold text-sm transition-colors shadow-sm"
                     >
                       {editingEmpId ? 'Salvar Alterações' : 'Salvar Colaborador'}
                     </button>
                   </div>
               </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Employee Confirmation Modal */}
+      {empToDelete && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/50 backdrop-blur-sm"
+          onMouseDown={() => { modalMouseDown.current = false; }}
+          onMouseUp={(e) => { if (!modalMouseDown.current && e.target === e.currentTarget) setEmpToDelete(null); }}
+        >
+          <div
+            className="bg-white sm:rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4"
+            onMouseDown={(e) => { modalMouseDown.current = true; e.stopPropagation(); }}
+          >
+            <div className="flex items-center gap-3 text-rose-600">
+              <div className="p-2 bg-rose-100 rounded-xl shrink-0">
+                <ShieldAlert className="h-6 w-6" />
+              </div>
+              <h3 className="text-lg font-bold">Confirmar Exclusão</h3>
+            </div>
+            <p className="text-sm text-slate-600">
+              Tem certeza que deseja excluir o colaborador{' '}
+              <span className="font-semibold text-slate-800">{empToDelete.name}</span>?
+            </p>
+            <p className="text-xs text-slate-400 italic">
+              Esta ação é irreversível. O colaborador será removido permanentemente do sistema.
+            </p>
+            <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
+              <button
+                onClick={() => setEmpToDelete(null)}
+                className="px-5 py-2.5 border border-slate-200 rounded-xl text-slate-600 font-semibold text-sm hover:bg-slate-50 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleDeleteEmployee}
+                className="px-6 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-semibold text-sm transition-colors shadow-sm"
+              >
+                Excluir Colaborador
+              </button>
+            </div>
           </div>
         </div>
       )}

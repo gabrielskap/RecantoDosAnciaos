@@ -123,6 +123,10 @@ const DemoLayoutInner: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
     return emp;
   };
 
+  const handleDeleteEmployee = async (id: string): Promise<void> => {
+    setEmployees(prev => prev.filter(e => e.id !== id));
+  };
+
   const handleAddTraining = async (t: TrainingRecord) => {
     setTrainings(prev => [...prev, { ...t, id: `tr-demo-${Date.now()}` }]);
   };
@@ -233,6 +237,7 @@ const DemoLayoutInner: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
             accessLogs={accessLogs}
             onAddEmployee={handleAddEmployee}
             onUpdateEmployee={handleUpdateEmployee}
+            onDeleteEmployee={handleDeleteEmployee}
             onAddTraining={handleAddTraining}
             residents={residents}
             onAddAccessLog={handleAddAccessLog}

@@ -1004,6 +1004,19 @@ function AppInner() {
     }
   };
 
+  const handleDeleteFinancialRecord = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from('Recanto_RegistrosFinanceiros')
+        .delete()
+        .eq('id', id);
+      if (error) throw error;
+      await fetchFinancials();
+    } catch (err) {
+      console.error('Error deleting financial record:', err);
+    }
+  };
+
   const handleAddContract = async (newContract: Contract) => {
     try {
       const { error } = await supabase
@@ -1190,6 +1203,20 @@ function AppInner() {
   };
 
 
+  const handleDeleteEmployee = async (id: string): Promise<void> => {
+    try {
+      const { error } = await supabase
+        .from('Recanto_Funcionarios')
+        .delete()
+        .eq('id', id);
+      if (error) throw error;
+      await fetchEmployees();
+    } catch (err) {
+      console.error('Error deleting employee:', err);
+      throw err;
+    }
+  };
+
   const handleAddTraining = async (newTraining: TrainingRecord) => {
     try {
       const { data: tData, error: tErr } = await supabase
@@ -1355,6 +1382,7 @@ function AppInner() {
             invoices={invoices}
             residents={residents}
             onAddRecord={handleAddFinancialRecord}
+            onDeleteRecord={handleDeleteFinancialRecord}
             onAddContract={handleAddContract}
             onUpdateInvoice={handleUpdateInvoice}
           />
@@ -1367,6 +1395,7 @@ function AppInner() {
             accessLogs={accessLogs}
             onAddEmployee={handleAddEmployee}
             onUpdateEmployee={handleUpdateEmployee}
+            onDeleteEmployee={handleDeleteEmployee}
             onAddTraining={handleAddTraining}
             residents={residents}
             onAddAccessLog={handleAddAccessLog}

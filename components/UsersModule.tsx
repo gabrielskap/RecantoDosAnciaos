@@ -14,6 +14,8 @@ interface UsersModuleProps {
   employees: Employee[];
   onAddEmployee: (emp: Omit<Employee, 'id'>) => Promise<Employee>;
   onAddAccessLog: (log: SystemAccessLog) => void;
+  autoOpenCreate?: boolean;
+  onAutoOpenDone?: () => void;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -127,7 +129,7 @@ const CertBadge: React.FC<{ cert?: DigitalCertificate }> = ({ cert }) => {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEmployee, onAddAccessLog }) => {
+const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEmployee, onAddAccessLog, autoOpenCreate, onAutoOpenDone }) => {
   const { users, profiles, addUser, deleteUser, currentUser, updateUser, updateUserCertificate } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [certFilter, setCertFilter] = useState('all');
@@ -219,6 +221,13 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
       localStorage.removeItem('modal_users_delete_user');
     }
   }, [userToDelete]);
+
+  React.useEffect(() => {
+    if (autoOpenCreate) {
+      handleOpenModal();
+      onAutoOpenDone?.();
+    }
+  }, [autoOpenCreate]);
 
   // Derived counts for certificate summary chips
   const certCounts = React.useMemo(() => {

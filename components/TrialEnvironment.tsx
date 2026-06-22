@@ -408,6 +408,10 @@ const TrialEnvironment: React.FC = () => {
     return updated;
   };
 
+  const handleDeleteEmployee = async (id: string): Promise<void> => {
+    setEmployees(prev => prev.filter(e => e.id !== id));
+  };
+
   const handleAddEvent = async (newEvent: CalendarEvent) => {
     setEvents(prev => [...prev, { ...newEvent, id: `demo-ev${Date.now()}` }]);
   };
@@ -480,6 +484,7 @@ const TrialEnvironment: React.FC = () => {
             accessLogs={accessLogs}
             onAddEmployee={handleAddEmployee}
             onUpdateEmployee={handleUpdateEmployee}
+            onDeleteEmployee={handleDeleteEmployee}
             onAddTraining={async () => {}}
             residents={residents}
             onAddAccessLog={async () => {}}

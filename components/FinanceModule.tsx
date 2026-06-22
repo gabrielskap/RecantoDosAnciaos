@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { FinancialRecord, Contract, Invoice, Resident } from '../types';
-import { DollarSign, TrendingUp, TrendingDown, Plus, X, FileText, Calendar, CheckCircle2, AlertCircle, FileCheck, Wallet } from 'lucide-react';
+import { DollarSign, TrendingUp, TrendingDown, Plus, X, FileText, Calendar, CheckCircle2, AlertCircle, FileCheck, Wallet, Trash2 } from 'lucide-react';
 import CustomSelect from './CustomSelect';
 
 interface FinanceModuleProps {
@@ -10,13 +10,14 @@ interface FinanceModuleProps {
   invoices: Invoice[];
   residents: Resident[];
   onAddRecord: (record: FinancialRecord) => void;
+  onDeleteRecord: (id: string) => void;
   onAddContract: (contract: Contract) => void;
   onUpdateInvoice: (invoice: Invoice) => void;
 }
 
 const FinanceModule: React.FC<FinanceModuleProps> = ({
   records, contracts, invoices, residents,
-  onAddRecord, onAddContract, onUpdateInvoice,
+  onAddRecord, onDeleteRecord, onAddContract, onUpdateInvoice,
 }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'contracts' | 'invoices' | 'expenses'>('overview');
   const [isRecordModalOpen, setIsRecordModalOpen] = useState(() => {
@@ -275,8 +276,8 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="border-b border-slate-100">
-                <tr>{['Descrição', 'Categoria', 'Data', 'Valor', 'Status'].map(h => (
-                  <th key={h} className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">{h}</th>
+                <tr>{['Descrição', 'Categoria', 'Data', 'Valor', 'Status', ''].map((h, i) => (
+                  <th key={i} className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">{h}</th>
                 ))}</tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
@@ -287,6 +288,15 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
                     <td className="px-6 py-4 text-slate-500">{new Date(rec.date).toLocaleDateString('pt-BR')}</td>
                     <td className="px-6 py-4 font-semibold text-rose-600">- R$ {rec.amount.toLocaleString('pt-BR')}</td>
                     <td className="px-6 py-4"><span className="text-xs font-semibold bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full capitalize">{rec.status}</span></td>
+                    <td className="px-6 py-4">
+                      <button
+                        onClick={() => { if (window.confirm('Confirmar exclusão desta despesa?')) onDeleteRecord(rec.id); }}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                        title="Excluir despesa"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
