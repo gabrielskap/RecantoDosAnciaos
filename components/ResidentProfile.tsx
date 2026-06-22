@@ -4,7 +4,7 @@ import {
   Thermometer, Heart, CheckCircle, PenTool, ShieldCheck,
   ClipboardList, History, Plus, User, Clock, File, Paperclip, CalendarCheck, AlertOctagon,
   BedDouble, Home, Wrench, PaintRoller, Edit2, X, Phone, FileHeart, Trash2, Users, Camera, Sun, Moon,
-  Key, Printer, Upload, Wind
+  Key, Printer, Upload, Wind, UserCheck
 } from 'lucide-react';
 import { Resident, CarePlan, AuditLog, DailyChecklist, Medication, RoomStatus, Room } from '../types';
 import { residentAvatarSrc } from '../lib/avatar';
@@ -12,7 +12,7 @@ import { toast } from '../services/toast';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import CustomSelect from './CustomSelect';
 import { useAuth } from '../contexts/AuthContext';
-import { compressImage, uploadResidentPhoto, uploadPrescriptionDocument } from '../services/supabaseClient';
+import { compressImage, uploadResidentPhoto, uploadPrescriptionDocument, supabase } from '../services/supabaseClient';
 
 interface ChecklistMedication {
   id: string;
@@ -392,7 +392,9 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   const [isAllChecklistsModalOpen, setIsAllChecklistsModalOpen] = useState(false);
   const [isSignConfirmModalOpen, setIsSignConfirmModalOpen] = useState(false);
   const [isNoSignatureModalOpen, setIsNoSignatureModalOpen] = useState(false);
+  const [isNoCpfModalOpen, setIsNoCpfModalOpen] = useState(false);
   const [signConfirmContext, setSignConfirmContext] = useState<'read' | 'edit'>('read');
+  const [signatureMode, setSignatureMode] = useState<'simples' | 'certificado_a1'>('simples');
 
   const selectedChecklist = resident.dailyChecklists?.find(
     c => c.date === selectedChecklistDate && (c.shift || 'diurno') === selectedShift
@@ -631,16 +633,57 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     }
   }, [newNoteText, resident.id]);
 
-  const handleRequestSign = (context: 'read' | 'edit') => {
-    if (!currentUser?.certificate) {
-      setIsNoSignatureModalOpen(true);
+  const handleRequestSign = async (context: 'read' | 'edit') => {
+    let mode: 'simples' | 'certificado_a1' = 'simples';
+
+    if (currentUser?.empresaId) {
+      try {
+        const { data, error } = await supabase
+          .from('Recanto_Empresas')
+          .select('tipo_assinatura_documentos')
+          .eq('empresa_id', currentUser.empresaId)
+          .single();
+
+        if (!error && data?.tipo_assinatura_documentos === 'certificado_a1') {
+          mode = 'certificado_a1';
+        }
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[Assinatura] empresa:', currentUser.empresaId, '| tipo carregado:', mode);
+        }
+      } catch (err) {
+        console.error('[Assinatura] Erro ao buscar configuração de assinatura:', err);
+      }
+    }
+
+    setSignatureMode(mode);
+
+    if (mode === 'certificado_a1') {
+      if (!currentUser?.certificate) {
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[Assinatura] Bloqueado: certificado A1 não cadastrado para o usuário');
+        }
+        setIsNoSignatureModalOpen(true);
+        return;
+      }
+      setSignConfirmContext(context);
+      setIsSignConfirmModalOpen(true);
       return;
     }
+
+    // mode === 'simples'
+    if (!currentUser?.cpf) {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[Assinatura] Bloqueado: CPF não cadastrado para o usuário');
+      }
+      setIsNoCpfModalOpen(true);
+      return;
+    }
+
     setSignConfirmContext(context);
     setIsSignConfirmModalOpen(true);
   };
 
-  const handleConfirmSign = () => {
+  const handleConfirmSign = async () => {
     const rolePrefix: Record<string, string> = {
       Enfermeiro: 'Enf.',
       Médico: 'Dr(a).',
@@ -651,15 +694,64 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     const prefix = currentUser?.employeeRole ? rolePrefix[currentUser.employeeRole] ?? '' : '';
     const userName = currentUser?.name || 'Usuário';
     const signedBy = prefix ? `${prefix} ${userName}` : userName;
-    const signedAt = new Date().toISOString();
-    const signatureInfo = currentUser?.certificate ? JSON.stringify({
-      certificate_holder_name: currentUser.certificate.certificate_holder_name,
-      certificate_document: currentUser.certificate.certificate_document,
-      certificate_serial_number: currentUser.certificate.certificate_serial_number,
-      certificate_issuer: currentUser.certificate.certificate_issuer,
-      certificate_issue_date: currentUser.certificate.certificate_issue_date,
-      certificate_expiration_date: currentUser.certificate.certificate_expiration_date,
-    }) : undefined;
+
+    let signedAt = new Date().toISOString();
+    let signatureInfo: string | undefined;
+
+    if (signatureMode === 'simples') {
+      try {
+        const { data: sigData, error: sigError } = await supabase
+          .from('documento_assinaturas')
+          .insert({
+            empresa_id: currentUser?.empresaId ?? '',
+            documento_id: resident.id,
+            usuario_id: currentUser?.id ?? '',
+            nome_assinante: userName,
+            cpf_assinante: currentUser?.cpf ?? '',
+            tipo_assinatura: 'simples',
+          })
+          .select('assinado_em')
+          .single();
+
+        if (sigError) {
+          console.error('[Assinatura Simples] Erro ao registrar:', sigError);
+          toast.error('Erro ao registrar assinatura. Tente novamente.');
+          return;
+        }
+
+        if (sigData?.assinado_em) {
+          signedAt = sigData.assinado_em;
+        }
+
+        signatureInfo = JSON.stringify({
+          tipo_assinatura: 'simples',
+          nome_assinante: userName,
+          cpf_assinante: currentUser?.cpf,
+        });
+
+        if (process.env.NODE_ENV === 'development') {
+          console.log('[Assinatura Simples] Registrada com sucesso:', {
+            usuario: userName,
+            cpf: currentUser?.cpf,
+            assinado_em: signedAt,
+          });
+        }
+      } catch (err) {
+        console.error('[Assinatura Simples] Erro inesperado:', err);
+        toast.error('Erro ao registrar assinatura. Tente novamente.');
+        return;
+      }
+    } else {
+      // certificado_a1 — fluxo original
+      signatureInfo = currentUser?.certificate ? JSON.stringify({
+        certificate_holder_name: currentUser.certificate.certificate_holder_name,
+        certificate_document: currentUser.certificate.certificate_document,
+        certificate_serial_number: currentUser.certificate.certificate_serial_number,
+        certificate_issuer: currentUser.certificate.certificate_issuer,
+        certificate_issue_date: currentUser.certificate.certificate_issue_date,
+        certificate_expiration_date: currentUser.certificate.certificate_expiration_date,
+      }) : undefined;
+    }
 
     if (signConfirmContext === 'edit' && checklistDraft && onUpdateResident) {
       const signedDraft = { ...checklistDraft, signedBy, signedAt, signatureInfo, shift: selectedShift };
@@ -676,7 +768,11 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
       ) || [];
       onUpdateResident({ ...resident, dailyChecklists: [updatedChecklist, ...otherChecklists] });
     }
+
     setIsSignConfirmModalOpen(false);
+    if (signatureMode === 'simples') {
+      toast.success('Documento assinado com sucesso!');
+    }
   };
 
   const handlePrintChecklist = () => {
@@ -4647,7 +4743,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
           </div>
         </div>
       )}
-      {/* Modal: usuário sem assinatura cadastrada */}
+      {/* Modal: usuário sem certificado A1 cadastrado */}
       {isNoSignatureModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
           <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden">
@@ -4680,7 +4776,40 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
         </div>
       )}
 
-      {/* Modal de Confirmação de Assinatura Digital */}
+      {/* Modal: usuário sem CPF cadastrado (assinatura simples) */}
+      {isNoCpfModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden">
+            <div className="px-6 py-5 border-b border-slate-100 bg-amber-50 flex items-center gap-3">
+              <div className="p-2.5 bg-amber-100 rounded-xl">
+                <AlertOctagon className="h-6 w-6 text-amber-600" />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-800 text-base">CPF não cadastrado</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Necessário antes de assinar</p>
+              </div>
+            </div>
+            <div className="px-6 py-5">
+              <p className="text-sm text-slate-700 leading-relaxed">
+                Você ainda não possui um <strong>CPF cadastrado</strong> no sistema.
+                <br /><br />
+                Para assinar documentos, solicite ao administrador para atualizar o seu cadastro em <strong>Gestão de Usuários</strong>.
+              </p>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setIsNoCpfModalOpen(false)}
+                className="px-6 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 transition-all shadow-md"
+              >
+                Entendido
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Confirmação de Assinatura */}
       {isSignConfirmModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
           <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden">
@@ -4689,33 +4818,49 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                 <ShieldCheck className="h-6 w-6 text-blue-600" />
               </div>
               <div>
-                <h3 className="font-bold text-slate-800 text-base">Assinatura Digital do Boletim</h3>
-                <p className="text-xs text-slate-500 mt-0.5">Confirme para assinar digitalmente</p>
+                <h3 className="font-bold text-slate-800 text-base">
+                  {signatureMode === 'simples' ? 'Assinatura Eletrônica do Boletim' : 'Assinatura Digital do Boletim'}
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {signatureMode === 'simples' ? 'Confirme para assinar eletronicamente' : 'Confirme para assinar digitalmente'}
+                </p>
               </div>
             </div>
             <div className="px-6 py-5 space-y-4">
               <div className="flex gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl">
                 <AlertOctagon className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
                 <p className="text-sm text-amber-800 font-medium leading-relaxed">
-                  Atenção: após assinar digitalmente, o boletim <strong>não poderá sofrer nenhuma alteração</strong>. Esta ação é irreversível.
+                  Atenção: após assinar, o boletim <strong>não poderá sofrer nenhuma alteração</strong>. Esta ação é irreversível.
                 </p>
               </div>
               <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
                 <p className="text-xs text-slate-500 font-medium uppercase tracking-wider">Assinatura de</p>
                 <p className="text-sm font-bold text-slate-800">{currentUser?.name || 'Usuário'}</p>
-                {currentUser?.certificate && (
-                  <div className="mt-2 p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-start gap-2">
-                    <Key className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
+                {signatureMode === 'simples' ? (
+                  <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-xl flex items-start gap-2">
+                    <UserCheck className="h-4 w-4 text-blue-600 shrink-0 mt-0.5" />
                     <div>
-                      <p className="text-xs font-bold text-emerald-800">Certificado Digital ICP-Brasil A1</p>
-                      <p className="text-[10px] text-emerald-700 font-medium mt-0.5">
-                        Titular: {currentUser.certificate.certificate_holder_name}
-                      </p>
-                      <p className="text-[10px] text-emerald-600 font-medium">
-                        Emissor: {currentUser.certificate.certificate_issuer}
+                      <p className="text-xs font-bold text-blue-800">Assinatura Eletrônica Interna</p>
+                      <p className="text-[10px] text-blue-700 font-medium mt-0.5">
+                        CPF: {currentUser?.cpf}
                       </p>
                     </div>
                   </div>
+                ) : (
+                  currentUser?.certificate && (
+                    <div className="mt-2 p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-start gap-2">
+                      <Key className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-xs font-bold text-emerald-800">Certificado Digital ICP-Brasil A1</p>
+                        <p className="text-[10px] text-emerald-700 font-medium mt-0.5">
+                          Titular: {currentUser.certificate.certificate_holder_name}
+                        </p>
+                        <p className="text-[10px] text-emerald-600 font-medium">
+                          Emissor: {currentUser.certificate.certificate_issuer}
+                        </p>
+                      </div>
+                    </div>
+                  )
                 )}
                 <p className="text-xs text-slate-500">{new Date().toLocaleString('pt-BR')}</p>
               </div>

@@ -495,3 +495,14 @@ export interface CheckoutFormData {
   cvv: string;
   enderecoCobranca: string;
 }
+
+// --- ASSINATURA DE DOCUMENTOS ---
+// Controla o modelo de assinatura utilizado nos documentos que exigem assinatura.
+// O fluxo real de assinatura será implementado em etapa posterior; este tipo
+// apenas representa a preferência armazenada por instituição.
+
+export type DocumentSignatureType = 'simples' | 'certificado_a1';
+
+export interface DocumentSettings {
+  tipoAssinatura: DocumentSignatureType;
+}

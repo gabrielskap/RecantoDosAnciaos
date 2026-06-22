@@ -5,7 +5,8 @@ import {
   Eye, EyeOff, Package, HeartPulse, Phone, Mail, MapPin,
   FileText, Wifi, Database, Download, Upload, Users,
   PenTool, Trash2, CheckSquare,
-  CreditCard, X, Star, RefreshCw, Zap, XCircle, ArrowLeft
+  CreditCard, X, Star, RefreshCw, Zap, XCircle, ArrowLeft,
+  FileSignature, BadgeCheck, UserCheck
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../services/supabaseClient';
@@ -46,10 +47,21 @@ interface SecuritySettings {
   maxLoginAttempts: number;
 }
 
+// Tipo de assinatura utilizado nos documentos institucionais.
+// 'simples'        → registra nome completo, CPF e data/hora do usuário autenticado.
+// 'certificado_a1' → exige certificado digital ICP-Brasil Tipo A1 cadastrado.
+// O fluxo real de assinatura será implementado em etapa posterior.
+type DocumentSignatureType = 'simples' | 'certificado_a1';
+
+interface DocumentSettings {
+  tipoAssinatura: DocumentSignatureType;
+}
+
 interface SystemSettings {
   institution: InstitutionSettings;
   notifications: NotificationSettings;
   security: SecuritySettings;
+  documents: DocumentSettings;
 }
 
 function getStorageKey(id: string | undefined): string {
@@ -89,14 +101,18 @@ const defaultSettings: SystemSettings = {
     auditLogRetentionDays: 365,
     maxLoginAttempts: 5,
   },
+  documents: {
+    tipoAssinatura: 'simples' as DocumentSignatureType,
+  },
 };
 
-type TabId = 'institution' | 'notifications' | 'security' | 'about' | 'subscription';
+type TabId = 'institution' | 'notifications' | 'security' | 'documents' | 'about' | 'subscription';
 
 const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'institution', label: 'Instituição', icon: Building2 },
   { id: 'notifications', label: 'Notificações', icon: Bell },
   { id: 'security', label: 'Segurança', icon: Shield },
+  { id: 'documents', label: 'Documentos', icon: FileSignature },
   { id: 'about', label: 'Sobre', icon: Info },
   { id: 'subscription', label: 'Assinatura', icon: CreditCard },
 ];
@@ -112,10 +128,14 @@ function loadSettings(key: string): SystemSettings {
     const raw = localStorage.getItem(key);
     if (!raw) return defaultSettings;
     const parsed = JSON.parse(raw);
+    const rawTipo = parsed.documents?.tipoAssinatura;
+    const tipoAssinatura: DocumentSignatureType =
+      rawTipo === 'certificado_a1' ? 'certificado_a1' : 'simples';
     return {
       institution: { ...defaultSettings.institution, ...parsed.institution },
       notifications: { ...defaultSettings.notifications, ...parsed.notifications },
       security: { ...defaultSettings.security, ...parsed.security },
+      documents: { tipoAssinatura },
     };
   } catch {
     return defaultSettings;
@@ -156,6 +176,9 @@ const SettingsModule: React.FC = () => {
         }
 
         if (data) {
+          const rawTipo = data.tipo_assinatura_documentos;
+          const tipoAssinatura: DocumentSignatureType =
+            rawTipo === 'certificado_a1' ? 'certificado_a1' : 'simples';
           const loaded: SystemSettings = {
             institution: {
               name: data.nome_instituicao || '',
@@ -174,6 +197,7 @@ const SettingsModule: React.FC = () => {
             },
             notifications: data.config_notificacoes ? { ...defaultSettings.notifications, ...data.config_notificacoes } : defaultSettings.notifications,
             security: data.config_seguranca ? { ...defaultSettings.security, ...data.config_seguranca } : defaultSettings.security,
+            documents: { tipoAssinatura },
           };
           setSettings(loaded);
           localStorage.setItem(storageKey, JSON.stringify(loaded));
@@ -218,6 +242,7 @@ const SettingsModule: React.FC = () => {
           papel_timbrado: settings.institution.watermarkImage,
           config_notificacoes: settings.notifications,
           config_seguranca: settings.security,
+          tipo_assinatura_documentos: settings.documents.tipoAssinatura,
         })
         .eq('empresa_id', currentUser.empresaId);
 
@@ -258,6 +283,7 @@ const SettingsModule: React.FC = () => {
             papel_timbrado: defaultSettings.institution.watermarkImage,
             config_notificacoes: defaultSettings.notifications,
             config_seguranca: defaultSettings.security,
+            tipo_assinatura_documentos: defaultSettings.documents.tipoAssinatura,
           })
           .eq('empresa_id', currentUser.empresaId);
 
@@ -380,6 +406,13 @@ const SettingsModule: React.FC = () => {
                 />
               )}
 
+              {activeTab === 'documents' && (
+                <DocumentsTab
+                  data={settings.documents}
+                  onChange={(patch) => update('documents', patch)}
+                  readOnly={!isAdmin || loading}
+                />
+              )}
               {activeTab === 'about' && <AboutTab />}
               {activeTab === 'subscription' && (
                 <SubscriptionTab empresaId={currentUser?.empresaId} isAdmin={isAdmin} />
@@ -788,6 +821,159 @@ const SecurityTab: React.FC<{
     </SectionCard>
   </div>
 );
+
+/* ─── Documents Tab ─── */
+
+const DocumentsTab: React.FC<{
+  data: DocumentSettings;
+  onChange: (p: Partial<DocumentSettings>) => void;
+  readOnly: boolean;
+}> = ({ data, onChange, readOnly }) => {
+  const isSimples = data.tipoAssinatura === 'simples';
+  const isCertificado = data.tipoAssinatura === 'certificado_a1';
+
+  return (
+    <div className="space-y-4">
+      <SectionCard title="Tipo de Assinatura para Documentos" icon={FileSignature}>
+        <div className="space-y-4">
+          <p className="text-sm text-slate-500">
+            Define como os documentos que exigem assinatura serão processados nesta instituição.
+            Todos os documentos utilizarão o modelo selecionado abaixo.
+          </p>
+
+          {/* Card selector */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
+            {/* Opção 1: Assinatura Simplificada */}
+            <button
+              type="button"
+              disabled={readOnly}
+              onClick={() => !readOnly && onChange({ tipoAssinatura: 'simples' })}
+              className={`group relative flex flex-col gap-3 text-left p-4 rounded-xl border-2 transition-all ${
+                readOnly ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'
+              } ${
+                isSimples
+                  ? 'border-blue-500 bg-blue-50 shadow-sm'
+                  : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/60'
+              }`}
+            >
+              {/* Radio indicator */}
+              <div className="flex items-center justify-between">
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                  isSimples ? 'bg-blue-100' : 'bg-slate-100'
+                }`}>
+                  <UserCheck className={`h-4 w-4 ${isSimples ? 'text-blue-600' : 'text-slate-400'}`} />
+                </div>
+                <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                  isSimples ? 'border-blue-500' : 'border-slate-300'
+                }`}>
+                  {isSimples && <span className="w-2 h-2 rounded-full bg-blue-500 block" />}
+                </span>
+              </div>
+
+              <div>
+                <p className={`text-sm font-semibold ${isSimples ? 'text-blue-900' : 'text-slate-700'}`}>
+                  Assinatura Eletrônica Interna
+                </p>
+                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                  Registra automaticamente o nome completo, CPF e data/hora do usuário autenticado
+                  no momento da assinatura. Aceita para uso interno institucional.
+                </p>
+              </div>
+            </button>
+
+            {/* Opção 2: Certificado Digital A1 */}
+            <button
+              type="button"
+              disabled={readOnly}
+              onClick={() => !readOnly && onChange({ tipoAssinatura: 'certificado_a1' })}
+              className={`group relative flex flex-col gap-3 text-left p-4 rounded-xl border-2 transition-all ${
+                readOnly ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'
+              } ${
+                isCertificado
+                  ? 'border-blue-500 bg-blue-50 shadow-sm'
+                  : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/60'
+              }`}
+            >
+              {/* Radio indicator */}
+              <div className="flex items-center justify-between">
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                  isCertificado ? 'bg-blue-100' : 'bg-slate-100'
+                }`}>
+                  <BadgeCheck className={`h-4 w-4 ${isCertificado ? 'text-blue-600' : 'text-slate-400'}`} />
+                </div>
+                <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                  isCertificado ? 'border-blue-500' : 'border-slate-300'
+                }`}>
+                  {isCertificado && <span className="w-2 h-2 rounded-full bg-blue-500 block" />}
+                </span>
+              </div>
+
+              <div>
+                <p className={`text-sm font-semibold ${isCertificado ? 'text-blue-900' : 'text-slate-700'}`}>
+                  Certificado Digital Tipo A1
+                </p>
+                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                  Assinatura com validade jurídica via ICP-Brasil (.pfx / .p12). Exige que
+                  cada usuário assinante tenha um certificado A1 válido previamente cadastrado
+                  no sistema.
+                </p>
+              </div>
+            </button>
+          </div>
+
+          {/* Info box contextual */}
+          <div className={`rounded-xl border px-4 py-3 text-xs leading-relaxed transition-all ${
+            isSimples
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+              : 'bg-violet-50 border-violet-200 text-violet-800'
+          }`}>
+            {isSimples ? (
+              <div className="flex items-start gap-2.5">
+                <UserCheck className="h-4 w-4 mt-0.5 shrink-0 text-emerald-600" />
+                <div>
+                  <p className="font-semibold mb-0.5">O que será registrado em cada assinatura:</p>
+                  <ul className="space-y-0.5 list-disc list-inside text-emerald-700">
+                    <li>Nome completo do usuário autenticado</li>
+                    <li>CPF do assinante</li>
+                    <li>Data e hora exata da assinatura</li>
+                  </ul>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-start gap-2.5">
+                <BadgeCheck className="h-4 w-4 mt-0.5 shrink-0 text-violet-600" />
+                <div>
+                  <p className="font-semibold mb-0.5">Pré-requisitos para assinatura com Certificado A1:</p>
+                  <ul className="space-y-0.5 list-disc list-inside text-violet-700">
+                    <li>Cada usuário assinante deve ter um certificado A1 ativo cadastrado</li>
+                    <li>O certificado deve ser ICP-Brasil emitido por AC reconhecida</li>
+                    <li>Certificados vencidos serão bloqueados automaticamente</li>
+                  </ul>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {readOnly && (
+            <p className="text-xs text-slate-400 italic">
+              Somente administradores podem alterar o tipo de assinatura.
+            </p>
+          )}
+        </div>
+      </SectionCard>
+
+      {/* Nota de implementação futura */}
+      <div className="flex items-start gap-2.5 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-800">
+        <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-amber-500" />
+        <p>
+          Esta configuração define o modelo que será utilizado quando o fluxo de assinatura eletrônica
+          for aplicado aos documentos. O fluxo completo de assinatura será disponibilizado em
+          atualização futura.
+        </p>
+      </div>
+    </div>
+  );
+};
 
 /* ─── About Tab ─── */
 
