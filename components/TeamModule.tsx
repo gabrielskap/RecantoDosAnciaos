@@ -606,15 +606,10 @@ const TeamModule: React.FC<TeamModuleProps> = ({
                         <div>
                           <label className="block text-xs font-semibold text-slate-600 mb-1.5">Função (Perfil)</label>
                           <CustomSelect
-                            value={newEmp.role || 'Cuidador'}
+                            value={newEmp.role || ''}
                             onChange={v => setNewEmp({ ...newEmp, role: v as any })}
-                            options={[
-                              { value: 'Admin', label: 'Admin' },
-                              { value: 'Enfermeiro', label: 'Enfermeiro' },
-                              { value: 'Cuidador', label: 'Cuidador' },
-                              { value: 'Médico', label: 'Médico' },
-                              { value: 'Nutricionista', label: 'Nutricionista' },
-                            ]}
+                            options={employeeProfiles.map(p => ({ value: p.name, label: p.name }))}
+                            placeholder="Selecione um perfil..."
                           />
                         </div>
                         <div>
@@ -787,15 +782,10 @@ const TeamModule: React.FC<TeamModuleProps> = ({
                           <div>
                             <label className="block text-xs font-semibold text-slate-600 mb-1.5">Função (Perfil)</label>
                             <CustomSelect
-                              value={newEmp.role || 'Cuidador'}
+                              value={newEmp.role || ''}
                               onChange={v => setNewEmp({ ...newEmp, role: v as any })}
-                              options={[
-                                { value: 'Admin', label: 'Admin' },
-                                { value: 'Enfermeiro', label: 'Enfermeiro' },
-                                { value: 'Cuidador', label: 'Cuidador' },
-                                { value: 'Médico', label: 'Médico' },
-                                { value: 'Nutricionista', label: 'Nutricionista' },
-                              ]}
+                              options={employeeProfiles.map(p => ({ value: p.name, label: p.name }))}
+                              placeholder="Selecione um perfil..."
                             />
                           </div>
                           <div>
