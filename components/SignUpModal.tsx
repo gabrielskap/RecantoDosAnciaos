@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   HeartPulse, X, Mail, Lock, User, Building2, Eye, EyeOff,
   Check, AlertCircle, ArrowRight, Loader2, MapPin
@@ -24,6 +24,7 @@ const SignUpModal: React.FC<Props> = ({ onClose, onLoginInstead }) => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
   const [needsEmailConfirm, setNeedsEmailConfirm] = useState(false);
+  const mouseDownInsideModal = useRef(false);
 
   const validate = (): string => {
     if (!companyName.trim()) return 'Informe o nome da sua ILPI.';
@@ -70,11 +71,12 @@ const SignUpModal: React.FC<Props> = ({ onClose, onLoginInstead }) => {
   return (
     <div
       className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
-      onClick={onClose}
+      onMouseDown={() => { mouseDownInsideModal.current = false; }}
+      onMouseUp={(e) => { if (!mouseDownInsideModal.current && e.target === e.currentTarget) onClose(); }}
     >
       <div
         className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-8 relative max-h-[90vh] overflow-y-auto"
-        onClick={e => e.stopPropagation()}
+        onMouseDown={(e) => { mouseDownInsideModal.current = true; e.stopPropagation(); }}
       >
         <button
           onClick={onClose}

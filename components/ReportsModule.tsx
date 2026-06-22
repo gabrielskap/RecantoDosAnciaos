@@ -14,6 +14,7 @@ import {
   AlertTriangle, Archive,
 } from 'lucide-react';
 import { toast } from '../services/toast';
+import { useAuth } from '../contexts/AuthContext';
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -169,7 +170,8 @@ const openPrintWindow = (title: string, body: string) => {
   let watermarkSrc = '';
   let hasLetterhead = false;
   try {
-    const raw = localStorage.getItem('recanto_system_settings');
+    const settingsKey = `recanto_system_settings_${currentUser?.empresaId ?? currentUser?.id ?? 'anon'}`;
+    const raw = localStorage.getItem(settingsKey);
     if (raw) {
       const parsed = JSON.parse(raw);
       const src = parsed?.institution?.watermarkImage;
@@ -514,6 +516,7 @@ const ReportsModule: React.FC<ReportsModuleProps> = ({
   residents, employees, invoices,
   financials = [], contracts = [], stockItems = [], events = [],
 }) => {
+  const { currentUser } = useAuth();
   const today = new Date();
   const defaultStart = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
   const defaultEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().split('T')[0];

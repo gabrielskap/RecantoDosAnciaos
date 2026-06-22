@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   HeartPulse, Users, DollarSign, Package, BarChart3, Calendar,
   Stethoscope, Utensils, Brain, Check, Star, Menu, X, ChevronRight,
@@ -27,6 +27,7 @@ const LandingPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'gestores' | 'grupos'>('gestores');
   const [pricingPeriod, setPricingPeriod] = useState<'mensal' | 'anual'>('mensal');
   const [demoEmail, setDemoEmail] = useState('');
+  const loginModalMouseDown = useRef(false);
 
   useEffect(() => {
     document.title = showLoginModal
@@ -902,10 +903,14 @@ const LandingPage: React.FC = () => {
 
       {/* ——— LOGIN MODAL ——— */}
       {showLoginModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => { setShowLoginModal(false); closeResetMode(); }}>
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+          onMouseDown={() => { loginModalMouseDown.current = false; }}
+          onMouseUp={(e) => { if (!loginModalMouseDown.current && e.target === e.currentTarget) { setShowLoginModal(false); closeResetMode(); } }}
+        >
           <div
             className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-8 relative"
-            onClick={e => e.stopPropagation()}
+            onMouseDown={(e) => { loginModalMouseDown.current = true; e.stopPropagation(); }}
           >
             <button
               onClick={() => { setShowLoginModal(false); closeResetMode(); }}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   HeartPulse, Users, DollarSign, Building2, Activity, Shield,
   AlertTriangle, Search, Eye, Edit, Plus, Lock,
@@ -151,6 +151,7 @@ const SuperAdminPanel: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState('todos');
 
   // ── Modals ────────────────────────────────────────────────────────────────
+  const modalMouseDown = useRef(false);
   const [selectedTenant, setSelectedTenant] = useState<Empresa | null>(null);
   const [editingTenant,  setEditingTenant]  = useState<Empresa | null>(null);
   const [editNovoStatus, setEditNovoStatus] = useState('');
@@ -1057,11 +1058,12 @@ const SuperAdminPanel: React.FC = () => {
       {selectedTenant && (
         <div
           className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4"
-          onClick={() => { setSelectedTenant(null); setDetailEditMode(false); }}
+          onMouseDown={() => { modalMouseDown.current = false; }}
+          onMouseUp={(e) => { if (!modalMouseDown.current && e.target === e.currentTarget) { setSelectedTenant(null); setDetailEditMode(false); } }}
         >
           <div
             className="bg-white border border-slate-200 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto"
-            onClick={e => e.stopPropagation()}
+            onMouseDown={(e) => { modalMouseDown.current = true; e.stopPropagation(); }}
           >
             {/* Header */}
             <div className="flex items-start justify-between p-8 pb-5">
@@ -1250,11 +1252,12 @@ const SuperAdminPanel: React.FC = () => {
       {assinaturaModal && (
         <div
           className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[60] p-4"
-          onClick={() => !assinaturaLoading && setAssinaturaModal(null)}
+          onMouseDown={() => { modalMouseDown.current = false; }}
+          onMouseUp={(e) => { if (!modalMouseDown.current && e.target === e.currentTarget && !assinaturaLoading) setAssinaturaModal(null); }}
         >
           <div
             className="bg-white border border-slate-200 rounded-2xl shadow-2xl w-full max-w-md p-8"
-            onClick={e => e.stopPropagation()}
+            onMouseDown={(e) => { modalMouseDown.current = true; e.stopPropagation(); }}
           >
             {/* Header */}
             <div className="flex items-center justify-between mb-6">
@@ -1420,11 +1423,12 @@ const SuperAdminPanel: React.FC = () => {
       {novaIlpiOpen && (
         <div
           className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4"
-          onClick={() => !novaIlpiLoading && setNovaIlpiOpen(false)}
+          onMouseDown={() => { modalMouseDown.current = false; }}
+          onMouseUp={(e) => { if (!modalMouseDown.current && e.target === e.currentTarget && !novaIlpiLoading) setNovaIlpiOpen(false); }}
         >
           <div
             className="bg-white border border-slate-200 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto"
-            onClick={e => e.stopPropagation()}
+            onMouseDown={(e) => { modalMouseDown.current = true; e.stopPropagation(); }}
           >
             <div className="flex items-center justify-between p-8 pb-5">
               <div className="flex items-center space-x-3">
@@ -1613,11 +1617,12 @@ const SuperAdminPanel: React.FC = () => {
       {editingTenant && (
         <div
           className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4"
-          onClick={() => !editLoading && setEditingTenant(null)}
+          onMouseDown={() => { modalMouseDown.current = false; }}
+          onMouseUp={(e) => { if (!modalMouseDown.current && e.target === e.currentTarget && !editLoading) setEditingTenant(null); }}
         >
           <div
             className="bg-white border border-slate-200 rounded-2xl shadow-2xl w-full max-w-md p-8"
-            onClick={e => e.stopPropagation()}
+            onMouseDown={(e) => { modalMouseDown.current = true; e.stopPropagation(); }}
           >
             <div className="flex items-center justify-between mb-6">
               <div>

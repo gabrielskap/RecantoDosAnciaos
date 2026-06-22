@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Search, Plus, X, Bed, Tv, Wind, Bell, Sofa, Trash2, Edit3, Users,
   Check, AlertCircle, UserPlus, ArrowRightLeft, Bath, DoorClosed, Refrigerator, ShieldAlert
@@ -66,6 +66,8 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
     const saved = localStorage.getItem('modal_link_room');
     return saved ? JSON.parse(saved) : null;
   });
+
+  const modalMouseDown = useRef(false);
 
   // Filters State
   const [searchQuery, setSearchQuery] = useState('');
@@ -576,12 +578,16 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
         )}
       </div>
 
-      {/* MODAL 1: Add/Edit Room (Persistent) */}
+      {/* MODAL 1: Add/Edit Room */}
       {isRoomModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/50 backdrop-blur-sm">
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/50 backdrop-blur-sm"
+          onMouseDown={() => { modalMouseDown.current = false; }}
+          onMouseUp={(e) => { if (!modalMouseDown.current && e.target === e.currentTarget) handleCloseRoomModal(); }}
+        >
           <div
-            onClick={e => e.stopPropagation()}
             className="bg-white w-full h-full sm:h-auto sm:rounded-2xl shadow-2xl sm:max-w-xl overflow-hidden flex flex-col max-h-[100vh] sm:max-h-[90vh]"
+            onMouseDown={(e) => { modalMouseDown.current = true; e.stopPropagation(); }}
           >
             <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center shrink-0 bg-white">
               <div>
@@ -728,12 +734,16 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
         </div>
       )}
 
-      {/* MODAL 2: Link Resident to Room (Persistent) */}
+      {/* MODAL 2: Link Resident to Room */}
       {isLinkModalOpen && linkingRoom && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/50 backdrop-blur-sm">
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/50 backdrop-blur-sm"
+          onMouseDown={() => { modalMouseDown.current = false; }}
+          onMouseUp={(e) => { if (!modalMouseDown.current && e.target === e.currentTarget) { setIsLinkModalOpen(false); setLinkingRoom(null); } }}
+        >
           <div
-            onClick={e => e.stopPropagation()}
             className="bg-white w-full h-full sm:h-auto sm:rounded-2xl shadow-2xl sm:max-w-md overflow-hidden flex flex-col max-h-[100vh] sm:max-h-[85vh]"
+            onMouseDown={(e) => { modalMouseDown.current = true; e.stopPropagation(); }}
           >
             <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center shrink-0 bg-white">
               <div>

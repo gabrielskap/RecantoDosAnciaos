@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { FinancialRecord, Contract, Invoice, Resident } from '../types';
 import { DollarSign, TrendingUp, TrendingDown, Plus, X, FileText, Calendar, CheckCircle2, AlertCircle, FileCheck, Wallet } from 'lucide-react';
@@ -33,6 +33,7 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
     const saved = localStorage.getItem('modal_finance_new_contract');
     return saved ? JSON.parse(saved) : { residentId: '', monthlyValue: '', dueDay: '5', startDate: new Date().toISOString().split('T')[0] };
   });
+  const modalMouseDown = useRef(false);
 
   React.useEffect(() => {
     if (isRecordModalOpen) {
@@ -294,12 +295,15 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
         </div>
       )}
 
-      {/* Record Modal - Sempre ativo (não fecha ao clicar no fundo/backdrop) */}
       {isRecordModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div 
-            onClick={(e) => e.stopPropagation()} 
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+          onMouseDown={() => { modalMouseDown.current = false; }}
+          onMouseUp={(e) => { if (!modalMouseDown.current && e.target === e.currentTarget) setIsRecordModalOpen(false); }}
+        >
+          <div
             className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden"
+            onMouseDown={(e) => { modalMouseDown.current = true; e.stopPropagation(); }}
           >
             <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-white">
               <h3 className="font-bold text-slate-900">Nova Despesa Operacional</h3>
@@ -345,12 +349,15 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
         </div>
       )}
 
-      {/* Contract Modal - Sempre ativo (não fecha ao clicar no fundo/backdrop) */}
       {isContractModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div 
-            onClick={(e) => e.stopPropagation()} 
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+          onMouseDown={() => { modalMouseDown.current = false; }}
+          onMouseUp={(e) => { if (!modalMouseDown.current && e.target === e.currentTarget) setIsContractModalOpen(false); }}
+        >
+          <div
             className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden"
+            onMouseDown={(e) => { modalMouseDown.current = true; e.stopPropagation(); }}
           >
             <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-white">
               <h3 className="font-bold text-slate-900">Novo Contrato</h3>

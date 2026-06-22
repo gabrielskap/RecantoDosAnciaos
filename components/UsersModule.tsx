@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   Plus, X, Search, Trash2, Mail, Lock, User, UserPlus, AlertCircle, ShieldAlert,
   Edit, Key, CheckCircle, Clock,
@@ -146,6 +146,7 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
   // Certificate modal state
   const [certModalUserId, setCertModalUserId] = useState<string | null>(null);
   const certModalUser = certModalUserId ? users.find(u => u.id === certModalUserId) : null;
+  const modalMouseDown = useRef(false);
 
   // Form State
   const [name, setName] = useState(() => localStorage.getItem('modal_users_form_name') || '');
@@ -778,10 +779,14 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
 
       {/* ── Create / Edit User Modal ───────────────────────────────────────── */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/50 backdrop-blur-sm">
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/50 backdrop-blur-sm"
+          onMouseDown={() => { modalMouseDown.current = false; }}
+          onMouseUp={(e) => { if (!modalMouseDown.current && e.target === e.currentTarget) setIsModalOpen(false); }}
+        >
           <div
-            onClick={(e) => e.stopPropagation()}
             className="bg-white w-full h-full sm:h-auto sm:rounded-2xl shadow-2xl sm:max-w-lg overflow-hidden flex flex-col max-h-[100vh] sm:max-h-[90vh]"
+            onMouseDown={(e) => { modalMouseDown.current = true; e.stopPropagation(); }}
           >
             <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-[#F8F7FF] shrink-0 sticky top-0 z-10">
               <div className="flex items-center gap-2">
@@ -1061,10 +1066,14 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
 
       {/* ── Delete Confirmation Modal ──────────────────────────────────────── */}
       {userToDelete && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/50 backdrop-blur-sm">
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/50 backdrop-blur-sm"
+          onMouseDown={() => { modalMouseDown.current = false; }}
+          onMouseUp={(e) => { if (!modalMouseDown.current && e.target === e.currentTarget) setUserToDelete(null); }}
+        >
           <div
-            onClick={(e) => e.stopPropagation()}
             className="bg-white sm:rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4"
+            onMouseDown={(e) => { modalMouseDown.current = true; e.stopPropagation(); }}
           >
             <div className="flex items-center gap-3 text-rose-600">
               <div className="p-2 bg-rose-100 rounded-xl shrink-0">

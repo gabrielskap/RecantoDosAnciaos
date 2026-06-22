@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { CalendarDays, Clock, MapPin, User, Plus, X, ChevronLeft, ChevronRight, Stethoscope, Users, Music, Activity } from 'lucide-react';
 import { CalendarEvent, EventType, Resident } from '../types';
 import CustomSelect from './CustomSelect';
@@ -28,6 +28,7 @@ const AgendaModule: React.FC<AgendaModuleProps> = ({ events, residents, onAddEve
     return localStorage.getItem('modal_agenda_open') === 'true';
   });
   const [filterType, setFilterType] = useState<EventType | 'all'>('all');
+  const modalMouseDown = useRef(false);
 
   const [newEvent, setNewEvent] = useState<Partial<CalendarEvent>>(() => {
     const saved = localStorage.getItem('modal_agenda_new_event');
@@ -216,12 +217,15 @@ const AgendaModule: React.FC<AgendaModuleProps> = ({ events, residents, onAddEve
         </div>
       </div>
 
-      {/* Modal - Sempre ativo (não fecha ao clicar no fundo/backdrop) */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div 
-            onClick={(e) => e.stopPropagation()} 
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+          onMouseDown={() => { modalMouseDown.current = false; }}
+          onMouseUp={(e) => { if (!modalMouseDown.current && e.target === e.currentTarget) setIsModalOpen(false); }}
+        >
+          <div
             className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden"
+            onMouseDown={(e) => { modalMouseDown.current = true; e.stopPropagation(); }}
           >
             <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-white">
               <div>

@@ -6,7 +6,7 @@ import { toast } from '../services/toast';
 
 // --- Context ---
 
-interface AuthContextValue {
+export interface AuthContextValue {
   currentUser: AuthUser | null;
   users: AuthUser[];
   profiles: Profile[];
@@ -24,7 +24,7 @@ interface AuthContextValue {
   updateUserCertificate: (userId: string, cert: DigitalCertificate | null) => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextValue | null>(null);
+export const AuthContext = createContext<AuthContextValue | null>(null);
 
 // --- Helpers to fetch user profiles from database ---
 
@@ -353,7 +353,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         if (data) {
           const migrationDone = localStorage.getItem('recanto_settings_migrated_to_db') === 'true';
-          const localRaw = localStorage.getItem('recanto_system_settings');
+          const localKey = `recanto_system_settings_${currentUser.empresaId}`;
+          const localRaw = localStorage.getItem(localKey) || localStorage.getItem('recanto_system_settings');
 
           // Se ainda não foi feita a migração para o banco E houver dados locais válidos no localStorage
           if (!migrationDone && localRaw) {
@@ -410,7 +411,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     notifications: freshData.config_notificacoes || {},
                     security: freshData.config_seguranca || {},
                   };
-                  localStorage.setItem('recanto_system_settings', JSON.stringify(settings));
+                  localStorage.setItem(localKey, JSON.stringify(settings));
                 }
                 return;
               }
@@ -454,7 +455,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               maxLoginAttempts: 5
             }
           };
-          localStorage.setItem('recanto_system_settings', JSON.stringify(settings));
+          localStorage.setItem(localKey, JSON.stringify(settings));
         }
       } catch (err) {
         console.error('Erro ao sincronizar configurações locais:', err);

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { AlertTriangle, CheckCircle2, Package, Plus, Minus, X, History, ArrowDownCircle, ArrowUpCircle, PackageSearch, Search, User, ChevronRight } from 'lucide-react';
 import { StockItem, Resident } from '../types';
 import CustomSelect from './CustomSelect';
@@ -35,6 +35,8 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
     const saved = localStorage.getItem('modal_stock_history_item');
     return saved ? JSON.parse(saved) : null;
   });
+  const modalMouseDown = useRef(false);
+
   const [newItem, setNewItem] = useState(() => {
     const saved = localStorage.getItem('modal_stock_new_item');
     return saved ? JSON.parse(saved) : { name: '', category: 'medicamento', quantity: '', unit: '', minThreshold: '10', expirationDate: '', residentId: undefined };
@@ -558,10 +560,14 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
 
       {/* Add Item Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div 
-            onClick={(e) => e.stopPropagation()} 
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+          onMouseDown={() => { modalMouseDown.current = false; }}
+          onMouseUp={(e) => { if (!modalMouseDown.current && e.target === e.currentTarget) setIsModalOpen(false); }}
+        >
+          <div
             className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden"
+            onMouseDown={(e) => { modalMouseDown.current = true; e.stopPropagation(); }}
           >
             <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-white">
               <div>
@@ -632,10 +638,14 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
 
       {/* History Modal */}
       {selectedHistoryItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div 
-            onClick={(e) => e.stopPropagation()} 
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+          onMouseDown={() => { modalMouseDown.current = false; }}
+          onMouseUp={(e) => { if (!modalMouseDown.current && e.target === e.currentTarget) setSelectedHistoryItem(null); }}
+        >
+          <div
             className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[80vh] flex flex-col overflow-hidden"
+            onMouseDown={(e) => { modalMouseDown.current = true; e.stopPropagation(); }}
           >
             <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center shrink-0 bg-white">
               <div>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Users, Calendar, Award, Shield, Plus, X, Search, CheckCircle, AlertOctagon, UserCheck, Edit } from 'lucide-react';
 import { Employee, TrainingRecord, SystemAccessLog, UserRole, Resident, ViewState } from '../types';
 import ProfileManager from './ProfileManager';
@@ -38,6 +38,7 @@ const TeamModule: React.FC<TeamModuleProps> = ({
   const [isTrainModalOpen, setIsTrainModalOpen] = useState(() => {
     return localStorage.getItem('modal_team_train_open') === 'true';
   });
+  const modalMouseDown = useRef(false);
 
   const [editingEmpId, setEditingEmpId] = useState<string | null>(() => {
     return localStorage.getItem('modal_team_editing_emp_id') || null;
@@ -528,10 +529,14 @@ const TeamModule: React.FC<TeamModuleProps> = ({
 
       {/* Add/Edit Employee Modal */}
       {isEmpModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/50 backdrop-blur-sm">
-          <div 
-            onClick={(e) => e.stopPropagation()} 
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/50 backdrop-blur-sm"
+          onMouseDown={() => { modalMouseDown.current = false; }}
+          onMouseUp={(e) => { if (!modalMouseDown.current && e.target === e.currentTarget) setIsEmpModalOpen(false); }}
+        >
+          <div
             className="bg-white w-full h-full sm:h-auto sm:rounded-2xl shadow-2xl sm:max-w-lg overflow-hidden flex flex-col max-h-[100vh] sm:max-h-[90vh]"
+            onMouseDown={(e) => { modalMouseDown.current = true; e.stopPropagation(); }}
           >
              <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center sticky top-0 z-10 shrink-0 bg-white">
                <div>
@@ -698,12 +703,16 @@ const TeamModule: React.FC<TeamModuleProps> = ({
         </div>
       )}
 
-      {/* Add Training Modal - Sempre ativo (não fecha ao clicar no fundo/backdrop) */}
+      {/* Add Training Modal */}
       {isTrainModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/50 backdrop-blur-sm">
-          <div 
-            onClick={(e) => e.stopPropagation()} 
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/50 backdrop-blur-sm"
+          onMouseDown={() => { modalMouseDown.current = false; }}
+          onMouseUp={(e) => { if (!modalMouseDown.current && e.target === e.currentTarget) setIsTrainModalOpen(false); }}
+        >
+          <div
             className="bg-white w-full h-full sm:h-auto sm:rounded-2xl shadow-2xl sm:max-w-lg overflow-hidden flex flex-col max-h-[100vh] sm:max-h-[90vh]"
+            onMouseDown={(e) => { modalMouseDown.current = true; e.stopPropagation(); }}
           >
              <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center sticky top-0 z-10 shrink-0 bg-white">
                <div>

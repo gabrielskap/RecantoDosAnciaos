@@ -1306,6 +1306,9 @@ function AppInner() {
             financials={financials}
             events={events}
             stockAlerts={lowStockItems}
+            invoices={invoices}
+            employees={employees}
+            onNavigate={navigateTo}
           />
         );
       case ViewState.RESIDENTS:
@@ -1413,7 +1416,7 @@ function AppInner() {
       case ViewState.PROFILE:
         return <UserProfile />;
       default:
-        return <Dashboard residents={residents} financials={financials} />;
+        return <Dashboard residents={residents} financials={financials} invoices={invoices} employees={employees} onNavigate={navigateTo} />;
     }
   };
 

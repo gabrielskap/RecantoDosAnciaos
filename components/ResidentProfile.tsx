@@ -699,7 +699,8 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     };
 
     try {
-      const raw = localStorage.getItem('recanto_system_settings');
+      const settingsKey = `recanto_system_settings_${currentUser?.empresaId ?? currentUser?.id ?? 'anon'}`;
+      const raw = localStorage.getItem(settingsKey);
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed?.institution) {

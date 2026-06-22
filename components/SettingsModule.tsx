@@ -52,7 +52,9 @@ interface SystemSettings {
   security: SecuritySettings;
 }
 
-const STORAGE_KEY = 'recanto_system_settings';
+function getStorageKey(id: string | undefined): string {
+  return `recanto_system_settings_${id ?? 'anon'}`;
+}
 
 const defaultSettings: SystemSettings = {
   institution: {
@@ -105,9 +107,9 @@ const STATES_BR = [
   'SP','SE','TO'
 ];
 
-function loadSettings(): SystemSettings {
+function loadSettings(key: string): SystemSettings {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(key);
     if (!raw) return defaultSettings;
     const parsed = JSON.parse(raw);
     return {
@@ -120,16 +122,17 @@ function loadSettings(): SystemSettings {
   }
 }
 
-function saveSettings(settings: SystemSettings) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+function saveSettings(key: string, settings: SystemSettings) {
+  localStorage.setItem(key, JSON.stringify(settings));
 }
 
 // ── Main Settings Component ───────────────────────────────────────────────────
 
 const SettingsModule: React.FC = () => {
   const { currentUser } = useAuth();
+  const storageKey = getStorageKey(currentUser?.empresaId ?? currentUser?.id);
   const [activeTab, setActiveTab] = useState<TabId>('institution');
-  const [settings, setSettings] = useState<SystemSettings>(loadSettings);
+  const [settings, setSettings] = useState<SystemSettings>(() => loadSettings(storageKey));
   const [saved, setSaved] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -173,7 +176,7 @@ const SettingsModule: React.FC = () => {
             security: data.config_seguranca ? { ...defaultSettings.security, ...data.config_seguranca } : defaultSettings.security,
           };
           setSettings(loaded);
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(loaded));
+          localStorage.setItem(storageKey, JSON.stringify(loaded));
         }
       } catch (err) {
         console.error('Erro no fetch das configurações:', err);
@@ -220,7 +223,7 @@ const SettingsModule: React.FC = () => {
 
       if (error) throw error;
 
-      saveSettings(settings);
+      saveSettings(storageKey, settings);
       setDirty(false);
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
@@ -261,7 +264,7 @@ const SettingsModule: React.FC = () => {
         if (error) throw error;
 
         setSettings(defaultSettings);
-        saveSettings(defaultSettings);
+        saveSettings(storageKey, defaultSettings);
         setDirty(false);
       } catch (err: any) {
         console.error('Erro ao redefinir configurações:', err);
@@ -1190,6 +1193,7 @@ const PaymentModal: React.FC<{
 }> = ({ assinatura, onClose, onSuccess }) => {
   const [method, setMethod] = useState<'cartao' | 'pix' | 'boleto'>('cartao');
   const [step, setStep] = useState<'form' | 'processing' | 'success' | 'error'>('form');
+  const modalMouseDown = useRef(false);
   const [dbError, setDbError] = useState('');
   const [cardNumber, setCardNumber] = useState('');
   const [cardName, setCardName] = useState('');
@@ -1226,8 +1230,15 @@ const PaymentModal: React.FC<{
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+    <div
+      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+      onMouseDown={() => { modalMouseDown.current = false; }}
+      onMouseUp={(e) => { if (!modalMouseDown.current && e.target === e.currentTarget && step !== 'processing') onClose(); }}
+    >
+      <div
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-md"
+        onMouseDown={(e) => { modalMouseDown.current = true; e.stopPropagation(); }}
+      >
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
           <div className="flex items-center gap-2">
             <CreditCard className="h-5 w-5 text-blue-600" />
@@ -1429,6 +1440,7 @@ const PlanChangeModal: React.FC<{
   const [cardName, setCardName] = useState('');
   const [cardExpiry, setCardExpiry] = useState('');
   const [cardCvv, setCardCvv] = useState('');
+  const modalMouseDown = useRef(false);
 
   const planInfo = PLANOS_INFO.find(p => p.id === selectedPlan);
   const price = planInfo ? (selectedPeriod === 'anual' ? planInfo.precoAnual : planInfo.precoMensal) : 0;
@@ -1481,8 +1493,15 @@ const PlanChangeModal: React.FC<{
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh]">
+    <div
+      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+      onMouseDown={() => { modalMouseDown.current = false; }}
+      onMouseUp={(e) => { if (!modalMouseDown.current && e.target === e.currentTarget && step !== 'processing') onClose(); }}
+    >
+      <div
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh]"
+        onMouseDown={(e) => { modalMouseDown.current = true; e.stopPropagation(); }}
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 shrink-0">
           <div className="flex items-center gap-2">
