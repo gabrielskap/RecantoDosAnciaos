@@ -1217,14 +1217,15 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
               : 'Pele íntegra / Sem alterações observadas'}
           </div>
         </div>
+        ${selectedShift === 'noturno' ? `
         <div class="field" style="margin-bottom: 12px;">
           <div class="field-label">Qualidade do Sono</div>
           <div class="field-value">
-            ${selectedChecklist.sono === 'insatisfatorio' 
-              ? `<span class="badge bg-yellow">Insatisfatório: ${selectedChecklist.sonoDesc || ''}</span>` 
+            ${selectedChecklist.sono === 'insatisfatorio'
+              ? `<span class="badge bg-yellow">Insatisfatório: ${selectedChecklist.sonoDesc || ''}</span>`
               : 'Sono preservado / Dormiu bem'}
           </div>
-        </div>
+        </div>` : ''}
         <div class="field" style="margin-bottom: 12px;">
           <div class="field-label">Outras Atividades / Consultas</div>
           <div class="field-value">${selectedChecklist.atividadesConsulta || 'Nenhuma atividade registrada.'}</div>
@@ -1277,33 +1278,41 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
       </div>
     </div>
     
-    <!-- Assinatura Digital ICP-Brasil -->
+    <!-- Assinatura Digital -->
     ${selectedChecklist.signedBy ? (() => {
       let certDetails = '';
+      let isSimples = false;
       if (selectedChecklist.signatureInfo) {
         try {
           const cert = JSON.parse(selectedChecklist.signatureInfo);
-          certDetails = `
+          isSimples = cert.tipo_assinatura === 'simples';
+          if (isSimples) {
+            certDetails = `
+              <div class="sig-grid">
+                <div class="sig-field">
+                  <div class="sig-field-label">Assinante / Titular</div>
+                  <div class="sig-field-value">${cert.nome_assinante || selectedChecklist.signedBy}</div>
+                </div>
+                <div class="sig-field">
+                  <div class="sig-field-label">CPF do Assinante</div>
+                  <div class="sig-field-value">${cert.cpf_assinante || '—'}</div>
+                </div>
+                <div class="sig-field" style="background: #e8f5e9; border-color: #a5d6a7;">
+                  <div class="sig-field-label" style="color: #2e7d32;">Carimbo de Data/Hora (Assinatura)</div>
+                  <div class="sig-field-value" style="color: #1b5e20;">${new Date(selectedChecklist.signedAt || '').toLocaleString('pt-BR')}</div>
+                </div>
+              </div>
+            `;
+          } else {
+            certDetails = `
             <div class="sig-grid">
               <div class="sig-field">
                 <div class="sig-field-label">Assinante / Titular</div>
                 <div class="sig-field-value">${cert.certificate_holder_name}</div>
               </div>
               <div class="sig-field">
-                <div class="sig-field-label">CPF</div>
+                <div class="sig-field-label">Documento de Identidade</div>
                 <div class="sig-field-value">${cert.certificate_document}</div>
-              </div>
-              <div class="sig-field">
-                <div class="sig-field-label">Autoridade Certificadora (AC)</div>
-                <div class="sig-field-value">${cert.certificate_issuer}</div>
-              </div>
-              <div class="sig-field">
-                <div class="sig-field-label">Número de Série</div>
-                <div class="sig-field-value" style="font-family: monospace; font-size: 8px;">${cert.certificate_serial_number}</div>
-              </div>
-              <div class="sig-field">
-                <div class="sig-field-label">Validade do Certificado</div>
-                <div class="sig-field-value">${new Date(cert.certificate_issue_date).toLocaleDateString('pt-BR')} a ${new Date(cert.certificate_expiration_date).toLocaleDateString('pt-BR')}</div>
               </div>
               <div class="sig-field" style="background: #e8f5e9; border-color: #a5d6a7;">
                 <div class="sig-field-label" style="color: #2e7d32;">Carimbo de Data/Hora (Assinatura)</div>
@@ -1311,6 +1320,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
               </div>
             </div>
           `;
+          }
         } catch (e) {
           certDetails = `
             <div class="sig-grid">
@@ -1343,10 +1353,12 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
         <div class="sig-panel">
           <div class="sig-title">
             <span style="display: inline-block; width: 8px; height: 8px; background: #10b981; border-radius: 50%; margin-right: 6px;"></span>
-            Assinatura Digital ICP-Brasil Válida · MP 2.200-2/2001
+            ${isSimples ? 'Assinatura Eletrônica Interna · Registro Autenticado' : 'Assinatura Digital ICP-Brasil Válida · MP 2.200-2/2001'}
           </div>
           <p style="font-size: 9px; color: #065f46; margin-bottom: 10px; line-height: 1.3;">
-            Este documento clínico/boletim foi assinado eletronicamente pelo profissional responsável utilizando certificado digital ICP-Brasil A1. A autoria, integridade e validade jurídica deste registro são garantidas nos termos da legislação federal brasileira.
+            ${isSimples
+              ? 'Este documento clínico/boletim foi assinado eletronicamente pela Assinatura Eletrônica Interna, registrando o nome completo, CPF e data/hora do usuário autenticado.'
+              : 'Este documento clínico/boletim foi assinado eletronicamente pelo profissional responsável utilizando certificado digital ICP-Brasil A1. A autoria, integridade e validade jurídica deste registro são garantidas nos termos da legislação federal brasileira.'}
           </p>
           ${certDetails}
         </div>
@@ -2468,12 +2480,14 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                               )}
                             </div>
 
+                            {selectedShift === 'noturno' && (
                             <div className="flex justify-between items-center py-1 border-b border-slate-50 border-dotted">
                               <span className="text-slate-505 font-medium text-xs sm:text-sm">Qualidade do Sono:</span>
                               <span className={`font-semibold px-2 py-0.5 rounded text-xs ${selectedChecklist.sono === 'insatisfatorio' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-55 text-emerald-800'}`}>
                                 {selectedChecklist.sono === 'preservado' ? 'Sono Preservado' : selectedChecklist.sono === 'insatisfatorio' ? `Insatisfatório: ${selectedChecklist.sonoDesc || ''}` : 'Não informado'}
                               </span>
                             </div>
+                            )}
 
                             {selectedChecklist.medicacoesAdministradas && (
                               <div className="flex flex-col gap-1.5 py-1.5 border-b border-slate-50 border-dotted">
@@ -2613,8 +2627,14 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                           </div>
                         )}
 
-                        {/* Painel de Assinatura Digital ICP-Brasil */}
-                        {selectedChecklist.signedBy && (
+                        {/* Painel de Validação de Assinatura */}
+                        {selectedChecklist.signedBy && (() => {
+                          const parsedSig = (() => {
+                            if (!selectedChecklist.signatureInfo) return null;
+                            try { return JSON.parse(selectedChecklist.signatureInfo); } catch { return null; }
+                          })();
+                          const isSimples = parsedSig?.tipo_assinatura === 'simples';
+                          return (
                           <div className="bg-emerald-50/40 border-l-4 border-emerald-500 border border-slate-200 rounded-xl p-5 mt-6 shadow-sm">
                             <div className="flex items-start gap-4">
                               <div className="p-2.5 bg-emerald-100 rounded-xl text-emerald-700 shrink-0 shadow-sm border border-emerald-200/50">
@@ -2628,58 +2648,57 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                                     </h4>
                                     <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 border border-emerald-200/70 px-2 py-0.5 rounded-full flex items-center gap-1">
                                       <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                                      ICP-BRASIL VÁLIDA
+                                      {isSimples ? 'ASSINATURA ELETRÔNICA' : 'ICP-BRASIL VÁLIDA'}
                                     </span>
                                   </div>
                                   <div className="text-[10px] text-slate-400 font-medium font-mono">
                                     Documento Integrado e Auditado
                                   </div>
                                 </div>
-                                
+
                                 <p className="text-xs text-slate-500 leading-relaxed mt-1">
-                                  Este prontuário/boletim de acompanhamento foi assinado e selado eletronicamente utilizando um certificado digital ICP-Brasil A1. A assinatura atesta a autoria e a integridade deste registro clínico na data especificada, em conformidade com a MP 2.200-2/2001.
+                                  {isSimples
+                                    ? 'Este prontuário/boletim de acompanhamento foi assinado e selado eletronicamente pela Assinatura Eletrônica Interna, registrando o nome completo, CPF e data/hora do usuário autenticado no momento da assinatura.'
+                                    : 'Este prontuário/boletim de acompanhamento foi assinado e selado eletronicamente utilizando um certificado digital ICP-Brasil A1. A assinatura atesta a autoria e a integridade deste registro clínico na data especificada, em conformidade com a MP 2.200-2/2001.'}
                                 </p>
 
-                                {selectedChecklist.signatureInfo ? (() => {
-                                  try {
-                                    const cert = JSON.parse(selectedChecklist.signatureInfo);
-                                    return (
-                                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-4 mt-4 pt-3 text-xs text-slate-650">
-                                        <div className="bg-white/60 p-2.5 rounded-lg border border-slate-100 shadow-sm">
-                                          <p className="text-slate-400 font-bold uppercase tracking-wider text-[9px]">Assinante / Titular</p>
-                                          <p className="font-bold text-slate-700 mt-1">{cert.certificate_holder_name}</p>
-                                        </div>
-                                        <div className="bg-white/60 p-2.5 rounded-lg border border-slate-100 shadow-sm">
-                                          <p className="text-slate-400 font-bold uppercase tracking-wider text-[9px]">Documento de Identidade</p>
-                                          <p className="font-mono font-bold text-slate-700 mt-1">{cert.certificate_document}</p>
-                                        </div>
-                                        <div className="bg-white/60 p-2.5 rounded-lg border border-slate-100 shadow-sm">
-                                          <p className="text-slate-400 font-bold uppercase tracking-wider text-[9px]">Autoridade Certificadora (AC)</p>
-                                          <p className="font-bold text-slate-700 mt-1">{cert.certificate_issuer}</p>
-                                        </div>
-                                        <div className="bg-white/60 p-2.5 rounded-lg border border-slate-100 shadow-sm">
-                                          <p className="text-slate-400 font-bold uppercase tracking-wider text-[9px]">Número de Série do Certificado</p>
-                                          <p className="font-mono text-slate-600 mt-1 text-[10px] break-all">{cert.certificate_serial_number}</p>
-                                        </div>
-                                        <div className="bg-white/60 p-2.5 rounded-lg border border-slate-100 shadow-sm">
-                                          <p className="text-slate-400 font-bold uppercase tracking-wider text-[9px]">Validade do Certificado</p>
-                                          <p className="font-medium text-slate-700 mt-1">
-                                            {new Date(cert.certificate_issue_date).toLocaleDateString('pt-BR')} a {new Date(cert.certificate_expiration_date).toLocaleDateString('pt-BR')}
-                                          </p>
-                                        </div>
-                                        <div className="bg-white/60 p-2.5 rounded-lg border border-slate-100 shadow-sm border-emerald-100/50 bg-emerald-50/20">
-                                          <p className="text-emerald-700 font-bold uppercase tracking-wider text-[9px]">Carimbo de Data/Hora (Assinatura)</p>
-                                          <p className="font-bold text-emerald-900 mt-1 flex items-center gap-1">
-                                            <Clock className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
-                                            {new Date(selectedChecklist.signedAt || '').toLocaleString('pt-BR')}
-                                          </p>
-                                        </div>
-                                      </div>
-                                    );
-                                  } catch (e) {
-                                    return null;
-                                  }
-                                })() : (
+                                {isSimples ? (
+                                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-4 mt-4 pt-3 text-xs text-slate-650">
+                                    <div className="bg-white/60 p-2.5 rounded-lg border border-slate-100 shadow-sm">
+                                      <p className="text-slate-400 font-bold uppercase tracking-wider text-[9px]">Assinante / Titular</p>
+                                      <p className="font-bold text-slate-700 mt-1">{parsedSig?.nome_assinante || selectedChecklist.signedBy}</p>
+                                    </div>
+                                    <div className="bg-white/60 p-2.5 rounded-lg border border-slate-100 shadow-sm">
+                                      <p className="text-slate-400 font-bold uppercase tracking-wider text-[9px]">CPF do Assinante</p>
+                                      <p className="font-mono font-bold text-slate-700 mt-1">{parsedSig?.cpf_assinante || '—'}</p>
+                                    </div>
+                                    <div className="bg-white/60 p-2.5 rounded-lg border border-slate-100 shadow-sm border-emerald-100/50 bg-emerald-50/20">
+                                      <p className="text-emerald-700 font-bold uppercase tracking-wider text-[9px]">Carimbo de Data/Hora (Assinatura)</p>
+                                      <p className="font-bold text-emerald-900 mt-1 flex items-center gap-1">
+                                        <Clock className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                                        {new Date(selectedChecklist.signedAt || '').toLocaleString('pt-BR')}
+                                      </p>
+                                    </div>
+                                  </div>
+                                ) : parsedSig ? (
+                                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-4 mt-4 pt-3 text-xs text-slate-650">
+                                    <div className="bg-white/60 p-2.5 rounded-lg border border-slate-100 shadow-sm">
+                                      <p className="text-slate-400 font-bold uppercase tracking-wider text-[9px]">Assinante / Titular</p>
+                                      <p className="font-bold text-slate-700 mt-1">{parsedSig.certificate_holder_name}</p>
+                                    </div>
+                                    <div className="bg-white/60 p-2.5 rounded-lg border border-slate-100 shadow-sm">
+                                      <p className="text-slate-400 font-bold uppercase tracking-wider text-[9px]">Documento de Identidade</p>
+                                      <p className="font-mono font-bold text-slate-700 mt-1">{parsedSig.certificate_document}</p>
+                                    </div>
+                                    <div className="bg-white/60 p-2.5 rounded-lg border border-slate-100 shadow-sm border-emerald-100/50 bg-emerald-50/20">
+                                      <p className="text-emerald-700 font-bold uppercase tracking-wider text-[9px]">Carimbo de Data/Hora (Assinatura)</p>
+                                      <p className="font-bold text-emerald-900 mt-1 flex items-center gap-1">
+                                        <Clock className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                                        {new Date(selectedChecklist.signedAt || '').toLocaleString('pt-BR')}
+                                      </p>
+                                    </div>
+                                  </div>
+                                ) : (
                                   <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 mt-4 pt-3 text-xs text-slate-650">
                                     <div className="bg-white/60 p-2.5 rounded-lg border border-slate-100 shadow-sm">
                                       <p className="text-slate-400 font-bold uppercase tracking-wider text-[9px]">Assinado por</p>
@@ -2697,7 +2716,8 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                               </div>
                             </div>
                           </div>
-                        )}
+                          );
+                        })()}
                       </div>
                     </div>
                   )
@@ -3071,7 +3091,8 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                             )}
                           </div>
 
-                          {/* Sono */}
+                          {/* Sono - apenas no boletim noturno */}
+                          {selectedShift === 'noturno' && (
                           <div className="space-y-2">
                             <label className="block text-xs font-bold text-slate-700">Qualidade de Sono</label>
                             <div className="flex gap-2">
@@ -3108,6 +3129,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                               />
                             )}
                           </div>
+                          )}
                         </div>
 
                         {/* Medicações administradas e horários */}
