@@ -287,8 +287,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const checkSession = async () => {
       setLoading(true);
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session?.user) {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (error) {
+          console.warn('Erro ao recuperar sessão do Supabase:', error.message);
+          // Se o token de atualização (refresh token) for inválido (HTTP 400 / invalid_grant),
+          // limpamos a sessão local para evitar erros repetidos em cada recarregamento.
+          if (error.status === 400 || error.message?.includes('refresh_token') || error.message?.includes('invalid_grant')) {
+            await supabase.auth.signOut().catch(() => {});
+          }
+          setCurrentUser(null);
+        } else if (session?.user) {
           const profile = await fetchUserProfile(session.user.id);
           setCurrentUser(profile);
         } else {
