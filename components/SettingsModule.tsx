@@ -304,7 +304,7 @@ const SettingsModule: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center shadow-sm">
             <Settings className="h-5 w-5 text-white" />
@@ -315,7 +315,7 @@ const SettingsModule: React.FC = () => {
           </div>
         </div>
         {isAdmin && activeTab !== 'subscription' && (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center flex-wrap gap-2">
             {saved && (
               <span className="flex items-center gap-1.5 text-sm text-emerald-600 font-medium bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 animate-pulse">
                 <CheckCircle className="h-4 w-4" />

@@ -24,7 +24,7 @@ const ToastContainer: React.FC = () => {
   if (toasts.length === 0) return null;
 
   return (
-    <div className="fixed bottom-4 right-4 z-[9999] flex flex-col gap-2 max-w-sm w-full pointer-events-none">
+    <div className="fixed bottom-4 left-4 right-4 sm:left-auto z-[9999] flex flex-col gap-2 sm:max-w-sm sm:w-full pointer-events-none">
       {toasts.map(t => {
         const Icon = icons[t.type];
         return (

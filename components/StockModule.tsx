@@ -613,7 +613,7 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
                   />
                 </div>
               )}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1.5">Quantidade Inicial</label>
                   <input required type="number" value={newItem.quantity} onChange={e => setNewItem({ ...newItem, quantity: e.target.value })} className={inputClass} min="0" />
