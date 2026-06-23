@@ -1482,7 +1482,7 @@ function AppInner() {
         stockAlertCount={lowStockItems.length}
       />
 
-      <main className="flex-1 max-w-full lg:max-w-[calc(100vw-256px)] transition-all">
+      <main className="flex-1 min-w-0 max-w-full lg:max-w-[calc(100vw-256px)] transition-all">
         {/* Mobile Header - Sticky */}
         <div className="sticky top-0 z-20 lg:hidden px-4 py-3 bg-white border-b border-slate-100 flex justify-between items-center shadow-sm select-none">
           <div className="flex items-center gap-2">
