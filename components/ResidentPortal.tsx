@@ -149,7 +149,7 @@ const ResidentPortal: React.FC<ResidentPortalProps> = ({ resident, events }) => 
       {/* ── QUICK METRICS (overlap hero) ── */}
       <div className="relative z-10 -mt-10 px-4 max-w-2xl mx-auto w-full">
         {latestVital ? (
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             {[
               { label: 'Pressão',  value: latestVital.bp,         unit: '',     icon: Heart,       color: 'text-rose-500',    bg: 'bg-rose-50' },
               { label: 'Freq. Card.', value: String(latestVital.hr), unit: 'bpm', icon: Activity,    color: 'text-violet-500',  bg: 'bg-violet-50' },
@@ -281,7 +281,7 @@ const ResidentPortal: React.FC<ResidentPortalProps> = ({ resident, events }) => 
                         <Clock className="h-3 w-3" />
                         {formatDate(v.timestamp)}
                       </p>
-                      <div className="grid grid-cols-4 gap-2">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                         {[
                           { label: 'Pressão',  value: v.bp,         unit: '',    color: 'text-rose-600' },
                           { label: 'FC',       value: `${v.hr}`,    unit: 'bpm', color: 'text-violet-600' },

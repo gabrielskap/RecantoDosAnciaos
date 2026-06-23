@@ -324,7 +324,7 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
                 <label className="block text-xs font-semibold text-slate-600 mb-1.5">Descrição</label>
                 <input required placeholder="Ex: Conta de Luz" value={newRecord.description} onChange={e => setNewRecord({ ...newRecord, description: e.target.value })} className={inputClass} />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1.5">Valor (R$)</label>
                   <input required type="number" placeholder="0.00" value={newRecord.amount} onChange={e => setNewRecord({ ...newRecord, amount: e.target.value })} className={inputClass} />
@@ -387,7 +387,7 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
                   placeholder="Selecione o residente..."
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1.5">Valor Mensal (R$)</label>
                   <input required type="number" placeholder="3500" value={newContract.monthlyValue} onChange={e => setNewContract({ ...newContract, monthlyValue: e.target.value })} className={inputClass} />

@@ -241,7 +241,7 @@ const AgendaModule: React.FC<AgendaModuleProps> = ({ events, residents, onAddEve
                 <label className="block text-xs font-semibold text-slate-600 mb-1.5">Título</label>
                 <input required type="text" value={newEvent.title} onChange={e => setNewEvent({ ...newEvent, title: e.target.value })} className={inputClass} placeholder="Ex: Consulta Dr. Pedro" />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1.5">Tipo</label>
                   <CustomSelect
