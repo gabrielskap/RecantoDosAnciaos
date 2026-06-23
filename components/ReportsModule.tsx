@@ -175,14 +175,14 @@ tr:last-child td { border-bottom: none; }
 }
 `;
 
-const openPrintWindow = (title: string, body: string) => {
+const openPrintWindow = (title: string, body: string, settingsOwnerId: string) => {
   const win = window.open('', '_blank', 'width=960,height=720');
   if (!win) { toast.warning('Permita popups para gerar o PDF.'); return; }
 
   let watermarkSrc = '';
   let hasLetterhead = false;
   try {
-    const settingsKey = `recanto_system_settings_${currentUser?.empresaId ?? currentUser?.id ?? 'anon'}`;
+    const settingsKey = `recanto_system_settings_${settingsOwnerId}`;
     const raw = localStorage.getItem(settingsKey);
     if (raw) {
       const parsed = JSON.parse(raw);
@@ -638,7 +638,7 @@ const ReportsModule: React.FC<ReportsModuleProps> = ({
       case 'equipe':       body = buildEquipePDF(employees); break;
       case 'agenda':       body = buildAgendaPDF(events, startDate, endDate); break;
     }
-    openPrintWindow(`Relatório — ${mod.label}`, body);
+    openPrintWindow(`Relatório — ${mod.label}`, body, currentUser?.empresaId ?? currentUser?.id ?? 'anon');
   };
 
   return (
