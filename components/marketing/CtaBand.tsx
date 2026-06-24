@@ -29,7 +29,7 @@ const CtaBand: React.FC<CtaBandProps> = ({
           Testar Demonstração
         </button>
       </div>
-      <p className="text-blue-300 text-sm mt-6">14 dias gratuitos · Sem cartão de crédito · Cancele a qualquer momento</p>
+      <p className="text-blue-300 text-sm mt-6">Ativação imediata · Cancele quando quiser · Suporte humano</p>
     </div>
   </section>
 );

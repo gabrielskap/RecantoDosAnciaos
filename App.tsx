@@ -19,6 +19,7 @@ import ResidentPortal from './components/ResidentPortal';
 import RoomsModule from './components/RoomsModule';
 import SettingsModule from './components/SettingsModule';
 import CheckoutPage from './components/CheckoutPage';
+import PendingPaymentScreen from './components/PendingPaymentScreen';
 import ResetPassword from './components/ResetPassword';
 import ToastContainer from './components/ToastContainer';
 import { toast } from './services/toast';
@@ -104,7 +105,7 @@ const viewToPath = (view: ViewState, residentId?: string): string => {
 };
 
 function AppInner() {
-  const { currentUser, loading, logout } = useAuth();
+  const { currentUser, loading, logout, accessBlocked } = useAuth();
   const [currentView, setCurrentView] = useState<ViewState>(ViewState.DASHBOARD);
   const [selectedResident, setSelectedResident] = useState<Resident | null>(null);
   const [dataLoaded, setDataLoaded] = useState(false);
@@ -1465,6 +1466,11 @@ function AppInner() {
   }
 
   if (!currentUser) return <LandingPage />;
+
+  // Gate de ativação: assinatura Asaas pendente → bloqueia todo acesso interno.
+  if (accessBlocked) {
+    return <PendingPaymentScreen />;
+  }
 
   // Responsável: portal simplificado
   if (currentUser.profile.type === 'Responsável') {

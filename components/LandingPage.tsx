@@ -6,7 +6,6 @@ import {
   Activity, ClipboardList
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import SignUpModal from './SignUpModal';
 
 const LandingPage: React.FC = () => {
   const { login, resetPassword } = useAuth();
@@ -17,7 +16,6 @@ const LandingPage: React.FC = () => {
   const [loginPassword, setLoginPassword] = useState('');
   const [loginError, setLoginError] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
-  const [showSignUpModal, setShowSignUpModal] = useState(false);
   const [resetMode, setResetMode] = useState(false);
   const [resetEmail, setResetEmail] = useState('');
   const [resetLoading, setResetLoading] = useState(false);
@@ -34,11 +32,6 @@ const LandingPage: React.FC = () => {
       ? 'Entrar | Recanto dos Anciãos'
       : 'Recanto dos Anciãos – Sistema de Gestão para ILPIs';
   }, [showLoginModal]);
-
-  const openSignUp = () => {
-    setShowLoginModal(false);
-    setShowSignUpModal(true);
-  };
 
   const openResetMode = () => {
     setResetEmail(loginEmail);
@@ -467,13 +460,13 @@ const LandingPage: React.FC = () => {
               className="flex-1 border border-slate-200 rounded-xl px-4 py-3.5 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
             />
             <button
-              onClick={() => setShowSignUpModal(true)}
+              onClick={() => navigateToCheckout()}
               className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-8 py-3.5 rounded-xl transition-all text-sm whitespace-nowrap shadow"
             >
-              Criar conta gratuita
+              Quero assinar
             </button>
           </div>
-          <p className="text-xs text-slate-400 mt-3">Sem cartão de crédito. 14 dias grátis. Cancele quando quiser.</p>
+          <p className="text-xs text-slate-400 mt-3">Ativação imediata após a confirmação do pagamento. Cancele quando quiser.</p>
         </div>
       </section>
 
@@ -530,8 +523,8 @@ const LandingPage: React.FC = () => {
                   <p className="text-emerald-200 text-sm mt-1">economizadas por dia em média</p>
                 </div>
                 <div className="bg-amber-400 text-slate-900 rounded-2xl p-6">
-                  <p className="text-4xl font-extrabold">14</p>
-                  <p className="text-amber-800 text-sm mt-1">dias grátis sem cartão</p>
+                  <p className="text-4xl font-extrabold">100%</p>
+                  <p className="text-amber-800 text-sm mt-1">na nuvem, sem instalação</p>
                 </div>
                 <div className="bg-slate-900 text-white rounded-2xl p-6">
                   <p className="text-4xl font-extrabold">24/7</p>
@@ -589,10 +582,10 @@ const LandingPage: React.FC = () => {
                   ))}
                 </ul>
                 <button
-                  onClick={navigateToDemo}
+                  onClick={() => navigateToCheckout()}
                   className="mt-8 inline-flex items-center bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-3 rounded-xl transition-all text-sm"
                 >
-                  Começar gratuitamente
+                  Começar agora
                   <ChevronRight className="ml-1 h-4 w-4" />
                 </button>
               </div>
@@ -828,10 +821,10 @@ const LandingPage: React.FC = () => {
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <button
-              onClick={() => setShowSignUpModal(true)}
+              onClick={() => navigateToCheckout()}
               className="inline-flex items-center justify-center bg-amber-400 hover:bg-amber-300 text-slate-900 font-bold text-lg px-8 py-4 rounded-xl shadow-lg transition-all"
             >
-              Cadastre-se gratuitamente
+              Assinar agora
               <ArrowRight className="ml-2 h-5 w-5" />
             </button>
             <button
@@ -841,7 +834,7 @@ const LandingPage: React.FC = () => {
               Já tenho conta
             </button>
           </div>
-          <p className="text-blue-300 text-sm mt-6">14 dias gratuitos · Sem cartão de crédito · Cancele a qualquer momento</p>
+          <p className="text-blue-300 text-sm mt-6">Ativação imediata · Cancele quando quiser · Suporte humano</p>
         </div>
       </section>
 
@@ -892,14 +885,6 @@ const LandingPage: React.FC = () => {
           </div>
         </div>
       </footer>
-
-      {/* ——— SIGNUP MODAL ——— */}
-      {showSignUpModal && (
-        <SignUpModal
-          onClose={() => setShowSignUpModal(false)}
-          onLoginInstead={() => { setShowSignUpModal(false); setShowLoginModal(true); }}
-        />
-      )}
 
       {/* ——— LOGIN MODAL ——— */}
       {showLoginModal && (
@@ -1056,8 +1041,8 @@ const LandingPage: React.FC = () => {
 
                 <p className="text-center text-xs text-slate-400 mt-6">
                   Não tem conta?{' '}
-                  <button onClick={openSignUp} className="text-blue-600 font-medium hover:underline">
-                    Cadastre-se agora
+                  <button onClick={() => navigateToCheckout()} className="text-blue-600 font-medium hover:underline">
+                    Assine agora
                   </button>
                 </p>
               </>

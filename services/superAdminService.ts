@@ -29,6 +29,12 @@ export interface Empresa {
   qtd_residentes: number;
   qtd_usuarios: number;
   created_at: string;
+  // --- Gateway de pagamento (Asaas) ---
+  gateway_pagamento?: string | null;
+  gateway_customer_id?: string | null;
+  gateway_subscription_id?: string | null;
+  gateway_payment_id?: string | null;
+  forma_pagamento?: string | null;
 }
 
 export interface ActivityItem {

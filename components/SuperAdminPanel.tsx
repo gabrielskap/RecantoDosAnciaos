@@ -1224,6 +1224,36 @@ const SuperAdminPanel: React.FC = () => {
                 </div>
               </div>
 
+              {/* Pagamento / Gateway */}
+              <div>
+                <h3 className="text-sm font-semibold text-slate-700 mb-3">Pagamento / Gateway</h3>
+                <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+                  {[
+                    { label: 'Gateway',              value: selectedTenant.gateway_pagamento ?? '—' },
+                    { label: 'Forma de pagamento',   value: selectedTenant.forma_pagamento ?? '—' },
+                    { label: 'Status da assinatura', value: selectedTenant.subscription_status ?? '—' },
+                    { label: 'Vencimento',           value: formatDate(selectedTenant.data_vencimento) },
+                  ].map(f => (
+                    <div key={f.label}>
+                      <p className="text-xs text-slate-400">{f.label}</p>
+                      <p className="text-sm text-slate-700 mt-0.5 capitalize">{f.value}</p>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-3 space-y-2">
+                  {[
+                    { label: 'Customer ID',     value: selectedTenant.gateway_customer_id },
+                    { label: 'Subscription ID', value: selectedTenant.gateway_subscription_id },
+                    { label: 'Payment ID',      value: selectedTenant.gateway_payment_id },
+                  ].map(f => (
+                    <div key={f.label}>
+                      <p className="text-xs text-slate-400">{f.label}</p>
+                      <p className="text-xs font-mono text-slate-600 mt-0.5 break-all">{f.value || '—'}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
               {/* Footer actions */}
               <div className="flex gap-3 pt-2 border-t border-slate-100">
                 <button

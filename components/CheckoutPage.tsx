@@ -1,38 +1,46 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   HeartPulse, ArrowLeft, ArrowRight, Check, Building2, User, CreditCard,
-  ClipboardList, CheckCircle, XCircle, Clock, Eye, EyeOff, Shield, Lock,
-  AlertCircle, ChevronRight, Loader2
+  ClipboardList, XCircle, Clock, Eye, EyeOff, Shield, Lock,
+  Loader2, Copy, FileText, ExternalLink, QrCode
 } from 'lucide-react';
 import { supabase } from '../services/supabaseClient';
 import type { CheckoutFormData, PlanoId, Periodicidade, FormaPagamento } from '../types';
-import { gerarEmpresaId } from '../lib/empresaId';
 
-// ─── Planos disponíveis ───────────────────────────────────────────────────────
-const PLANOS = [
+// hCaptcha — opcional. Quando VITE_HCAPTCHA_SITE_KEY estiver definido, o widget é
+// renderizado e o token exigido. Sem a chave, o checkout segue sem CAPTCHA (e a
+// Edge Function também ignora a verificação quando HCAPTCHA_SECRET não existe).
+const HCAPTCHA_SITE_KEY = ((import.meta as any).env?.VITE_HCAPTCHA_SITE_KEY as string | undefined) || '';
+
+// ─── Catálogo de exibição (fallback) ──────────────────────────────────────────
+// A fonte oficial de preço é a tabela Recanto_Planos (lida no servidor). Estes
+// valores são apenas para exibição enquanto o catálogo carrega.
+interface PlanoView {
+  id: PlanoId;
+  nome: string;
+  precoMensal: number;          // R$/mês no ciclo mensal
+  precoMensalAnual: number;     // R$/mês equivalente no ciclo anual
+  precoAnualTotal: number;      // R$ cobrado de fato no ciclo anual
+  selfService: boolean;
+  desc: string;
+  features: string[];
+  popular?: boolean;
+}
+
+const PLANOS_FALLBACK: PlanoView[] = [
   {
-    id: 'essencial' as PlanoId,
-    nome: 'Essencial',
-    precoMensal: 399,
-    precoAnual: 299,
-    desc: 'Ideal para ILPIs com até 30 residentes',
+    id: 'essencial', nome: 'Essencial', precoMensal: 399, precoMensalAnual: 299, precoAnualTotal: 3588,
+    selfService: true, desc: 'Ideal para ILPIs com até 30 residentes',
     features: ['Até 30 residentes', '5 usuários', 'Gestão de residentes', 'Saúde & checklists', 'Financeiro básico', 'Estoque', 'Suporte por e-mail'],
   },
   {
-    id: 'profissional' as PlanoId,
-    nome: 'Profissional',
-    precoMensal: 799,
-    precoAnual: 599,
-    desc: 'Para ILPIs de médio porte com mais recursos',
+    id: 'profissional', nome: 'Profissional', precoMensal: 799, precoMensalAnual: 599, precoAnualTotal: 7188,
+    selfService: true, desc: 'Para ILPIs de médio porte com mais recursos', popular: true,
     features: ['Até 100 residentes', '20 usuários', 'Todos os módulos', 'Relatórios avançados', 'IA Assistente', 'Portal do familiar', 'Suporte prioritário'],
-    popular: true,
   },
   {
-    id: 'enterprise' as PlanoId,
-    nome: 'Enterprise',
-    precoMensal: 0,
-    precoAnual: 0,
-    desc: 'Para redes e grupos com múltiplas unidades',
+    id: 'enterprise', nome: 'Enterprise', precoMensal: 0, precoMensalAnual: 0, precoAnualTotal: 0,
+    selfService: false, desc: 'Para redes e grupos com múltiplas unidades',
     features: ['Residentes ilimitados', 'Usuários ilimitados', 'Múltiplas unidades', 'Dashboard consolidado', 'Onboarding dedicado', 'SLA 99,9%', 'Gerente de sucesso'],
   },
 ];
@@ -43,7 +51,7 @@ const ESTADOS_BR = [
   'SP','SE','TO'
 ];
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Helpers de formatação/validação ──────────────────────────────────────────
 function formatCNPJ(v: string) {
   const d = v.replace(/\D/g, '').slice(0, 14);
   return d
@@ -79,7 +87,6 @@ function formatValidade(v: string) {
   return v.replace(/\D/g, '').slice(0, 4).replace(/(\d{2})(\d)/, '$1/$2');
 }
 
-
 function validarCNPJ(cnpj: string): boolean {
   const d = cnpj.replace(/\D/g, '');
   if (d.length !== 14) return false;
@@ -101,11 +108,23 @@ function validarCPF(cpf: string): boolean {
   return dv(soma(9)) === parseInt(d[9]) && dv(soma(10)) === parseInt(d[10]);
 }
 
+const money = (v: number) =>
+  v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 });
+
 // ─── Tipos internos ───────────────────────────────────────────────────────────
-type Step = 'empresa' | 'admin' | 'plano' | 'pagamento' | 'processando' | 'sucesso' | 'recusado';
+type Step = 'empresa' | 'admin' | 'plano' | 'pagamento' | 'processando' | 'resultado' | 'erro';
+
+interface CheckoutResult {
+  assinaturaId: string;
+  subscriptionId: string;
+  status: string;
+  formaPagamento: FormaPagamento;
+  pix?: { encodedImage: string; payload: string };
+  boleto?: { invoiceUrl?: string; bankSlipUrl?: string };
+}
 
 const STEPS: { key: Step; label: string; icon: React.ElementType }[] = [
-  { key: 'empresa',    label: 'Empresa',    icon: Building2 },
+  { key: 'empresa',    label: 'Empresa',     icon: Building2 },
   { key: 'admin',      label: 'Responsável', icon: User },
   { key: 'plano',      label: 'Plano',       icon: ClipboardList },
   { key: 'pagamento',  label: 'Pagamento',   icon: CreditCard },
@@ -122,6 +141,8 @@ const EMPTY_FORM: CheckoutFormData = {
   numeroCartao: '', validadeCartao: '', cvv: '', enderecoCobranca: '',
 };
 
+const irParaLogin = () => { window.history.pushState(null, '', '/login'); window.location.reload(); };
+
 // ─── Componente principal ─────────────────────────────────────────────────────
 const CheckoutPage: React.FC = () => {
   const [step, setStep] = useState<Step>('empresa');
@@ -129,14 +150,107 @@ const CheckoutPage: React.FC = () => {
   const [errors, setErrors] = useState<Partial<Record<keyof CheckoutFormData, string>>>({});
   const [showSenha, setShowSenha] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
-  const [processingMsg, setProcessingMsg] = useState('Aguarde enquanto processamos seu pagamento...');
   const [errorMsg, setErrorMsg] = useState('');
   const [loadingCEP, setLoadingCEP] = useState(false);
+
+  const [planos, setPlanos] = useState<PlanoView[]>(PLANOS_FALLBACK);
+  const [result, setResult] = useState<CheckoutResult | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  // CAPTCHA (hCaptcha) — opcional
+  const [captchaToken, setCaptchaToken] = useState('');
+  const captchaRef = useRef<HTMLDivElement>(null);
+  const captchaWidgetId = useRef<string | null>(null);
+
+  // ── Carrega o catálogo de planos (fonte oficial: Recanto_Planos) ──
+  useEffect(() => {
+    (async () => {
+      const { data, error } = await supabase
+        .from('Recanto_Planos')
+        .select('plano_id, plano_nome, preco_mensal, preco_anual_total, preco_mensal_equivalente_anual, ativo, self_service')
+        .eq('ativo', true);
+      if (error || !data || data.length === 0) return; // mantém fallback
+      const mapped: PlanoView[] = data.map((p: any) => {
+        const fb = PLANOS_FALLBACK.find(f => f.id === p.plano_id);
+        return {
+          id: p.plano_id as PlanoId,
+          nome: p.plano_nome,
+          precoMensal: Number(p.preco_mensal) || 0,
+          precoMensalAnual: Number(p.preco_mensal_equivalente_anual) || Number(p.preco_mensal) || 0,
+          precoAnualTotal: Number(p.preco_anual_total) || 0,
+          selfService: p.self_service !== false,
+          desc: fb?.desc ?? '',
+          features: fb?.features ?? [],
+          popular: fb?.popular,
+        };
+      });
+      // Ordena na ordem essencial → profissional → enterprise quando possível
+      const order = ['essencial', 'profissional', 'enterprise'];
+      mapped.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
+      setPlanos(mapped);
+    })();
+  }, []);
+
+  // ── Pré-seleção via querystring (?plano=&periodo=). Enterprise não é comprável. ──
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const p = params.get('plano') as PlanoId | null;
+    if (p && ['essencial', 'profissional'].includes(p)) {
+      setForm(f => ({ ...f, planoId: p }));
+    }
+    const period = params.get('periodo') as Periodicidade | null;
+    if (period && ['mensal', 'anual'].includes(period)) {
+      setForm(f => ({ ...f, periodicidade: period }));
+    }
+  }, []);
+
+  // ── hCaptcha: renderiza ao entrar na etapa de pagamento ──
+  useEffect(() => {
+    if (!HCAPTCHA_SITE_KEY || step !== 'pagamento') return;
+    let interval: ReturnType<typeof setInterval> | undefined;
+    const render = () => {
+      const hc = (window as any).hcaptcha;
+      if (hc && captchaRef.current && captchaWidgetId.current === null) {
+        captchaWidgetId.current = hc.render(captchaRef.current, {
+          sitekey: HCAPTCHA_SITE_KEY,
+          callback: (token: string) => setCaptchaToken(token),
+          'expired-callback': () => setCaptchaToken(''),
+          'error-callback': () => setCaptchaToken(''),
+        });
+      }
+    };
+    if ((window as any).hcaptcha) {
+      render();
+    } else {
+      const id = 'hcaptcha-script';
+      if (!document.getElementById(id)) {
+        const s = document.createElement('script');
+        s.id = id;
+        s.src = 'https://js.hcaptcha.com/1/api.js?render=explicit';
+        s.async = true; s.defer = true;
+        s.onload = render;
+        document.head.appendChild(s);
+      }
+      interval = setInterval(() => {
+        if ((window as any).hcaptcha) { clearInterval(interval); render(); }
+      }, 200);
+    }
+    return () => { if (interval) clearInterval(interval); };
+  }, [step]);
+
+  const planoSelecionado = planos.find(p => p.id === form.planoId) ?? planos[0];
+  const selfServicePlanos = planos.filter(p => p.selfService);
+
+  const valorMensalExibicao = form.periodicidade === 'mensal'
+    ? planoSelecionado.precoMensal
+    : planoSelecionado.precoMensalAnual;
+  const totalCobranca = form.periodicidade === 'mensal'
+    ? planoSelecionado.precoMensal
+    : planoSelecionado.precoAnualTotal;
 
   const handleCEPChange = async (val: string) => {
     const formatted = formatCEP(val);
     set('cep', formatted);
-
     const cleanCEP = formatted.replace(/\D/g, '');
     if (cleanCEP.length === 8) {
       setLoadingCEP(true);
@@ -151,11 +265,7 @@ const CheckoutPage: React.FC = () => {
               cidade: data.localidade || f.cidade,
               estado: data.uf || f.estado,
             }));
-            setErrors(e => ({
-              ...e,
-              cidade: undefined,
-              estado: undefined,
-            }));
+            setErrors(e => ({ ...e, cidade: undefined, estado: undefined }));
           }
         }
       } catch (err) {
@@ -165,19 +275,6 @@ const CheckoutPage: React.FC = () => {
       }
     }
   };
-
-  // Pré-seleciona plano pela query string (?plano=essencial)
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const p = params.get('plano') as PlanoId | null;
-    if (p && ['essencial', 'profissional', 'enterprise'].includes(p)) {
-      setForm(f => ({ ...f, planoId: p }));
-    }
-    const period = params.get('periodo') as Periodicidade | null;
-    if (period && ['mensal', 'anual'].includes(period)) {
-      setForm(f => ({ ...f, periodicidade: period }));
-    }
-  }, []);
 
   const set = (field: keyof CheckoutFormData, value: string) => {
     setForm(f => ({ ...f, [field]: value }));
@@ -229,12 +326,12 @@ const CheckoutPage: React.FC = () => {
     return Object.keys(e).length === 0;
   };
 
-  // ─── Navegação entre etapas ────────────────────────────────────────────────
+  // ─── Navegação ─────────────────────────────────────────────────────────────
   const next = () => {
     if (step === 'empresa' && validateEmpresa()) setStep('admin');
     else if (step === 'admin' && validateAdmin()) setStep('plano');
     else if (step === 'plano') setStep('pagamento');
-    else if (step === 'pagamento' && validatePagamento()) processPayment();
+    else if (step === 'pagamento' && validatePagamento()) finalizar();
   };
 
   const back = () => {
@@ -243,209 +340,108 @@ const CheckoutPage: React.FC = () => {
     else if (step === 'pagamento') setStep('plano');
   };
 
-  // ─── Processamento de pagamento (mock) ────────────────────────────────────
-  const processPayment = async () => {
-    setStep('processando');
-    setProcessingMsg('Verificando dados de pagamento...');
-    await delay(1200);
-    setProcessingMsg('Aguardando confirmação do gateway...');
-    await delay(1500);
-    setProcessingMsg('Pagamento aprovado! Criando sua empresa...');
-    await delay(800);
+  // ─── Finalização: chama a Edge Function (cobrança real no Asaas) ───────────
+  const finalizar = async () => {
+    setErrorMsg('');
 
-    try {
-      await criarEmpresaEAdmin();
-      setStep('sucesso');
-    } catch (err: any) {
-      console.error('Erro ao criar empresa:', err);
-      setErrorMsg(err.message || 'Erro inesperado ao criar conta. Entre em contato com o suporte.');
-      setStep('recusado');
+    if (planoSelecionado && !planoSelecionado.selfService) {
+      setErrorMsg('O plano Enterprise é contratado com o nosso time comercial.');
+      return;
     }
-  };
-
-  const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
-
-  // ─── Criação da empresa + admin no Supabase ───────────────────────────────
-  const criarEmpresaEAdmin = async () => {
-    const empresaId = gerarEmpresaId();
-    const plano = PLANOS.find(p => p.id === form.planoId)!;
-    const valorMensal = form.periodicidade === 'mensal' ? plano.precoMensal : plano.precoAnual;
-    const hoje = new Date();
-    const vencimento = new Date(hoje);
-    vencimento.setFullYear(vencimento.getFullYear() + (form.periodicidade === 'anual' ? 1 : 0));
-    vencimento.setMonth(vencimento.getMonth() + (form.periodicidade === 'mensal' ? 1 : 0));
-
-    // 0. Verifica CNPJ duplicado antes de criar
-    const cnpjNumerico = form.cnpj.replace(/\D/g, '');
-    const { data: cnpjExistente } = await supabase
-      .from('Recanto_Empresas')
-      .select('empresa_id')
-      .eq('cnpj', cnpjNumerico)
-      .maybeSingle();
-    if (cnpjExistente) throw new Error('Já existe uma empresa cadastrada com este CNPJ. Entre em contato com o suporte se isso for um erro.');
-
-    // 1. Criar empresa (pendente — ativa após confirmação de pagamento)
-    const { error: empresaError } = await supabase
-      .from('Recanto_Empresas')
-      .insert({
-        empresa_id: empresaId,
-        nome_instituicao: form.nomeInstituicao,
-        cnpj: cnpjNumerico,
-        razao_social: form.razaoSocial,
-        nome_fantasia: form.nomeFantasia || form.nomeInstituicao,
-        telefone: form.telefoneEmpresa,
-        email_comercial: form.emailComercial,
-        endereco: form.endereco,
-        cidade: form.cidade,
-        estado: form.estado,
-        cep: form.cep.replace(/\D/g, ''),
-        qtd_residentes: parseInt(form.qtdResidentes) || 0,
-        qtd_usuarios: parseInt(form.qtdUsuarios) || 1,
-        status: 'pendente',
-      });
-
-    if (empresaError) throw new Error('Falha ao registrar empresa: ' + empresaError.message);
-
-    // 2. Criar assinatura
-    const { error: assinaturaError } = await supabase
-      .from('Recanto_Assinaturas')
-      .insert({
-        empresa_id: empresaId,
-        plano_id: form.planoId,
-        plano_nome: plano.nome,
-        valor_mensal: valorMensal,
-        periodicidade: form.periodicidade,
-        gateway_pagamento: 'mock',
-        gateway_subscription_id: `mock_${empresaId}_${Date.now()}`,
-        status: 'ativa',
-        data_inicio: hoje.toISOString().split('T')[0],
-        data_vencimento: vencimento.toISOString().split('T')[0],
-      });
-
-    if (assinaturaError) console.warn('Aviso assinatura:', assinaturaError.message);
-
-    // 3. Criar usuário no Supabase Auth
-    let authData;
-    let signUpError;
-    try {
-      const res = await supabase.auth.signUp({
-        email: form.emailAdmin,
-        password: form.senha,
-        options: {
-          data: {
-            name: form.nomeAdmin,
-            company_name: form.nomeInstituicao,
-            empresa_id: empresaId,
-            profile_type: 'Administrador',
-          },
-        },
-      });
-      authData = res.data;
-      signUpError = res.error;
-    } catch (err: any) {
-      signUpError = err;
-    }
-
-    if (signUpError && (signUpError.message?.includes('already registered') || signUpError.message?.includes('already exists') || signUpError.status === 422)) {
-      // Usuário já cadastrado no Auth. Tenta fazer login com a senha fornecida para prosseguir
-      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-        email: form.emailAdmin,
-        password: form.senha,
-      });
-
-      if (signInError) {
-        throw new Error('Este e-mail já está cadastrado. Caso seja você, digite a senha correta.');
-      }
-      authData = signInData;
-    } else if (signUpError) {
-      throw new Error('Falha ao criar usuário: ' + signUpError.message);
-    }
-
-    if (!authData.user) throw new Error('Usuário não retornado pelo Supabase.');
-
-    if (!authData.session) {
-      // E-mail de confirmação necessário — empresa já criada, usuário confirma depois
+    if (HCAPTCHA_SITE_KEY && !captchaToken) {
+      setErrorMsg('Complete a verificação de segurança (CAPTCHA) para continuar.');
       return;
     }
 
-    // Verifica se já existe o registro de Recanto_Usuarios
-    const { data: existingUser } = await supabase
-      .from('Recanto_Usuarios')
-      .select('id, profile_id, empresa_id')
-      .eq('auth_user_id', authData.user.id)
-      .maybeSingle();
+    setStep('processando');
 
-    if (existingUser && existingUser.empresa_id && existingUser.empresa_id !== empresaId) {
-      // Já está completamente cadastrado e associado a uma empresa
-      throw new Error('Este e-mail já está cadastrado e associado a uma empresa.');
+    // Monta o payload — o frontend NUNCA envia o valor final (calculado no servidor).
+    const [mm, aa] = form.validadeCartao.split('/');
+    const cepDigits = form.cep.replace(/\D/g, '');
+    const enderecoNumero = (form.enderecoCobranca.match(/\d+/)?.[0]) || '';
+
+    const body: Record<string, unknown> = {
+      planoId: form.planoId,
+      periodicidade: form.periodicidade,
+      formaPagamento: form.formaPagamento,
+      captchaToken,
+      empresa: {
+        nome: form.nomeInstituicao,
+        cnpj: form.cnpj.replace(/\D/g, ''),
+        telefone: form.telefoneEmpresa.replace(/\D/g, ''),
+        email: form.emailComercial,
+      },
+      admin: {
+        nome: form.nomeAdmin,
+        email: form.emailAdmin,
+        telefone: form.telefoneAdmin.replace(/\D/g, ''),
+        senha: form.senha,
+      },
+      customer: {
+        name: form.nomeTitular,
+        cpfCnpj: form.cpfTitular.replace(/\D/g, ''),
+        email: form.emailAdmin,
+        phone: form.telefoneAdmin.replace(/\D/g, ''),
+      },
+    };
+
+    if (form.formaPagamento === 'cartao') {
+      body.card = {
+        holderName: form.nomeTitular,
+        number: form.numeroCartao.replace(/\D/g, ''),
+        expiryMonth: mm || '',
+        expiryYear: aa ? `20${aa}` : '',
+        ccv: form.cvv,
+        holderInfo: {
+          name: form.nomeTitular,
+          email: form.emailAdmin,
+          cpfCnpj: form.cpfTitular.replace(/\D/g, ''),
+          postalCode: cepDigits,
+          addressNumber: enderecoNumero,
+          phone: form.telefoneAdmin.replace(/\D/g, ''),
+        },
+      };
     }
 
-    let profileId = existingUser?.profile_id;
+    try {
+      const { data, error } = await supabase.functions.invoke('asaas-create-subscription', { body });
 
-    if (!profileId) {
-      // 4. Criar perfil Administrador
-      const allModules = [
-        'DASHBOARD',
-        'RESIDENTS',
-        'RESIDENT_DETAIL',
-        'AGENDA',
-        'NUTRITION',
-        'TEAM',
-        'FINANCE',
-        'STOCK',
-        'REPORTS',
-        'USERS',
-        'ROOMS',
-        'SETTINGS'
-      ];
+      if (error) {
+        // supabase-js entrega o corpo de erro (status != 2xx) em error.context
+        let msg = 'Não foi possível concluir o pagamento. Tente novamente.';
+        try {
+          const ctxBody = await (error as any).context?.json?.();
+          if (ctxBody?.error) msg = ctxBody.error;
+        } catch { /* mantém mensagem padrão */ }
+        throw new Error(msg);
+      }
+      if (!data || data.error) throw new Error(data?.error || 'Resposta inválida do servidor.');
 
-      const { data: profileData, error: profileError } = await supabase
-        .from('Recanto_Perfis')
-        .insert({ name: 'Administrador', type: 'Administrador', is_editable: false })
-        .select()
-        .single();
-
-      if (profileError) throw new Error('Falha ao criar perfil: ' + profileError.message);
-      profileId = profileData.id;
-
-      await supabase.from('Recanto_Permissoes').insert(
-        allModules.map(module => ({
-          profile_id: profileId,
-          module,
-          actions: ['view', 'edit', 'create', 'delete'],
-        }))
-      );
+      setResult(data as CheckoutResult);
+      setStep('resultado');
+    } catch (err: any) {
+      console.error('Erro no checkout:', err);
+      setErrorMsg(err.message || 'Erro inesperado ao processar o pagamento.');
+      setStep('erro');
+      // Reseta o widget de CAPTCHA para nova tentativa
+      if (HCAPTCHA_SITE_KEY && (window as any).hcaptcha && captchaWidgetId.current !== null) {
+        try { (window as any).hcaptcha.reset(captchaWidgetId.current); } catch { /* noop */ }
+        setCaptchaToken('');
+      }
     }
-
-    // 5. Inserir/Atualizar usuário na tabela de negócio com empresa_id
-    await supabase.from('Recanto_Usuarios').upsert({
-      auth_user_id: authData.user.id,
-      name: form.nomeAdmin,
-      email: form.emailAdmin,
-      profile_id: profileId,
-      empresa_id: empresaId,
-    }, { onConflict: 'auth_user_id' });
-
-    // 6. Log de criação
-    await supabase.from('Recanto_Logs_Empresa').insert({
-      empresa_id: empresaId,
-      tipo: 'pagamento_aprovado',
-      descricao: `Empresa ${form.nomeInstituicao} criada via checkout. Plano: ${plano.nome}.`,
-      metadata: { plano: form.planoId, periodicidade: form.periodicidade, forma_pagamento: form.formaPagamento },
-    });
   };
 
-  const irParaDashboard = () => {
-    window.history.pushState(null, '', '/dashboard');
-    window.location.reload();
+  const copyPix = async () => {
+    if (!result?.pix?.payload) return;
+    try {
+      await navigator.clipboard.writeText(result.pix.payload);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch { /* noop */ }
   };
 
   // ─── Helpers de UI ────────────────────────────────────────────────────────
   const stepIndex = ['empresa', 'admin', 'plano', 'pagamento'].indexOf(step);
-  const planoSelecionado = PLANOS.find(p => p.id === form.planoId)!;
-  const valorPlano = form.periodicidade === 'mensal'
-    ? planoSelecionado.precoMensal
-    : planoSelecionado.precoAnual;
 
   const FieldError = ({ name }: { name: keyof CheckoutFormData }) =>
     errors[name] ? <p className="text-red-500 text-xs mt-1">{errors[name]}</p> : null;
@@ -481,55 +477,136 @@ const CheckoutPage: React.FC = () => {
 
       <div className="max-w-3xl mx-auto px-4 py-8">
 
-        {/* ── Tela de processamento ── */}
+        {/* ── Processando ── */}
         {step === 'processando' && (
           <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-12 text-center">
-            <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-6 animate-pulse">
-              <CreditCard className="h-8 w-8 text-blue-600" />
+            <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-6">
+              <Loader2 className="h-8 w-8 text-blue-600 animate-spin" />
             </div>
             <h2 className="text-xl font-bold text-slate-900 mb-2">Processando seu pedido</h2>
-            <p className="text-slate-500 text-sm">{processingMsg}</p>
-            <div className="mt-6 flex justify-center">
-              <div className="flex space-x-1">
-                {[0,1,2].map(i => (
-                  <div key={i} className="w-2 h-2 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />
-                ))}
+            <p className="text-slate-500 text-sm">Estamos criando sua conta e registrando a cobrança. Isso pode levar alguns segundos...</p>
+          </div>
+        )}
+
+        {/* ── Resultado ── */}
+        {step === 'resultado' && result && (
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-8 md:p-10">
+            {/* Cartão — em processamento */}
+            {result.formaPagamento === 'cartao' && (
+              <div className="text-center">
+                <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <Clock className="h-12 w-12 text-blue-600" />
+                </div>
+                <h2 className="text-2xl font-bold text-slate-900 mb-2">Pagamento em processamento</h2>
+                <p className="text-slate-500 mb-2">
+                  Recebemos os dados do seu cartão e estamos aguardando a confirmação da operadora.
+                </p>
+                <p className="text-slate-500 text-sm mb-8">
+                  <strong>Seu acesso será liberado automaticamente após a confirmação.</strong> Você pode
+                  entrar com o e-mail e a senha cadastrados — enquanto o pagamento não é confirmado,
+                  verá a tela de pagamento pendente.
+                </p>
+                <button onClick={irParaLogin} className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-8 py-3 rounded-xl transition-all">
+                  Ir para o login
+                </button>
               </div>
-            </div>
+            )}
+
+            {/* PIX */}
+            {result.formaPagamento === 'pix' && (
+              <div className="text-center">
+                <div className="inline-flex items-center gap-2 bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-full text-sm font-medium mb-5">
+                  <QrCode className="h-4 w-4" /> Pague com PIX para ativar
+                </div>
+                <h2 className="text-2xl font-bold text-slate-900 mb-2">Escaneie o QR Code</h2>
+                <p className="text-slate-500 text-sm mb-6">Abra o app do seu banco e pague via PIX. A ativação é automática após a confirmação.</p>
+
+                {result.pix?.encodedImage ? (
+                  <img
+                    src={`data:image/png;base64,${result.pix.encodedImage}`}
+                    alt="QR Code PIX"
+                    className="w-56 h-56 mx-auto border border-slate-200 rounded-xl p-2 bg-white"
+                  />
+                ) : (
+                  <p className="text-sm text-amber-600">QR Code indisponível — use o código copia-e-cola abaixo.</p>
+                )}
+
+                {result.pix?.payload && (
+                  <div className="mt-6 text-left">
+                    <label className={labelCls}>PIX copia-e-cola</label>
+                    <div className="flex items-stretch gap-2">
+                      <textarea
+                        readOnly
+                        value={result.pix.payload}
+                        className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-600 bg-slate-50 resize-none h-20"
+                      />
+                      <button
+                        onClick={copyPix}
+                        className="shrink-0 inline-flex flex-col items-center justify-center gap-1 bg-blue-600 hover:bg-blue-700 text-white px-4 rounded-lg text-xs font-medium transition-all"
+                      >
+                        {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                        {copied ? 'Copiado' : 'Copiar'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <div className="mt-6 bg-blue-50 border border-blue-100 rounded-xl p-4 text-left">
+                  <p className="text-xs text-blue-700">
+                    Assim que o PIX for confirmado, seu acesso é liberado automaticamente. Você já pode
+                    entrar com o e-mail e a senha cadastrados.
+                  </p>
+                </div>
+                <button onClick={irParaLogin} className="mt-6 bg-blue-600 hover:bg-blue-700 text-white font-semibold px-8 py-3 rounded-xl transition-all">
+                  Ir para o login
+                </button>
+              </div>
+            )}
+
+            {/* Boleto */}
+            {result.formaPagamento === 'boleto' && (
+              <div className="text-center">
+                <div className="w-20 h-20 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <FileText className="h-12 w-12 text-amber-600" />
+                </div>
+                <h2 className="text-2xl font-bold text-slate-900 mb-2">Boleto gerado</h2>
+                <p className="text-slate-500 text-sm mb-6">
+                  Pague o boleto para ativar a sua assinatura. A compensação bancária pode levar até 2 dias úteis.
+                </p>
+                <div className="flex flex-col gap-3 max-w-sm mx-auto">
+                  {result.boleto?.bankSlipUrl && (
+                    <a
+                      href={result.boleto.bankSlipUrl} target="_blank" rel="noopener noreferrer"
+                      className="inline-flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-3 rounded-xl transition-all"
+                    >
+                      <FileText className="h-4 w-4" /> Abrir boleto
+                    </a>
+                  )}
+                  {result.boleto?.invoiceUrl && (
+                    <a
+                      href={result.boleto.invoiceUrl} target="_blank" rel="noopener noreferrer"
+                      className="inline-flex items-center justify-center gap-2 border border-slate-200 hover:bg-slate-50 text-slate-700 font-medium px-6 py-3 rounded-xl transition-all"
+                    >
+                      <ExternalLink className="h-4 w-4" /> Ver fatura / 2ª via
+                    </a>
+                  )}
+                </div>
+                <div className="mt-6 bg-blue-50 border border-blue-100 rounded-xl p-4 text-left max-w-sm mx-auto">
+                  <p className="text-xs text-blue-700">
+                    Após a compensação do boleto, seu acesso é liberado automaticamente. Você já pode
+                    entrar com o e-mail e a senha cadastrados.
+                  </p>
+                </div>
+                <button onClick={irParaLogin} className="mt-6 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold px-8 py-3 rounded-xl transition-all">
+                  Ir para o login
+                </button>
+              </div>
+            )}
           </div>
         )}
 
-        {/* ── Tela de sucesso ── */}
-        {step === 'sucesso' && (
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-10 text-center">
-            <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-6">
-              <CheckCircle className="h-12 w-12 text-emerald-600" />
-            </div>
-            <h2 className="text-2xl font-bold text-slate-900 mb-2">Assinatura aprovada com sucesso!</h2>
-            <p className="text-slate-500 mb-2">
-              Sua empresa foi cadastrada e seu acesso de administrador foi liberado.
-            </p>
-            <p className="text-slate-500 text-sm mb-8">
-              Plano <strong>{planoSelecionado.nome}</strong> ativado —{' '}
-              {valorPlano > 0
-                ? `R$ ${valorPlano}/mês`
-                : 'Entre em contato com o comercial.'}
-            </p>
-            <button
-              onClick={irParaDashboard}
-              className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-8 py-3 rounded-xl transition-all inline-flex items-center space-x-2"
-            >
-              <span>Acessar o painel</span>
-              <ChevronRight className="h-5 w-5" />
-            </button>
-            <p className="text-xs text-slate-400 mt-4">
-              Verifique sua caixa de entrada — enviamos um e-mail de boas-vindas para <strong>{form.emailAdmin}</strong>.
-            </p>
-          </div>
-        )}
-
-        {/* ── Tela de erro ── */}
-        {step === 'recusado' && (
+        {/* ── Erro ── */}
+        {step === 'erro' && (
           <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-10 text-center">
             <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
               <XCircle className="h-12 w-12 text-red-600" />
@@ -544,10 +621,7 @@ const CheckoutPage: React.FC = () => {
             >
               Tentar novamente
             </button>
-            <a
-              href="mailto:suporte@recantocare.com.br"
-              className="text-blue-600 hover:underline text-sm"
-            >
+            <a href="mailto:suporte@recantocare.com.br" className="text-blue-600 hover:underline text-sm">
               Falar com suporte
             </a>
           </div>
@@ -694,7 +768,7 @@ const CheckoutPage: React.FC = () => {
               {step === 'admin' && (
                 <>
                   <h2 className="text-xl font-bold text-slate-900 mb-1">Dados do responsável</h2>
-                  <p className="text-sm text-slate-500 mb-6">Este usuário receberá acesso de Administrador à plataforma.</p>
+                  <p className="text-sm text-slate-500 mb-6">Este usuário receberá acesso de Administrador à plataforma após a confirmação do pagamento.</p>
                   <div className="space-y-4">
                     <div className="grid md:grid-cols-2 gap-4">
                       <div>
@@ -786,12 +860,12 @@ const CheckoutPage: React.FC = () => {
                       <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${form.periodicidade === 'anual' ? 'translate-x-5' : 'translate-x-0.5'}`} />
                     </button>
                     <span className={`text-sm font-medium ${form.periodicidade === 'anual' ? 'text-slate-900' : 'text-slate-400'}`}>
-                      Anual <span className="bg-emerald-100 text-emerald-700 text-xs font-semibold px-1.5 py-0.5 rounded-full">-25%</span>
+                      Anual <span className="bg-emerald-100 text-emerald-700 text-xs font-semibold px-1.5 py-0.5 rounded-full">economize</span>
                     </span>
                   </div>
                   <div className="grid gap-4">
-                    {PLANOS.map(plano => {
-                      const preco = form.periodicidade === 'mensal' ? plano.precoMensal : plano.precoAnual;
+                    {selfServicePlanos.map(plano => {
+                      const precoMes = form.periodicidade === 'mensal' ? plano.precoMensal : plano.precoMensalAnual;
                       const selected = form.planoId === plano.id;
                       return (
                         <button
@@ -812,10 +886,11 @@ const CheckoutPage: React.FC = () => {
                               <p className="text-xs text-slate-400">{plano.desc}</p>
                             </div>
                             <div className="text-right">
-                              <p className="text-2xl font-extrabold text-slate-900">
-                                {preco > 0 ? `R$ ${preco}` : 'Sob consulta'}
-                              </p>
-                              {preco > 0 && <p className="text-xs text-slate-400">/mês</p>}
+                              <p className="text-2xl font-extrabold text-slate-900">{money(precoMes)}</p>
+                              <p className="text-xs text-slate-400">/mês</p>
+                              {form.periodicidade === 'anual' && (
+                                <p className="text-[11px] text-emerald-600 font-medium">{money(plano.precoAnualTotal)}/ano</p>
+                              )}
                             </div>
                           </div>
                           <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
@@ -837,6 +912,20 @@ const CheckoutPage: React.FC = () => {
                         </button>
                       );
                     })}
+
+                    {/* Enterprise — não comprável no self-service */}
+                    <div className="border-2 border-dashed border-slate-200 rounded-xl p-5 flex items-center justify-between bg-slate-50">
+                      <div>
+                        <p className="font-bold text-slate-900">Enterprise</p>
+                        <p className="text-xs text-slate-400">Para redes e grupos com múltiplas unidades</p>
+                      </div>
+                      <a
+                        href="mailto:comercial@recantocare.com.br?subject=Plano%20Enterprise"
+                        className="text-sm font-semibold text-blue-600 hover:text-blue-700 whitespace-nowrap"
+                      >
+                        Falar com vendas
+                      </a>
+                    </div>
                   </div>
                 </>
               )}
@@ -847,7 +936,7 @@ const CheckoutPage: React.FC = () => {
                   <h2 className="text-xl font-bold text-slate-900 mb-1">Dados de pagamento</h2>
                   <p className="text-sm text-slate-500 mb-6">
                     Plano <strong>{planoSelecionado.nome}</strong> —{' '}
-                    {valorPlano > 0 ? `R$ ${valorPlano}/mês` : 'Sob consulta'}
+                    {money(valorMensalExibicao)}/mês
                   </p>
 
                   {/* Forma de pagamento */}
@@ -870,7 +959,7 @@ const CheckoutPage: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* PIX / Boleto */}
+                  {/* PIX / Boleto aviso */}
                   {(form.formaPagamento === 'pix' || form.formaPagamento === 'boleto') && (
                     <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4 flex items-start space-x-3">
                       <Clock className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
@@ -880,8 +969,8 @@ const CheckoutPage: React.FC = () => {
                         </p>
                         <p className="text-xs text-amber-600 mt-1">
                           {form.formaPagamento === 'pix'
-                            ? 'O QR Code PIX será exibido na próxima tela. Após confirmação, sua conta é ativada imediatamente.'
-                            : 'O boleto será gerado após o cadastro. A ativação ocorre em até 2 dias úteis após o pagamento.'}
+                            ? 'O QR Code PIX será exibido na próxima tela. A ativação ocorre automaticamente após a confirmação.'
+                            : 'O boleto será gerado após o cadastro. A ativação ocorre após a compensação (até 2 dias úteis).'}
                         </p>
                       </div>
                     </div>
@@ -893,7 +982,7 @@ const CheckoutPage: React.FC = () => {
                         <label className={labelCls}>Nome do titular *</label>
                         <input className={inputCls('nomeTitular')} value={form.nomeTitular}
                           onChange={e => set('nomeTitular', e.target.value.toUpperCase())}
-                          placeholder="COMO ESTÁ NO CARTÃO" />
+                          placeholder={form.formaPagamento === 'cartao' ? 'COMO ESTÁ NO CARTÃO' : 'NOME DO PAGADOR'} />
                         <FieldError name="nomeTitular" />
                       </div>
                       <div>
@@ -911,7 +1000,7 @@ const CheckoutPage: React.FC = () => {
                           <label className={labelCls}>Número do cartão *</label>
                           <input className={inputCls('numeroCartao')} value={form.numeroCartao}
                             onChange={e => set('numeroCartao', formatCartao(e.target.value))}
-                            placeholder="0000 0000 0000 0000" maxLength={19} />
+                            placeholder="0000 0000 0000 0000" maxLength={19} inputMode="numeric" autoComplete="cc-number" />
                           <FieldError name="numeroCartao" />
                         </div>
                         <div className="grid grid-cols-2 gap-4">
@@ -919,14 +1008,14 @@ const CheckoutPage: React.FC = () => {
                             <label className={labelCls}>Validade *</label>
                             <input className={inputCls('validadeCartao')} value={form.validadeCartao}
                               onChange={e => set('validadeCartao', formatValidade(e.target.value))}
-                              placeholder="MM/AA" maxLength={5} />
+                              placeholder="MM/AA" maxLength={5} inputMode="numeric" autoComplete="cc-exp" />
                             <FieldError name="validadeCartao" />
                           </div>
                           <div>
                             <label className={labelCls}>CVV *</label>
                             <input className={inputCls('cvv')} value={form.cvv}
                               onChange={e => set('cvv', e.target.value.replace(/\D/g, '').slice(0, 4))}
-                              placeholder="000" maxLength={4} />
+                              placeholder="000" maxLength={4} inputMode="numeric" autoComplete="cc-csc" />
                             <FieldError name="cvv" />
                           </div>
                         </div>
@@ -941,13 +1030,20 @@ const CheckoutPage: React.FC = () => {
                     </div>
                   </div>
 
+                  {/* CAPTCHA */}
+                  {HCAPTCHA_SITE_KEY && (
+                    <div className="mt-5 flex justify-center">
+                      <div ref={captchaRef} />
+                    </div>
+                  )}
+
                   {/* Resumo */}
                   <div className="mt-6 bg-slate-50 rounded-xl p-4 border border-slate-200">
                     <p className="text-sm font-semibold text-slate-700 mb-3">Resumo do pedido</p>
                     <div className="space-y-1 text-sm text-slate-600">
                       <div className="flex justify-between">
                         <span>Empresa</span>
-                        <span className="font-medium">{form.nomeInstituicao}</span>
+                        <span className="font-medium">{form.nomeInstituicao || '—'}</span>
                       </div>
                       <div className="flex justify-between">
                         <span>Plano</span>
@@ -958,17 +1054,25 @@ const CheckoutPage: React.FC = () => {
                         <span className="font-medium capitalize">{form.periodicidade}</span>
                       </div>
                       <div className="flex justify-between border-t border-slate-200 pt-2 mt-2">
-                        <span className="font-semibold text-slate-900">Total</span>
+                        <span className="font-semibold text-slate-900">
+                          Total {form.periodicidade === 'anual' ? '(anual)' : '(mensal)'}
+                        </span>
                         <span className="font-bold text-slate-900">
-                          {valorPlano > 0 ? `R$ ${valorPlano}/mês` : 'Sob consulta'}
+                          {money(totalCobranca)}{form.periodicidade === 'anual' ? '/ano' : '/mês'}
                         </span>
                       </div>
                     </div>
                   </div>
 
+                  {errorMsg && (
+                    <div className="mt-4 bg-rose-50 border border-rose-200 rounded-xl px-4 py-3">
+                      <p className="text-sm text-rose-600">{errorMsg}</p>
+                    </div>
+                  )}
+
                   <div className="mt-4 flex items-center space-x-2 text-xs text-slate-400">
                     <Lock className="h-3.5 w-3.5" />
-                    <span>Seus dados de pagamento são protegidos por criptografia SSL. Não armazenamos dados do cartão.</span>
+                    <span>Seus dados de pagamento trafegam de forma segura para o gateway. Não armazenamos dados do cartão.</span>
                   </div>
                 </>
               )}

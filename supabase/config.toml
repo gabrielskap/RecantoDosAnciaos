@@ -1,0 +1,19 @@
+# Configuração das Edge Functions do projeto Recanto dos Anciãos.
+#
+# As funções públicas de pagamento NÃO usam o JWT do Supabase para autenticação:
+#   - asaas-create-subscription: checkout público (protegida por Origin allowlist,
+#     CAPTCHA e rate limit dentro da própria função).
+#   - asaas-webhook: chamada pelo Asaas (autenticada via header asaas-access-token).
+# Por isso ambas têm verify_jwt = false.
+#
+# Os segredos do Asaas (ASAAS_API_KEY, ASAAS_API_URL, ASAAS_WEBHOOK_TOKEN) ficam na
+# tabela Recanto_Integracao_Secrets e são lidos pelas funções via service_role.
+# No ambiente das funções ficam apenas SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY
+# (injetados pelo Supabase) e, opcionalmente, CHECKOUT_ALLOWED_ORIGINS e
+# HCAPTCHA_SECRET (se ausente, a verificação de CAPTCHA é ignorada).
+
+[functions.asaas-create-subscription]
+verify_jwt = false
+
+[functions.asaas-webhook]
+verify_jwt = false

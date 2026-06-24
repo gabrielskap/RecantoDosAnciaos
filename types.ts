@@ -421,7 +421,7 @@ export interface AuthUser {
 // --- MULTI-TENANT / ASSINATURA ---
 
 export type StatusEmpresa = 'ativa' | 'pendente' | 'bloqueada' | 'cancelada';
-export type StatusAssinatura = 'ativa' | 'pendente' | 'cancelada' | 'vencida' | 'pagamento_recusado' | 'em_trial';
+export type StatusAssinatura = 'ativa' | 'pendente' | 'cancelada' | 'vencida' | 'pagamento_recusado' | 'em_trial' | 'erro_checkout';
 export type PlanoId = 'essencial' | 'profissional' | 'enterprise';
 export type FormaPagamento = 'cartao' | 'pix' | 'boleto';
 export type Periodicidade = 'mensal' | 'anual';
@@ -460,6 +460,14 @@ export interface Assinatura {
   dataVencimento?: string;
   dataCancelamento?: string;
   createdAt: string;
+  // --- Integração Asaas ---
+  formaPagamento?: string;
+  gatewayPaymentId?: string;
+  asaasInvoiceUrl?: string;
+  ativadaEm?: string;
+  canceladaEm?: string;
+  checkoutExpiraEm?: string;
+  motivoCancelamento?: string;
 }
 
 export interface CheckoutFormData {

@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { AuthUser, Profile, Permission, PermissionAction, ViewState, ProfileType, DigitalCertificate } from '../types';
 import { supabase } from '../services/supabaseClient';
-import { gerarEmpresaId } from '../lib/empresaId';
 import { toast } from '../services/toast';
 
 // --- Context ---
@@ -20,8 +19,11 @@ export interface AuthContextValue {
   addUser: (user: Omit<AuthUser, 'id'> & { employeeId?: string }) => Promise<string | undefined>;
   deleteUser: (id: string) => Promise<void>;
   updateUser: (user: AuthUser) => Promise<void>;
-  signUpNewTenant: (params: { companyName: string; city?: string; userName: string; email: string; password: string }) => Promise<{ needsEmailConfirm: boolean }>;
   updateUserCertificate: (userId: string, cert: DigitalCertificate | null) => Promise<void>;
+  /** true quando a assinatura Asaas está pendente e o acesso aos módulos deve ser bloqueado. */
+  accessBlocked: boolean;
+  /** Reconsulta o status da assinatura (usado pela tela de pagamento pendente). */
+  refreshAccessStatus: () => Promise<void>;
 }
 
 export const AuthContext = createContext<AuthContextValue | null>(null);
@@ -143,6 +145,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [users, setUsers] = useState<AuthUser[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [accessBlocked, setAccessBlocked] = useState(false);
+
+  // --- Gate de ativação (assinatura Asaas) ---
+  // Bloqueia o acesso apenas quando a última assinatura da empresa for Asaas,
+  // estiver pendente e ainda não tiver sido ativada por webhook. Empresas antigas
+  // (mock/trial/ativa) nunca são travadas.
+  const computeAccessStatus = async (user: AuthUser | null) => {
+    if (!user?.empresaId) { setAccessBlocked(false); return; }
+    try {
+      const { data } = await supabase
+        .from('Recanto_Assinaturas')
+        .select('status, gateway_pagamento, ativada_em')
+        .eq('empresa_id', user.empresaId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const blocked = !!data
+        && data.gateway_pagamento === 'asaas'
+        && data.status === 'pendente'
+        && data.ativada_em === null;
+      setAccessBlocked(blocked);
+    } catch (err) {
+      // Fail-open: erro de rede não deve travar quem já tem acesso legítimo.
+      console.warn('Erro ao verificar status de acesso:', err);
+      setAccessBlocked(false);
+    }
+  };
+
+  const refreshAccessStatus = async () => {
+    await computeAccessStatus(currentUser);
+  };
 
   // --- Fetch profiles and users from database ---
 
@@ -339,9 +373,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (currentUser) {
       fetchAllProfiles();
       fetchAllUsers();
+      computeAccessStatus(currentUser);
     } else {
       setUsers([]);
       setProfiles([]);
+      setAccessBlocked(false);
     }
   }, [currentUser]);  // Sincroniza as configurações da empresa com o localStorage para compatibilidade retroativa e migra do local se necessário
   useEffect(() => {
@@ -686,115 +722,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const signUpNewTenant = async (params: {
-    companyName: string;
-    city?: string;
-    userName: string;
-    email: string;
-    password: string;
-  }): Promise<{ needsEmailConfirm: boolean }> => {
-    const allModules = [
-      ViewState.DASHBOARD,
-      ViewState.RESIDENTS,
-      ViewState.RESIDENT_DETAIL,
-      ViewState.AGENDA,
-      ViewState.NUTRITION,
-      ViewState.TEAM,
-      ViewState.FINANCE,
-      ViewState.STOCK,
-      ViewState.REPORTS,
-      ViewState.USERS,
-      ViewState.ROOMS,
-      ViewState.SETTINGS,
-    ];
-
-    const empresaId = gerarEmpresaId();
-
-    // 1. Criar Empresa (pendente até confirmação de pagamento)
-    const { error: empError } = await supabase
-      .from('Recanto_Empresas')
-      .insert({
-        empresa_id: empresaId,
-        nome_instituicao: params.companyName,
-        cidade: params.city || null,
-        status: 'pendente',
-      });
-
-    if (empError) throw empError;
-
-    // 1b. Criar assinatura em trial (sem cobrança ainda — será ativada após pagamento)
-    const hoje = new Date();
-    const trialEnd = new Date(hoje);
-    trialEnd.setDate(trialEnd.getDate() + 14);
-    await supabase.from('Recanto_Assinaturas').insert({
-      empresa_id: empresaId,
-      plano_id: 'profissional',
-      plano_nome: 'Profissional (trial)',
-      valor_mensal: 0,
-      periodicidade: 'mensal',
-      gateway_pagamento: 'trial',
-      status: 'em_trial',
-      data_inicio: hoje.toISOString().split('T')[0],
-      data_vencimento: trialEnd.toISOString().split('T')[0],
-    });
-
-    // 2. Criar Auth User
-    const { data: authData, error: signUpError } = await supabase.auth.signUp({
-      email: params.email,
-      password: params.password,
-      options: {
-        data: {
-          name: params.userName,
-          company_name: params.companyName,
-          empresa_id: empresaId
-        }
-      }
-    });
-
-    if (signUpError) throw signUpError;
-    if (!authData.user) throw new Error('Falha ao criar usuário. Tente novamente.');
-
-    if (!authData.session) {
-      return { needsEmailConfirm: true };
-    }
-
-    // 3. Criar Perfil de Administrador para a empresa
-    const { data: profileData, error: profileError } = await supabase
-      .from('Recanto_Perfis')
-      .insert({ name: 'Administrador', type: 'Administrador', is_editable: false, empresa_id: empresaId })
-      .select()
-      .single();
-
-    if (profileError) throw profileError;
-
-    const { error: permError } = await supabase
-      .from('Recanto_Permissoes')
-      .insert(
-        allModules.map(module => ({
-          profile_id: profileData.id,
-          module,
-          actions: ['view', 'edit', 'create', 'delete'],
-        }))
-      );
-
-    if (permError) console.warn('Aviso ao criar permissões:', permError.message);
-
-    // 4. Salvar usuário público
-    const { error: userError } = await supabase
-      .from('Recanto_Usuarios')
-      .upsert({
-        auth_user_id: authData.user.id,
-        name: params.userName,
-        email: params.email,
-        profile_id: profileData.id,
-        empresa_id: empresaId
-      }, { onConflict: 'auth_user_id' });
-
-    if (userError) throw userError;
-
-    return { needsEmailConfirm: false };
-  };
-
   const updateUser = async (updatedUser: AuthUser) => {
     try {
       // Se o e-mail mudou, atualiza em auth.users via Edge Function (requer service_role)
@@ -878,7 +805,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ currentUser, users, profiles, loading, login, logout, resetPassword, hasPermission, updateProfile, addProfile, addUser, deleteUser, updateUser, signUpNewTenant, updateUserCertificate }}>
+    <AuthContext.Provider value={{ currentUser, users, profiles, loading, login, logout, resetPassword, hasPermission, updateProfile, addProfile, addUser, deleteUser, updateUser, updateUserCertificate, accessBlocked, refreshAccessStatus }}>
       {children}
     </AuthContext.Provider>
   );
