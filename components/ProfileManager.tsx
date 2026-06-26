@@ -15,6 +15,7 @@ const MODULE_LABELS: Record<ViewState, string> = {
   [ViewState.REPORTS]: 'Relatórios',
   [ViewState.USERS]: 'Contas de Acesso',
   [ViewState.ROOMS]: 'Quartos',
+  [ViewState.NOTIFICATIONS]: 'Notificações',
   [ViewState.SETTINGS]: 'Configurações',
   [ViewState.PROFILE]: 'Meu Perfil',
 };
@@ -31,6 +32,7 @@ const EDITABLE_MODULES = [
   ViewState.REPORTS,
   ViewState.USERS,
   ViewState.ROOMS,
+  ViewState.NOTIFICATIONS,
   ViewState.SETTINGS,
 ];
 

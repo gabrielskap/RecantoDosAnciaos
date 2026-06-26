@@ -384,6 +384,13 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   });
   const [showPlanForm, setShowPlanForm] = useState(false);
   const [newNoteText, setNewNoteText] = useState('');
+  const [vitalsPeriodType, setVitalsPeriodType] = useState<'day' | 'week' | 'month'>('day');
+  const [vitalsSelectedDay, setVitalsSelectedDay] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [vitalsSelectedWeekDate, setVitalsSelectedWeekDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [vitalsSelectedMonth, setVitalsSelectedMonth] = useState<string>(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
 
   // Daily Checklist State
   const today = new Date().toISOString().split('T')[0];
@@ -1439,6 +1446,576 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     win.document.close();
   };
 
+  const handlePrintVitalsAverages = (periodType: 'day' | 'week' | 'month') => {
+    let watermarkSrc = '';
+    let hasLetterhead = false;
+    let inst = {
+      name: 'Recanto dos Anciãos',
+      cnpj: '',
+      phone: '',
+      email: '',
+      address: '',
+      city: '',
+      state: 'SP',
+      cep: '',
+      directorName: '',
+      technicalDirector: '',
+      anvisa: '',
+    };
+
+    try {
+      const settingsKey = `recanto_system_settings_${currentUser?.empresaId ?? currentUser?.id ?? 'anon'}`;
+      const raw = localStorage.getItem(settingsKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed?.institution) {
+          inst = { ...inst, ...parsed.institution };
+          const src = parsed.institution.watermarkImage;
+          if (src) {
+            hasLetterhead = true;
+            watermarkSrc = src;
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Erro ao carregar dados da instituição ou papel timbrado:', e);
+    }
+
+    const win = window.open('', '_blank', 'width=960,height=720');
+    if (!win) {
+      toast.warning('Permita popups para gerar a impressão.');
+      return;
+    }
+
+    // Helper classification
+    const classify = (sys: number, dia: number) => {
+      if (sys >= 180 || dia >= 110) return { label: 'Hipertensão Estágio 3', colorClass: 'bg-red' };
+      if ((sys >= 160 && sys <= 179) || (dia >= 100 && dia <= 109)) return { label: 'Hipertensão Estágio 2', colorClass: 'bg-red' };
+      if ((sys >= 140 && sys <= 159) || (dia >= 90 && dia <= 99)) return { label: 'Hipertensão Estágio 1', colorClass: 'bg-yellow' };
+      if ((sys >= 130 && sys <= 139) || (dia >= 85 && dia <= 89)) return { label: 'Pré-Hipertensão', colorClass: 'bg-yellow' };
+      if ((sys >= 120 && sys <= 129) || (dia >= 80 && dia <= 84)) return { label: 'Normal', colorClass: 'bg-green' };
+      return { label: 'Ótima', colorClass: 'bg-green' };
+    };
+
+    // Filter & Parse vitals
+    const vitalsData = (resident.vitals || [])
+      .map(v => {
+        const parts = v.bp ? v.bp.split('/') : [];
+        const sys = parts[0] ? parseInt(parts[0], 10) : NaN;
+        const dia = parts[1] ? parseInt(parts[1], 10) : NaN;
+        const hasBP = !isNaN(sys) && !isNaN(dia);
+        const hasHR = typeof v.hr === 'number' && v.hr > 0;
+        const hasSpO2 = typeof v.spo2 === 'number' && v.spo2 > 0;
+        const hasTemp = typeof v.temp === 'number' && v.temp > 0;
+        if (!hasBP && !hasHR && !hasSpO2 && !hasTemp) return null;
+
+        const date = new Date(v.timestamp);
+        const hour = date.getHours();
+        const shift: 'diurno' | 'noturno' = (hour >= 6 && hour < 18) ? 'diurno' : 'noturno';
+        return {
+          timestamp: v.timestamp,
+          sys: hasBP ? sys : null,
+          dia: hasBP ? dia : null,
+          hr: hasHR ? v.hr : null,
+          spo2: hasSpO2 ? v.spo2 : null,
+          temp: hasTemp ? v.temp : null,
+          date,
+          shift
+        };
+      })
+      .filter((v): v is NonNullable<typeof v> => v !== null)
+      .filter(v => {
+        const y = v.date.getFullYear();
+        const m = String(v.date.getMonth() + 1).padStart(2, '0');
+        const d = String(v.date.getDate()).padStart(2, '0');
+        const dateStr = `${y}-${m}-${d}`;
+        if (periodType === 'day') {
+          return dateStr === vitalsSelectedDay;
+        } else if (periodType === 'week') {
+          const selDate = new Date(vitalsSelectedWeekDate + 'T00:00:00');
+          const getWeekMonday = (dt: Date) => {
+            const temp = new Date(dt);
+            const day = temp.getDay();
+            const diff = temp.getDate() - day + (day === 0 ? -6 : 1);
+            const monday = new Date(temp.setDate(diff));
+            monday.setHours(0, 0, 0, 0);
+            return monday;
+          };
+          const targetMonday = getWeekMonday(selDate);
+          const targetSunday = new Date(targetMonday);
+          targetSunday.setDate(targetMonday.getDate() + 6);
+          targetSunday.setHours(23, 59, 59, 999);
+          return v.date >= targetMonday && v.date <= targetSunday;
+        } else {
+          const monthStr = `${y}-${m}`;
+          return monthStr === vitalsSelectedMonth;
+        }
+      });
+
+    // Grouping
+    let listToPrint: { label: string; key: string; diurno: any; noturno: any }[] = [];
+
+    const initShiftObj = () => ({
+      sysSum: 0, sysCount: 0,
+      diaSum: 0, diaCount: 0,
+      hrSum: 0, hrCount: 0,
+      spo2Sum: 0, spo2Count: 0,
+      tempSum: 0, tempCount: 0
+    });
+
+    const aggregateRecords = (groups: Record<string, any>) => {
+      return Object.entries(groups).map(([key, data]: [string, any]) => {
+        const processShift = (shiftData: any) => {
+          if (shiftData.sysCount === 0 && shiftData.hrCount === 0 && shiftData.spo2Count === 0 && shiftData.tempCount === 0) {
+            return null;
+          }
+          const bpAvg = shiftData.sysCount > 0 && shiftData.diaCount > 0 ? {
+            sys: Math.round(shiftData.sysSum / shiftData.sysCount),
+            dia: Math.round(shiftData.diaSum / shiftData.diaCount),
+            count: shiftData.sysCount
+          } : null;
+          const hrAvg = shiftData.hrCount > 0 ? {
+            val: Math.round(shiftData.hrSum / shiftData.hrCount),
+            count: shiftData.hrCount
+          } : null;
+          const spo2Avg = shiftData.spo2Count > 0 ? {
+            val: Math.round(shiftData.spo2Sum / shiftData.spo2Count),
+            count: shiftData.spo2Count
+          } : null;
+          const tempAvg = shiftData.tempCount > 0 ? {
+            val: parseFloat((shiftData.tempSum / shiftData.tempCount).toFixed(1)),
+            count: shiftData.tempCount
+          } : null;
+          const classification = bpAvg ? classify(bpAvg.sys, bpAvg.dia) : null;
+          return { bp: bpAvg, hr: hrAvg, spo2: spo2Avg, temp: tempAvg, classification };
+        };
+
+        const diurno = processShift(data.diurno);
+        const noturno = processShift(data.noturno);
+        return { key, label: '', diurno, noturno };
+      });
+    };
+
+    if (periodType === 'day') {
+      const dayGroups: Record<string, any> = {};
+      vitalsData.forEach(v => {
+        const y = v.date.getFullYear();
+        const m = String(v.date.getMonth() + 1).padStart(2, '0');
+        const d = String(v.date.getDate()).padStart(2, '0');
+        const dateStr = `${y}-${m}-${d}`;
+        if (!dayGroups[dateStr]) {
+          dayGroups[dateStr] = { diurno: initShiftObj(), noturno: initShiftObj() };
+        }
+        const s = dayGroups[dateStr][v.shift];
+        if (v.sys !== null && v.dia !== null) { s.sysSum += v.sys; s.diaSum += v.dia; s.sysCount += 1; s.diaCount += 1; }
+        if (v.hr !== null) { s.hrSum += v.hr; s.hrCount += 1; }
+        if (v.spo2 !== null) { s.spo2Sum += v.spo2; s.spo2Count += 1; }
+        if (v.temp !== null) { s.tempSum += v.temp; s.tempCount += 1; }
+      });
+      listToPrint = aggregateRecords(dayGroups);
+      listToPrint.forEach(item => {
+        const [year, month, day] = item.key.split('-');
+        item.label = `${day}/${month}/${year}`;
+      });
+    } else if (periodType === 'week') {
+      const weekGroups: Record<string, any> = {};
+      const getWeekMonday = (d: Date) => {
+        const temp = new Date(d);
+        const day = temp.getDay();
+        const diff = temp.getDate() - day + (day === 0 ? -6 : 1);
+        const monday = new Date(temp.setDate(diff));
+        monday.setHours(0, 0, 0, 0);
+        return monday;
+      };
+      vitalsData.forEach(v => {
+        const monday = getWeekMonday(v.date);
+        const y = monday.getFullYear();
+        const m = String(monday.getMonth() + 1).padStart(2, '0');
+        const d = String(monday.getDate()).padStart(2, '0');
+        const weekKey = `${y}-${m}-${d}`;
+        if (!weekGroups[weekKey]) {
+          weekGroups[weekKey] = { diurno: initShiftObj(), noturno: initShiftObj() };
+        }
+        const s = weekGroups[weekKey][v.shift];
+        if (v.sys !== null && v.dia !== null) { s.sysSum += v.sys; s.diaSum += v.dia; s.sysCount += 1; s.diaCount += 1; }
+        if (v.hr !== null) { s.hrSum += v.hr; s.hrCount += 1; }
+        if (v.spo2 !== null) { s.spo2Sum += v.spo2; s.spo2Count += 1; }
+        if (v.temp !== null) { s.tempSum += v.temp; s.tempCount += 1; }
+      });
+      listToPrint = aggregateRecords(weekGroups);
+      listToPrint.forEach(item => {
+        const monday = new Date(item.key + 'T00:00:00');
+        const sunday = new Date(monday);
+        sunday.setDate(monday.getDate() + 6);
+        const fmt = (d: Date) => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+        item.label = `${fmt(monday)} a ${fmt(sunday)}`;
+      });
+    } else {
+      const monthGroups: Record<string, any> = {};
+      vitalsData.forEach(v => {
+        const y = v.date.getFullYear();
+        const m = String(v.date.getMonth() + 1).padStart(2, '0');
+        const monthKey = `${y}-${m}`;
+        if (!monthGroups[monthKey]) {
+          monthGroups[monthKey] = { diurno: initShiftObj(), noturno: initShiftObj() };
+        }
+        const s = monthGroups[monthKey][v.shift];
+        if (v.sys !== null && v.dia !== null) { s.sysSum += v.sys; s.diaSum += v.dia; s.sysCount += 1; s.diaCount += 1; }
+        if (v.hr !== null) { s.hrSum += v.hr; s.hrCount += 1; }
+        if (v.spo2 !== null) { s.spo2Sum += v.spo2; s.spo2Count += 1; }
+        if (v.temp !== null) { s.tempSum += v.temp; s.tempCount += 1; }
+      });
+      listToPrint = aggregateRecords(monthGroups);
+      listToPrint.forEach(item => {
+        const [year, month] = item.key.split('-');
+        const months = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+        item.label = `${months[parseInt(month, 10) - 1]} / ${year}`;
+      });
+    }
+
+    listToPrint.sort((a, b) => b.key.localeCompare(a.key));
+
+    let reportTypeLabel = '';
+    if (periodType === 'day') {
+      const [year, month, day] = vitalsSelectedDay.split('-');
+      reportTypeLabel = `Diário (${day}/${month}/${year})`;
+    } else if (periodType === 'week') {
+      const selDate = new Date(vitalsSelectedWeekDate + 'T00:00:00');
+      const getWeekMonday = (dt: Date) => {
+        const temp = new Date(dt);
+        const day = temp.getDay();
+        const diff = temp.getDate() - day + (day === 0 ? -6 : 1);
+        const monday = new Date(temp.setDate(diff));
+        monday.setHours(0, 0, 0, 0);
+        return monday;
+      };
+      const monday = getWeekMonday(selDate);
+      const sunday = new Date(monday);
+      sunday.setDate(monday.getDate() + 6);
+      const fmt = (dt: Date) => `${String(dt.getDate()).padStart(2, '0')}/${String(dt.getMonth() + 1).padStart(2, '0')}/${dt.getFullYear()}`;
+      reportTypeLabel = `Semanal (${fmt(monday)} a ${fmt(sunday)})`;
+    } else {
+      const [year, month] = vitalsSelectedMonth.split('-');
+      const months = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+      const formattedMonth = `${months[parseInt(month, 10) - 1]} de ${year}`;
+      reportTypeLabel = `Mensal (${formattedMonth})`;
+    }
+    const dateFormatted = new Date().toLocaleDateString('pt-BR');
+
+    let tableRowsHtml = '';
+    listToPrint.forEach(item => {
+      const renderRow = (shiftLabel: string, shiftData: any) => {
+        if (!shiftData) {
+          return `
+            <td style="font-size: 9px; color: #64748b;">${shiftLabel}</td>
+            <td style="font-size: 9px; color: #94a3b8;">—</td>
+            <td style="font-size: 9px; color: #94a3b8;">—</td>
+            <td style="font-size: 9px; color: #94a3b8;">—</td>
+            <td style="font-size: 9px; color: #94a3b8;">—</td>
+            <td style="font-size: 9px; color: #94a3b8;">—</td>
+          `;
+        }
+        const bpText = shiftData.bp ? `${shiftData.bp.sys}/${shiftData.bp.dia} mmHg<br><small style="color: #64748b; font-size: 7px;">(${shiftData.bp.count} med.)</small>` : '—';
+        const hrText = shiftData.hr ? `${shiftData.hr.val} bpm<br><small style="color: #64748b; font-size: 7px;">(${shiftData.hr.count} med.)</small>` : '—';
+        const spo2Text = shiftData.spo2 ? `${shiftData.spo2.val}%<br><small style="color: #64748b; font-size: 7px;">(${shiftData.spo2.count} med.)</small>` : '—';
+        const tempText = shiftData.temp ? `${shiftData.temp.val} °C<br><small style="color: #64748b; font-size: 7px;">(${shiftData.temp.count} med.)</small>` : '—';
+        const classificationHtml = shiftData.classification ? `<span class="badge ${shiftData.classification.colorClass}">${shiftData.classification.label}</span>` : '—';
+        return `
+          <td style="font-size: 9px; font-weight: bold; color: #1e293b;">${shiftLabel}</td>
+          <td style="font-size: 9px; color: #1e293b;">${bpText}</td>
+          <td style="font-size: 9px; color: #1e293b;">${hrText}</td>
+          <td style="font-size: 9px; color: #1e293b;">${spo2Text}</td>
+          <td style="font-size: 9px; color: #1e293b;">${tempText}</td>
+          <td>${classificationHtml}</td>
+        `;
+      };
+
+      tableRowsHtml += `
+        <tr style="border-top: 1px solid #cbd5e1;">
+          <td rowspan="2" style="font-weight: bold; font-size: 10px; vertical-align: middle; background: #f8fafc; border-right: 1px solid #e2e8f0; width: 20%;">
+            ${item.label}
+          </td>
+          ${renderRow('Diurno (☀️)', item.diurno)}
+        </tr>
+        <tr>
+          ${renderRow('Noturno (🌙)', item.noturno)}
+        </tr>
+      `;
+    });
+
+    if (listToPrint.length === 0) {
+      tableRowsHtml = `
+        <tr>
+          <td colspan="7" style="text-align: center; font-style: italic; color: #64748b; padding: 20px;">
+            Nenhum registro de sinais vitais encontrado para o período.
+          </td>
+        </tr>
+      `;
+    }
+
+    const docHtml = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Média Sinais - ${resident.name} - ${reportTypeLabel}</title>
+  <style>
+    @page { size: A4; margin: 0; }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    body { font-family: Arial, Helvetica, sans-serif; color: #1e293b; font-size: 11px; padding: 20px 0; line-height: 1.4; background: #f1f5f9; display: flex; flex-direction: column; align-items: center; }
+    @media print {
+      body { background: transparent; padding: 0; margin: 0; display: block; }
+    }
+    
+    #pdf-pages { display: flex; flex-direction: column; align-items: center; width: 100%; }
+    @media print { #pdf-pages { display: block; } }
+    
+    .pdf-page {
+      width: 210mm;
+      height: 297mm;
+      position: relative;
+      background: white;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+      margin-bottom: 20px;
+      overflow: hidden;
+      box-sizing: border-box;
+    }
+    @media print {
+      .pdf-page { box-shadow: none; margin-bottom: 0; page-break-after: always; break-after: page; }
+    }
+    
+    .letterhead-background {
+      position: absolute;
+      top: 0; left: 0;
+      width: 210mm; height: 297mm;
+      z-index: 1;
+      pointer-events: none;
+      background-repeat: no-repeat;
+      background-position: center top;
+      background-size: 100% 100%;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    .watermark-background {
+      position: absolute;
+      top: 0; left: 0;
+      width: 210mm; height: 297mm;
+      z-index: 2;
+      pointer-events: none;
+      opacity: 0.04;
+      background-repeat: no-repeat;
+      background-position: center;
+      background-size: contain;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    .page-content-safe-area {
+      position: absolute;
+      top: 45mm;
+      left: 20mm;
+      width: 170mm;
+      height: 207mm;
+      z-index: 10;
+      box-sizing: border-box;
+      overflow: hidden;
+      background: transparent;
+    }
+
+    .inst-header { display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #cbd5e1; padding-bottom: 6px; margin-bottom: 12px; }
+    .inst-info { flex: 1; }
+    .inst-title { font-size: 15px; font-weight: bold; color: #0f172a; margin-bottom: 2px; }
+    .inst-details { font-size: 10px; color: #64748b; }
+    .inst-rt { text-align: right; font-size: 10px; color: #64748b; }
+    
+    .doc-title { font-size: 13px; font-weight: bold; text-align: center; text-transform: uppercase; color: #1e293b; margin-bottom: 12px; letter-spacing: 0.5px; }
+    
+    .section { margin-bottom: 5mm; background: rgba(255, 255, 255, 0.85); border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden; page-break-inside: avoid; break-inside: avoid; }
+    .section-title { background: rgba(248, 250, 252, 0.9); font-size: 10px; font-weight: bold; color: #334155; padding: 5px 10px; border-bottom: 1px solid #e2e8f0; text-transform: uppercase; letter-spacing: 0.5px; }
+    .section-content { padding: 8px 10px; }
+    
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .field { margin-bottom: 4px; }
+    .field-label { font-size: 8px; font-weight: bold; color: #64748b; text-transform: uppercase; margin-bottom: 2px; }
+    .field-value { font-size: 10px; color: #1e293b; font-weight: 550; }
+    
+    .badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 8px; font-weight: bold; }
+    .bg-green { background: #d1fae5; color: #065f46; border: 1px solid #a7f3d0; }
+    .bg-yellow { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+    .bg-red { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
+    
+    table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 9px; background: rgba(255, 255, 255, 0.85); }
+    th { background: rgba(248, 250, 252, 0.9); padding: 6px 8px; text-align: left; font-weight: bold; color: #475569; border-bottom: 1px solid #e2e8f0; }
+    td { padding: 6px 8px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
+    
+    .footer { margin-top: 10px; padding-top: 6px; border-top: 1px solid #e2e8f0; font-size: 8px; color: #94a3b8; text-align: center; page-break-inside: avoid; break-inside: avoid; }
+    .section, table, tr, .footer { page-break-inside: avoid; break-inside: avoid; }
+  </style>
+</head>
+<body>
+  <div id="pdf-source" style="position: absolute; left: -9999px; top: 0; width: 170mm; box-sizing: border-box;">
+    ${hasLetterhead ? '' : `
+    <div class="inst-header">
+      <div class="inst-info">
+        <div class="inst-title">${inst.name}</div>
+        <div class="inst-details">
+          CNPJ: ${inst.cnpj || '—'} | Tel: ${inst.phone || '—'} | E-mail: ${inst.email || '—'}<br/>
+          Endereço: ${inst.address || ''} ${inst.city || ''} ${inst.state ? `- ${inst.state}` : ''} CEP: ${inst.cep || ''}
+        </div>
+      </div>
+      <div class="inst-rt">
+        ${inst.directorName ? `Diretoria: ${inst.directorName}<br/>` : ''}
+        ${inst.technicalDirector ? `Resp. Técnico: ${inst.technicalDirector}<br/>` : ''}
+        ${inst.anvisa ? `Alvará ANVISA: ${inst.anvisa}` : ''}
+      </div>
+    </div>
+    `}
+    
+    <div class="doc-title">
+      Relatório Clínico - Médias de Sinais Vitais (${reportTypeLabel})
+    </div>
+    
+    <div class="section">
+      <div class="section-title">Identificação do Residente</div>
+      <div class="section-content">
+        <div class="grid-2">
+          <div>
+            <div class="field">
+              <div class="field-label">Residente</div>
+              <div class="field-value">${resident.name}</div>
+            </div>
+            <div class="field">
+              <div class="field-label">CPF</div>
+              <div class="field-value">${resident.cpf || '—'}</div>
+            </div>
+            <div class="field">
+              <div class="field-label">Data de Nascimento</div>
+              <div class="field-value">${resident.birthDate || '—'} (${resident.age} anos)</div>
+            </div>
+          </div>
+          <div>
+            <div class="field">
+              <div class="field-label">Data de Emissão</div>
+              <div class="field-value">${dateFormatted}</div>
+            </div>
+            <div class="field">
+              <div class="field-label">Quarto / Acomodação</div>
+              <div class="field-value">${resident.room}</div>
+            </div>
+            <div class="field">
+              <div class="field-label">Grau de Dependência</div>
+              <div class="field-value"><span class="badge ${resident.careLevel === 'I' ? 'bg-green' : resident.careLevel === 'II' ? 'bg-yellow' : 'bg-red'}">Grau ${resident.careLevel}</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="section">
+      <div class="section-title">Consolidado de Médias de Sinais Vitais</div>
+      <div class="section-content" style="padding: 0;">
+        <table>
+          <thead>
+            <tr>
+              <th>Período</th>
+              <th>Turno</th>
+              <th>Pressão Arterial</th>
+              <th>Freq. Cardíaca</th>
+              <th>Saturação (SpO₂)</th>
+              <th>Temperatura</th>
+              <th>Classificação (PA)</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRowsHtml}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="section" style="margin-top: 15px;">
+      <div class="section-title">Legenda de Diretrizes de Pressão (Sociedade Brasileira de Cardiologia)</div>
+      <div class="section-content" style="font-size: 8px; color: #475569; line-height: 1.5;">
+        <span style="font-weight: bold; color: #065f46;">Ótima:</span> Sistólica &lt; 120 e Diastólica &lt; 80 mmHg | 
+        <span style="font-weight: bold; color: #047857;">Normal:</span> Sistólica 120-129 e/ou Diastólica 80-84 mmHg | 
+        <span style="font-weight: bold; color: #b45309;">Pré-Hipertensão:</span> Sistólica 130-139 e/ou Diastólica 85-89 mmHg<br/>
+        <span style="font-weight: bold; color: #b45309;">Estágio 1:</span> Sistólica 140-159 e/ou Diastólica 90-99 mmHg | 
+        <span style="font-weight: bold; color: #b91c1c;">Estágio 2:</span> Sistólica 160-179 e/ou Diastólica 100-109 mmHg | 
+        <span style="font-weight: bold; color: #991b1b;">Estágio 3:</span> Sistólica &ge; 180 e/ou Diastólica &ge; 110 mmHg<br/>
+        <small style="color: #64748b; font-size: 8px;">* A classificação corresponde ao maior estágio alcançado pela média diurna ou noturna de pressão do período.</small>
+      </div>
+    </div>
+    
+
+  </div>
+  <div id="pdf-pages"></div>
+  <script>
+    const hasLetterhead = ${hasLetterhead};
+    const letterheadSrc = '${watermarkSrc}';
+
+    window.onload = () => {
+      const pxPerMm = 96 / 25.4;
+      const maxHeight = 207 * pxPerMm;
+      const pagesContainer = document.getElementById('pdf-pages');
+      const sourceContainer = document.getElementById('pdf-source');
+
+      let currentPage = null;
+      let currentSafeContent = null;
+
+      function createPage() {
+        currentPage = document.createElement('div');
+        currentPage.className = 'pdf-page';
+        
+        if (hasLetterhead && letterheadSrc) {
+          const bg = document.createElement('div');
+          bg.className = 'letterhead-background';
+          bg.style.backgroundImage = 'url("' + letterheadSrc + '")';
+          currentPage.appendChild(bg);
+          
+          const wm = document.createElement('div');
+          wm.className = 'watermark-background';
+          wm.style.backgroundImage = 'url("' + letterheadSrc + '")';
+          currentPage.appendChild(wm);
+        }
+        
+        currentSafeContent = document.createElement('div');
+        currentSafeContent.className = 'page-content-safe-area';
+        currentPage.appendChild(currentSafeContent);
+        
+        pagesContainer.appendChild(currentPage);
+      }
+
+      createPage();
+
+      const elements = Array.from(sourceContainer.children);
+      for (let i = 0; i < elements.length; i++) {
+        const el = elements[i];
+        currentSafeContent.appendChild(el);
+        if (currentSafeContent.scrollHeight > maxHeight) {
+          if (el.classList.contains('footer')) {
+            continue;
+          }
+          if (currentSafeContent.children.length > 1) {
+            currentSafeContent.removeChild(el);
+            createPage();
+            currentSafeContent.appendChild(el);
+          }
+        }
+      }
+
+      sourceContainer.style.display = 'none';
+
+      setTimeout(() => {
+        window.print();
+      }, 150);
+    };
+  </script>
+</body>
+</html>`;
+
+    win.document.write(docHtml);
+    win.document.close();
+  };
+
   const handleStartEditChecklist = () => {
     if (selectedChecklist.signedBy) return;
     const draft = { ...selectedChecklist, shift: selectedShift };
@@ -2052,6 +2629,392 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                     </div>
                   )}
                 </div>
+
+                {/* Seção de Médias Diurnas/Noturnas */}
+                {(() => {
+                  const classify = (sys: number, dia: number) => {
+                    if (sys >= 180 || dia >= 110) return { label: 'Hipertensão Estágio 3', color: 'bg-rose-100 text-rose-800 border-rose-200', textClass: 'text-rose-800' };
+                    if ((sys >= 160 && sys <= 179) || (dia >= 100 && dia <= 109)) return { label: 'Hipertensão Estágio 2', color: 'bg-rose-100 text-rose-700 border-rose-200', textClass: 'text-rose-700' };
+                    if ((sys >= 140 && sys <= 159) || (dia >= 90 && dia <= 99)) return { label: 'Hipertensão Estágio 1', color: 'bg-amber-100 text-amber-700 border-amber-200', textClass: 'text-amber-700' };
+                    if ((sys >= 130 && sys <= 139) || (dia >= 85 && dia <= 89)) return { label: 'Pré-Hipertensão', color: 'bg-orange-50 text-orange-700 border-orange-250', textClass: 'text-orange-700' };
+                    if ((sys >= 120 && sys <= 129) || (dia >= 80 && dia <= 84)) return { label: 'Normal', color: 'bg-emerald-50 text-emerald-700 border-emerald-200', textClass: 'text-emerald-700' };
+                    return { label: 'Ótima', color: 'bg-emerald-100 text-emerald-800 border-emerald-250', textClass: 'text-emerald-800' };
+                  };
+
+                  const vitalsData = (resident.vitals || [])
+                    .map(v => {
+                      const parts = v.bp ? v.bp.split('/') : [];
+                      const sys = parts[0] ? parseInt(parts[0], 10) : NaN;
+                      const dia = parts[1] ? parseInt(parts[1], 10) : NaN;
+                      const hasBP = !isNaN(sys) && !isNaN(dia);
+                      const hasHR = typeof v.hr === 'number' && v.hr > 0;
+                      const hasSpO2 = typeof v.spo2 === 'number' && v.spo2 > 0;
+                      const hasTemp = typeof v.temp === 'number' && v.temp > 0;
+                      if (!hasBP && !hasHR && !hasSpO2 && !hasTemp) return null;
+                      const date = new Date(v.timestamp);
+                      const hour = date.getHours();
+                      const shift: 'diurno' | 'noturno' = (hour >= 6 && hour < 18) ? 'diurno' : 'noturno';
+                      return {
+                        sys: hasBP ? sys : null,
+                        dia: hasBP ? dia : null,
+                        hr: hasHR ? v.hr : null,
+                        spo2: hasSpO2 ? v.spo2 : null,
+                        temp: hasTemp ? v.temp : null,
+                        date,
+                        shift
+                      };
+                    })
+                    .filter((v): v is NonNullable<typeof v> => v !== null);
+
+                  const filteredVitalsData = vitalsData.filter(v => {
+                    const y = v.date.getFullYear();
+                    const m = String(v.date.getMonth() + 1).padStart(2, '0');
+                    const d = String(v.date.getDate()).padStart(2, '0');
+                    const dateStr = `${y}-${m}-${d}`;
+                    if (vitalsPeriodType === 'day') {
+                      return dateStr === vitalsSelectedDay;
+                    } else if (vitalsPeriodType === 'week') {
+                      const selDate = new Date(vitalsSelectedWeekDate + 'T00:00:00');
+                      const getWeekMonday = (d: Date) => {
+                        const temp = new Date(d);
+                        const day = temp.getDay();
+                        const diff = temp.getDate() - day + (day === 0 ? -6 : 1);
+                        const monday = new Date(temp.setDate(diff));
+                        monday.setHours(0, 0, 0, 0);
+                        return monday;
+                      };
+                      const targetMonday = getWeekMonday(selDate);
+                      const targetSunday = new Date(targetMonday);
+                      targetSunday.setDate(targetMonday.getDate() + 6);
+                      targetSunday.setHours(23, 59, 59, 999);
+                      return v.date >= targetMonday && v.date <= targetSunday;
+                    } else {
+                      const monthStr = `${y}-${m}`;
+                      return monthStr === vitalsSelectedMonth;
+                    }
+                  });
+
+                  let averagesList: { label: string; key: string; diurno: any; noturno: any }[] = [];
+
+                  const initShiftObj = () => ({
+                    sysSum: 0, sysCount: 0,
+                    diaSum: 0, diaCount: 0,
+                    hrSum: 0, hrCount: 0,
+                    spo2Sum: 0, spo2Count: 0,
+                    tempSum: 0, tempCount: 0
+                  });
+
+                  const aggregateRecords = (groups: Record<string, any>) => {
+                    return Object.entries(groups).map(([key, data]: [string, any]) => {
+                      const processShift = (shiftData: any) => {
+                        if (shiftData.sysCount === 0 && shiftData.hrCount === 0 && shiftData.spo2Count === 0 && shiftData.tempCount === 0) {
+                          return null;
+                        }
+                        const bpAvg = shiftData.sysCount > 0 && shiftData.diaCount > 0 ? {
+                          sys: Math.round(shiftData.sysSum / shiftData.sysCount),
+                          dia: Math.round(shiftData.diaSum / shiftData.diaCount),
+                          count: shiftData.sysCount
+                        } : null;
+                        const hrAvg = shiftData.hrCount > 0 ? {
+                          val: Math.round(shiftData.hrSum / shiftData.hrCount),
+                          count: shiftData.hrCount
+                        } : null;
+                        const spo2Avg = shiftData.spo2Count > 0 ? {
+                          val: Math.round(shiftData.spo2Sum / shiftData.spo2Count),
+                          count: shiftData.spo2Count
+                        } : null;
+                        const tempAvg = shiftData.tempCount > 0 ? {
+                          val: parseFloat((shiftData.tempSum / shiftData.tempCount).toFixed(1)),
+                          count: shiftData.tempCount
+                        } : null;
+                        const classification = bpAvg ? classify(bpAvg.sys, bpAvg.dia) : null;
+                        return { bp: bpAvg, hr: hrAvg, spo2: spo2Avg, temp: tempAvg, classification };
+                      };
+
+                      const diurno = processShift(data.diurno);
+                      const noturno = processShift(data.noturno);
+                      return { key, label: '', diurno, noturno };
+                    });
+                  };
+
+                  if (vitalsPeriodType === 'day') {
+                    const dayGroups: Record<string, any> = {};
+                    filteredVitalsData.forEach(v => {
+                      const y = v.date.getFullYear();
+                      const m = String(v.date.getMonth() + 1).padStart(2, '0');
+                      const d = String(v.date.getDate()).padStart(2, '0');
+                      const dateStr = `${y}-${m}-${d}`;
+                      if (!dayGroups[dateStr]) {
+                        dayGroups[dateStr] = { diurno: initShiftObj(), noturno: initShiftObj() };
+                      }
+                      const s = dayGroups[dateStr][v.shift];
+                      if (v.sys !== null && v.dia !== null) { s.sysSum += v.sys; s.diaSum += v.dia; s.sysCount += 1; s.diaCount += 1; }
+                      if (v.hr !== null) { s.hrSum += v.hr; s.hrCount += 1; }
+                      if (v.spo2 !== null) { s.spo2Sum += v.spo2; s.spo2Count += 1; }
+                      if (v.temp !== null) { s.tempSum += v.temp; s.tempCount += 1; }
+                    });
+                    averagesList = aggregateRecords(dayGroups);
+                    averagesList.forEach(item => {
+                      const [year, month, day] = item.key.split('-');
+                      item.label = `${day}/${month}/${year}`;
+                    });
+                  } else if (vitalsPeriodType === 'week') {
+                    const weekGroups: Record<string, any> = {};
+                    const getWeekMonday = (d: Date) => {
+                      const temp = new Date(d);
+                      const day = temp.getDay();
+                      const diff = temp.getDate() - day + (day === 0 ? -6 : 1);
+                      const monday = new Date(temp.setDate(diff));
+                      monday.setHours(0, 0, 0, 0);
+                      return monday;
+                    };
+                    filteredVitalsData.forEach(v => {
+                      const monday = getWeekMonday(v.date);
+                      const y = monday.getFullYear();
+                      const m = String(monday.getMonth() + 1).padStart(2, '0');
+                      const d = String(monday.getDate()).padStart(2, '0');
+                      const weekKey = `${y}-${m}-${d}`;
+                      if (!weekGroups[weekKey]) {
+                        weekGroups[weekKey] = { diurno: initShiftObj(), noturno: initShiftObj() };
+                      }
+                      const s = weekGroups[weekKey][v.shift];
+                      if (v.sys !== null && v.dia !== null) { s.sysSum += v.sys; s.diaSum += v.dia; s.sysCount += 1; s.diaCount += 1; }
+                      if (v.hr !== null) { s.hrSum += v.hr; s.hrCount += 1; }
+                      if (v.spo2 !== null) { s.spo2Sum += v.spo2; s.spo2Count += 1; }
+                      if (v.temp !== null) { s.tempSum += v.temp; s.tempCount += 1; }
+                    });
+                    averagesList = aggregateRecords(weekGroups);
+                    averagesList.forEach(item => {
+                      const monday = new Date(item.key + 'T00:00:00');
+                      const sunday = new Date(monday);
+                      sunday.setDate(monday.getDate() + 6);
+                      const fmt = (d: Date) => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+                      item.label = `${fmt(monday)} a ${fmt(sunday)}`;
+                    });
+                  } else {
+                    const monthGroups: Record<string, any> = {};
+                    filteredVitalsData.forEach(v => {
+                      const y = v.date.getFullYear();
+                      const m = String(v.date.getMonth() + 1).padStart(2, '0');
+                      const monthKey = `${y}-${m}`;
+                      if (!monthGroups[monthKey]) {
+                        monthGroups[monthKey] = { diurno: initShiftObj(), noturno: initShiftObj() };
+                      }
+                      const s = monthGroups[monthKey][v.shift];
+                      if (v.sys !== null && v.dia !== null) { s.sysSum += v.sys; s.diaSum += v.dia; s.sysCount += 1; s.diaCount += 1; }
+                      if (v.hr !== null) { s.hrSum += v.hr; s.hrCount += 1; }
+                      if (v.spo2 !== null) { s.spo2Sum += v.spo2; s.spo2Count += 1; }
+                      if (v.temp !== null) { s.tempSum += v.temp; s.tempCount += 1; }
+                    });
+                    averagesList = aggregateRecords(monthGroups);
+                    averagesList.forEach(item => {
+                      const [year, month] = item.key.split('-');
+                      const months = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+                      item.label = `${months[parseInt(month, 10) - 1]} / ${year}`;
+                    });
+                  }
+
+                  averagesList.sort((a, b) => b.key.localeCompare(a.key));
+
+                  return (
+                    <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-5 mt-6">
+                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                        <div>
+                          <h4 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                            <Activity className="h-4.5 w-4.5 text-blue-600 animate-pulse" />
+                            Acompanhamento de Médias de Sinais Vitais
+                          </h4>
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            Cálculo consolidado das médias diurnas (06h às 18h) e noturnas (18h às 06h) de todos os sinais
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => handlePrintVitalsAverages(vitalsPeriodType)}
+                          className="flex items-center gap-1.5 text-xs font-semibold text-primary-700 hover:text-primary-800 bg-primary-50 hover:bg-primary-100 px-4 py-2 rounded-xl border border-primary-200 transition-colors shadow-sm w-full sm:w-auto justify-center"
+                        >
+                          <Printer className="h-3.5 w-3.5" />
+                          <span>Imprimir Relatório</span>
+                        </button>
+                      </div>
+
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                        <div className="flex gap-2">
+                          {(['day', 'week', 'month'] as const).map(type => (
+                            <button
+                              key={type}
+                              onClick={() => setVitalsPeriodType(type)}
+                              className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                                vitalsPeriodType === type
+                                  ? 'bg-primary-600 text-white shadow-sm'
+                                  : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200'
+                              }`}
+                            >
+                              {type === 'day' ? 'Diário' : type === 'week' ? 'Semanal' : 'Mensal'}
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Controles de filtro dinâmicos */}
+                        <div className="flex items-center gap-2">
+                          {vitalsPeriodType === 'day' && (
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-semibold text-slate-500">Selecione o Dia:</span>
+                              <input
+                                type="date"
+                                value={vitalsSelectedDay}
+                                onChange={(e) => setVitalsSelectedDay(e.target.value)}
+                                className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-700 font-bold focus:outline-none focus:ring-2 focus:ring-primary-500 shadow-sm"
+                              />
+                            </div>
+                          )}
+                          {vitalsPeriodType === 'week' && (
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-semibold text-slate-500">Semana do Dia:</span>
+                              <input
+                                type="date"
+                                value={vitalsSelectedWeekDate}
+                                onChange={(e) => setVitalsSelectedWeekDate(e.target.value)}
+                                className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-700 font-bold focus:outline-none focus:ring-2 focus:ring-primary-500 shadow-sm"
+                              />
+                            </div>
+                          )}
+                          {vitalsPeriodType === 'month' && (
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-semibold text-slate-500">Selecione o Mês:</span>
+                              <input
+                                type="month"
+                                value={vitalsSelectedMonth}
+                                onChange={(e) => setVitalsSelectedMonth(e.target.value)}
+                                className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-700 font-bold focus:outline-none focus:ring-2 focus:ring-primary-500 shadow-sm"
+                              />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-sm text-slate-600">
+                          <thead className="bg-slate-50 text-slate-800 font-semibold uppercase text-xs">
+                            <tr>
+                              <th className="px-4 py-3 rounded-l-xl w-[15%]">Período</th>
+                              <th className="px-4 py-3 w-[15%]">Turno</th>
+                              <th className="px-4 py-3">Pressão Arterial</th>
+                              <th className="px-4 py-3">Freq. Cardíaca</th>
+                              <th className="px-4 py-3">Saturação (SpO₂)</th>
+                              <th className="px-4 py-3">Temperatura</th>
+                              <th className="px-4 py-3 rounded-r-xl">Classificação (PA)</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 text-xs">
+                            {averagesList.length > 0 ? (
+                              averagesList.map((item) => {
+                                const renderRow = (shiftLabel: string, shiftData: any, icon: any) => {
+                                  if (!shiftData) {
+                                    return (
+                                      <>
+                                        <td className="px-4 py-2 text-xs font-semibold text-slate-400 flex items-center gap-1.5">
+                                          {icon}
+                                          <span>{shiftLabel}</span>
+                                        </td>
+                                        <td className="px-4 py-2 text-slate-350">—</td>
+                                        <td className="px-4 py-2 text-slate-350">—</td>
+                                        <td className="px-4 py-2 text-slate-350">—</td>
+                                        <td className="px-4 py-2 text-slate-350">—</td>
+                                        <td className="px-4 py-2 text-slate-350">—</td>
+                                      </>
+                                    );
+                                  }
+
+                                  return (
+                                    <>
+                                      <td className="px-4 py-2 text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+                                        {icon}
+                                        <span>{shiftLabel}</span>
+                                      </td>
+                                      <td className="px-4 py-2 whitespace-nowrap">
+                                        {shiftData.bp ? (
+                                          <div className="flex items-center gap-1">
+                                            <span className="font-semibold text-slate-800">{shiftData.bp.sys}/{shiftData.bp.dia}</span>
+                                            <span className="text-[10px] text-slate-450">mmHg</span>
+                                            <span className="text-[9px] text-slate-400 font-normal">({shiftData.bp.count} med.)</span>
+                                          </div>
+                                        ) : (
+                                          <span className="text-slate-350">—</span>
+                                        )}
+                                      </td>
+                                      <td className="px-4 py-2 whitespace-nowrap">
+                                        {shiftData.hr ? (
+                                          <div className="flex items-center gap-1">
+                                            <span className="font-semibold text-slate-800">{shiftData.hr.val}</span>
+                                            <span className="text-[10px] text-slate-450">bpm</span>
+                                            <span className="text-[9px] text-slate-400 font-normal">({shiftData.hr.count} med.)</span>
+                                          </div>
+                                        ) : (
+                                          <span className="text-slate-350">—</span>
+                                        )}
+                                      </td>
+                                      <td className="px-4 py-2 whitespace-nowrap">
+                                        {shiftData.spo2 ? (
+                                          <div className="flex items-center gap-1">
+                                            <span className="font-semibold text-slate-800">{shiftData.spo2.val}</span>
+                                            <span className="text-[10px] text-slate-450">%</span>
+                                            <span className="text-[9px] text-slate-400 font-normal">({shiftData.spo2.count} med.)</span>
+                                          </div>
+                                        ) : (
+                                          <span className="text-slate-350">—</span>
+                                        )}
+                                      </td>
+                                      <td className="px-4 py-2 whitespace-nowrap">
+                                        {shiftData.temp ? (
+                                          <div className="flex items-center gap-1">
+                                            <span className="font-semibold text-slate-800">{shiftData.temp.val}</span>
+                                            <span className="text-[10px] text-slate-450">°C</span>
+                                            <span className="text-[9px] text-slate-400 font-normal">({shiftData.temp.count} med.)</span>
+                                          </div>
+                                        ) : (
+                                          <span className="text-slate-350">—</span>
+                                        )}
+                                      </td>
+                                      <td className="px-4 py-2">
+                                        {shiftData.classification ? (
+                                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${shiftData.classification.color}`}>
+                                            {shiftData.classification.label}
+                                          </span>
+                                        ) : (
+                                          <span className="text-slate-350">—</span>
+                                        )}
+                                      </td>
+                                    </>
+                                  );
+                                };
+
+                                return (
+                                  <React.Fragment key={item.key}>
+                                    <tr className="border-t border-slate-100 hover:bg-slate-50/30 transition-colors">
+                                      <td rowSpan={2} className="px-4 py-3 font-bold text-slate-855 whitespace-nowrap bg-slate-50/10 align-middle border-r border-slate-100 text-xs">
+                                        {item.label}
+                                      </td>
+                                      {renderRow('Diurno', item.diurno, <Sun className="h-3.5 w-3.5 text-amber-500" />)}
+                                    </tr>
+                                    <tr className="hover:bg-slate-50/30 transition-colors border-b border-slate-100">
+                                      {renderRow('Noturno', item.noturno, <Moon className="h-3.5 w-3.5 text-indigo-500" />)}
+                                    </tr>
+                                  </React.Fragment>
+                                );
+                              })
+                            ) : (
+                              <tr>
+                                <td colSpan={7} className="px-4 py-8 text-center text-slate-400 text-xs italic">
+                                  Nenhum registro de Sinais Vitais encontrado para este residente.
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             );
           })()}

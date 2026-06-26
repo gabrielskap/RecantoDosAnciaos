@@ -17,6 +17,7 @@ import DemoApp from './components/demo/DemoApp';
 import FeaturesRouter from './components/marketing/FeaturesRouter';
 import ResidentPortal from './components/ResidentPortal';
 import RoomsModule from './components/RoomsModule';
+import NotificationsModule from './components/NotificationsModule';
 import SettingsModule from './components/SettingsModule';
 import CheckoutPage from './components/CheckoutPage';
 import PendingPaymentScreen from './components/PendingPaymentScreen';
@@ -62,6 +63,8 @@ const pathToView = (path: string): { view: ViewState; residentId?: string } => {
       return { view: ViewState.TEAM };
     case 'rooms':
       return { view: ViewState.ROOMS };
+    case 'notificacoes':
+      return { view: ViewState.NOTIFICATIONS };
     case 'settings':
       return { view: ViewState.SETTINGS };
     case 'profile':
@@ -95,6 +98,8 @@ const viewToPath = (view: ViewState, residentId?: string): string => {
       return '/team';
     case ViewState.ROOMS:
       return '/rooms';
+    case ViewState.NOTIFICATIONS:
+      return '/notificacoes';
     case ViewState.SETTINGS:
       return '/settings';
     case ViewState.PROFILE:
@@ -509,6 +514,7 @@ function AppInner() {
       [ViewState.STOCK]: 'Estoque & Insumos',
       [ViewState.REPORTS]: 'Relatórios & Indicadores',
       [ViewState.ROOMS]: 'Gerenciamento de Quartos',
+      [ViewState.NOTIFICATIONS]: 'Notificações',
       [ViewState.SETTINGS]: 'Configurações do Sistema',
       [ViewState.PROFILE]: 'Meu Perfil',
     };
@@ -584,7 +590,8 @@ function AppInner() {
             name: newResident.legalGuardian.name,
             cpf: newResident.legalGuardian.cpf,
             phone: newResident.legalGuardian.phone,
-            address: newResident.legalGuardian.address
+            address: newResident.legalGuardian.address,
+            is_primary: true
           });
         if (guardianError) throw guardianError;
       }
@@ -692,7 +699,8 @@ function AppInner() {
           name: updated.legalGuardian.name,
           cpf: updated.legalGuardian.cpf,
           phone: updated.legalGuardian.phone,
-          address: updated.legalGuardian.address
+          address: updated.legalGuardian.address,
+          is_primary: true
         }, { onConflict: 'resident_id' });
       }
 
@@ -1441,6 +1449,8 @@ function AppInner() {
             onUpdateResident={handleUpdateResident}
           />
         );
+      case ViewState.NOTIFICATIONS:
+        return <NotificationsModule residents={residents} />;
       case ViewState.SETTINGS:
         return <SettingsModule />;
       case ViewState.PROFILE:

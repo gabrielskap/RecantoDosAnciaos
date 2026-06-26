@@ -372,8 +372,75 @@ export enum ViewState {
   AGENDA = 'AGENDA',
   USERS = 'USERS',
   ROOMS = 'ROOMS',
+  NOTIFICATIONS = 'NOTIFICATIONS',
   SETTINGS = 'SETTINGS',
   PROFILE = 'PROFILE'
+}
+
+// --- NOTIFICAÇÕES WHATSAPP (UAZAPI) ---
+
+export type NotificationMessageType = 'text' | 'button' | 'menu';
+export type NotificationStatus = 'pending' | 'processing' | 'sent' | 'failed' | 'cancelled';
+export type NotificationRecipientType = 'responsible' | 'resident' | 'group' | 'manual_phone';
+
+export interface NotificationChoice {
+  id: string;
+  text: string;
+}
+
+export interface NotificationTemplate {
+  id: string;
+  empresaId?: string; // null = template global
+  name: string;
+  triggerEvent: string; // 'manual' | 'medication_low' | ...
+  messageType: NotificationMessageType;
+  messageText: string;
+  footerText?: string;
+  choices?: NotificationChoice[];
+  active: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface NotificationQueueItem {
+  id: string;
+  templateId?: string;
+  triggerEvent: string;
+  messageType: NotificationMessageType;
+  recipientType: NotificationRecipientType;
+  recipientName?: string;
+  recipientPhone: string;
+  messageText: string;
+  status: NotificationStatus;
+  attempts: number;
+  maxAttempts: number;
+  lastError?: string;
+  scheduledFor: string;
+  sentAt?: string;
+  createdAt: string;
+}
+
+export interface NotificationPreference {
+  id?: string;
+  responsibleId: string;
+  residentId?: string;
+  whatsappEnabled: boolean;
+  healthNotificationsEnabled: boolean;
+  administrativeNotificationsEnabled: boolean;
+  financialNotificationsEnabled: boolean;
+  consentSource?: string;
+  consentedAt?: string;
+  revokedAt?: string;
+}
+
+export interface WhatsappInstance {
+  instanceName?: string;
+  status: string; // 'not_configured' | 'disconnected' | 'connecting' | 'connected'
+  connected: boolean;
+  phoneNumber?: string;
+  hasToken?: boolean;
+  connectedAt?: string;
+  qrcode?: string; // base64 (apenas durante a conexão)
 }
 
 // --- AUTH & RBAC TYPES ---
