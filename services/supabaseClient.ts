@@ -109,22 +109,6 @@ export const uploadPrescriptionDocument = async (file: File): Promise<string> =>
   const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}.${fileExt}`;
   const filePath = `documents/${fileName}`;
 
-  // 1. Try to ensure storage bucket exists
-  try {
-    const { data: buckets } = await supabase.storage.listBuckets();
-    const bucketExists = buckets?.some(b => b.name === 'prescription-documents');
-    
-    if (!bucketExists) {
-      await supabase.storage.createBucket('prescription-documents', {
-        public: true,
-        fileSizeLimit: 10485760 // 10MB
-      });
-    }
-  } catch (bucketErr) {
-    console.warn('Could not verify/create prescription-documents bucket, attempting upload anyway:', bucketErr);
-  }
-
-  // 2. Upload file
   const { error: uploadErr } = await supabase.storage
     .from('prescription-documents')
     .upload(filePath, file, {
@@ -132,11 +116,8 @@ export const uploadPrescriptionDocument = async (file: File): Promise<string> =>
       upsert: true
     });
 
-  if (uploadErr) {
-    throw uploadErr;
-  }
+  if (uploadErr) throw uploadErr;
 
-  // 3. Get public URL
   const { data } = supabase.storage
     .from('prescription-documents')
     .getPublicUrl(filePath);
@@ -196,25 +177,33 @@ export const uploadUserPhoto = async (file: File, compressedBase64: string): Pro
   }
 };
 
+// Helper to upload a resident digitalized document (PDF/image) to Supabase storage
+export const uploadResidentDocument = async (file: File, residentId: string): Promise<string> => {
+  const fileExt = file.name.split('.').pop() || 'pdf';
+  const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}.${fileExt}`;
+  const filePath = `${residentId}/${fileName}`;
+
+  const { error: uploadErr } = await supabase.storage
+    .from('resident-documents')
+    .upload(filePath, file, {
+      contentType: file.type || 'application/octet-stream',
+      upsert: true
+    });
+
+  if (uploadErr) throw uploadErr;
+
+  const { data } = supabase.storage
+    .from('resident-documents')
+    .getPublicUrl(filePath);
+
+  return data.publicUrl;
+};
+
 // Helper to upload an institutional compliance document (PDF/image) to Supabase storage
 export const uploadComplianceDocument = async (file: File): Promise<string> => {
   const fileExt = file.name.split('.').pop() || 'pdf';
   const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}.${fileExt}`;
   const filePath = `compliance/${fileName}`;
-
-  try {
-    const { data: buckets } = await supabase.storage.listBuckets();
-    const bucketExists = buckets?.some(b => b.name === 'compliance-documents');
-
-    if (!bucketExists) {
-      await supabase.storage.createBucket('compliance-documents', {
-        public: true,
-        fileSizeLimit: 10485760,
-      });
-    }
-  } catch (bucketErr) {
-    console.warn('Could not verify/create compliance-documents bucket:', bucketErr);
-  }
 
   const { error: uploadErr } = await supabase.storage
     .from('compliance-documents')
@@ -223,14 +212,7 @@ export const uploadComplianceDocument = async (file: File): Promise<string> => {
       upsert: true,
     });
 
-  if (uploadErr) {
-    return new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = () => reject(new Error('Failed to read file'));
-      reader.readAsDataURL(file);
-    });
-  }
+  if (uploadErr) throw uploadErr;
 
   const { data } = supabase.storage
     .from('compliance-documents')

@@ -6,13 +6,13 @@ import {
   BedDouble, Home, Wrench, PaintRoller, Edit2, X, Phone, FileHeart, Trash2, Users, Camera, Sun, Moon,
   Key, Printer, Upload, Wind, UserCheck
 } from 'lucide-react';
-import { Resident, CarePlan, AuditLog, DailyChecklist, Medication, RoomStatus, Room } from '../types';
+import { Resident, CarePlan, AuditLog, DailyChecklist, Medication, RoomStatus, Room, ViewState } from '../types';
 import { residentAvatarSrc } from '../lib/avatar';
 import { toast } from '../services/toast';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import CustomSelect from './CustomSelect';
 import { useAuth } from '../contexts/AuthContext';
-import { compressImage, uploadResidentPhoto, uploadPrescriptionDocument, supabase } from '../services/supabaseClient';
+import { compressImage, uploadResidentPhoto, uploadPrescriptionDocument, uploadResidentDocument, supabase } from '../services/supabaseClient';
 
 interface ChecklistMedication {
   id: string;
@@ -105,8 +105,13 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
 
   const [isEditingStatus, setIsEditingStatus] = useState(false);
   const [uploadingDoc, setUploadingDoc] = useState(false);
+  const [showDocUploadModal, setShowDocUploadModal] = useState(false);
+  const [docUploadFile, setDocUploadFile] = useState<File | null>(null);
+  const [docUploadName, setDocUploadName] = useState('');
+  const [docUploadType, setDocUploadType] = useState<'exame' | 'laudo' | 'receita' | 'documento_pessoal' | 'outro'>('outro');
+  const [isUploadingResidentDoc, setIsUploadingResidentDoc] = useState(false);
 
-  const { currentUser } = useAuth();
+  const { currentUser, hasPermission } = useAuth();
   const [isVisitModalOpen, setIsVisitModalOpen] = useState(false);
   const [visitData, setVisitData] = useState({
     visitorName: '',
@@ -122,11 +127,31 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                             currentUser?.profile.type === 'Médico' || 
                             currentUser?.profile.type === 'Cuidador';
 
-  const canManageCarePlan = currentUser?.profile.type === 'Médico' || 
-                            currentUser?.employeeRole === 'Médico' || 
-                            currentUser?.employeeRole === 'Nutricionista' || 
+  const canManageCarePlan = currentUser?.profile.type === 'Médico' ||
+                            currentUser?.employeeRole === 'Médico' ||
+                            currentUser?.employeeRole === 'Nutricionista' ||
                             currentUser?.employeeRole === 'Fisioterapeuta' ||
                             currentUser?.profile.type === 'Administrador';
+
+  const canManageDocuments = hasPermission(ViewState.RESIDENT_DETAIL, 'delete');
+
+  const [docToDelete, setDocToDelete] = useState<string | null>(null);
+
+  const handleDeleteDocument = async () => {
+    if (!docToDelete || !onUpdateResident) return;
+    const updatedResident = {
+      ...resident,
+      documents: (resident.documents || []).filter(d => d.id !== docToDelete)
+    };
+    try {
+      await onUpdateResident(updatedResident);
+      toast.success('Documento excluído com sucesso!');
+    } catch {
+      toast.error('Erro ao excluir documento. Tente novamente.');
+    } finally {
+      setDocToDelete(null);
+    }
+  };
 
   const handleSaveVisit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -2193,6 +2218,36 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
       domingo: { checked: false, times: 1 }
     });
     setShowPlanForm(false);
+  };
+
+  const handleResidentDocUpload = async () => {
+    if (!docUploadFile || !docUploadName.trim() || !onUpdateResident) return;
+    setIsUploadingResidentDoc(true);
+    try {
+      const url = await uploadResidentDocument(docUploadFile, resident.id);
+      const newDoc = {
+        id: Math.random().toString(36).substr(2, 9),
+        name: docUploadName.trim(),
+        type: docUploadType,
+        url,
+        uploadDate: new Date().toISOString().split('T')[0]
+      };
+      const updatedResident = {
+        ...resident,
+        documents: [...(resident.documents || []), newDoc]
+      };
+      await onUpdateResident(updatedResident);
+      toast.success('Documento enviado com sucesso!');
+      setShowDocUploadModal(false);
+      setDocUploadFile(null);
+      setDocUploadName('');
+      setDocUploadType('outro');
+    } catch (err) {
+      console.error(err);
+      toast.error('Erro ao enviar documento. Tente novamente.');
+    } finally {
+      setIsUploadingResidentDoc(false);
+    }
   };
 
   const handleSaveEvolutionNote = () => {
@@ -4607,21 +4662,43 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
             <div className="space-y-6">
                <div className="flex justify-between items-center">
                  <h3 className="text-lg font-semibold text-slate-800">Documentos Digitalizados</h3>
-                 <button className="flex items-center text-sm text-primary-600 font-medium bg-primary-50 px-3 py-1.5 rounded-lg border border-primary-100">
+                 <button
+                   onClick={() => setShowDocUploadModal(true)}
+                   className="flex items-center text-sm text-primary-600 font-medium bg-primary-50 px-3 py-1.5 rounded-lg border border-primary-100 hover:bg-primary-100 transition-colors"
+                 >
                    <Plus className="h-4 w-4 mr-1" /> Novo Upload
                  </button>
                </div>
                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                  {resident.documents?.map((doc) => (
-                   <div key={doc.id} className="border border-slate-200 rounded-lg p-4 flex items-start bg-white hover:bg-slate-50 transition-colors cursor-pointer">
-                      <div className="p-2 bg-slate-100 rounded text-slate-600 mr-3">
-                        <FileText size={20} />
-                      </div>
-                      <div className="flex-1 overflow-hidden">
-                        <h4 className="font-medium text-slate-800 text-sm truncate">{doc.name}</h4>
-                        <p className="text-xs text-slate-500 capitalize">{doc.type.replace('_', ' ')}</p>
-                        <p className="text-[10px] text-slate-400 mt-1">{new Date(doc.uploadDate).toLocaleDateString()}</p>
-                      </div>
+                   <div
+                     key={doc.id}
+                     className="border border-slate-200 rounded-lg p-4 flex items-start bg-white hover:bg-slate-50 transition-colors group relative"
+                   >
+                     <a
+                       href={doc.url}
+                       target="_blank"
+                       rel="noopener noreferrer"
+                       className="flex items-start flex-1 min-w-0 no-underline"
+                     >
+                       <div className="p-2 bg-slate-100 rounded text-slate-600 mr-3 shrink-0">
+                         <FileText size={20} />
+                       </div>
+                       <div className="flex-1 overflow-hidden">
+                         <h4 className="font-medium text-slate-800 text-sm truncate">{doc.name}</h4>
+                         <p className="text-xs text-slate-500 capitalize">{doc.type.replace(/_/g, ' ')}</p>
+                         <p className="text-[10px] text-slate-400 mt-1">{new Date(doc.uploadDate).toLocaleDateString('pt-BR')}</p>
+                       </div>
+                     </a>
+                     {canManageDocuments && (
+                       <button
+                         onClick={(e) => { e.stopPropagation(); setDocToDelete(doc.id); }}
+                         className="ml-2 p-1.5 rounded-md text-slate-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all shrink-0"
+                         title="Excluir documento"
+                       >
+                         <Trash2 size={15} />
+                       </button>
+                     )}
                    </div>
                  ))}
                  {(!resident.documents || resident.documents.length === 0) && (
@@ -5865,6 +5942,139 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
               >
                 <PenTool className="h-4 w-4 mr-2" />
                 Confirmar Assinatura
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Upload de Documento */}
+      {showDocUploadModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <h2 className="text-lg font-bold text-slate-800">Novo Documento</h2>
+              <button
+                onClick={() => { setShowDocUploadModal(false); setDocUploadFile(null); setDocUploadName(''); setDocUploadType('outro'); }}
+                className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              {/* Área de seleção de arquivo */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Arquivo <span className="text-red-500">*</span></label>
+                <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-slate-300 rounded-xl cursor-pointer hover:border-primary-400 hover:bg-primary-50 transition-colors">
+                  {docUploadFile ? (
+                    <div className="flex flex-col items-center text-center px-3">
+                      <FileText size={24} className="text-primary-600 mb-1" />
+                      <span className="text-sm font-medium text-slate-700 truncate max-w-xs">{docUploadFile.name}</span>
+                      <span className="text-xs text-slate-400">{(docUploadFile.size / 1024).toFixed(0)} KB</span>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center text-slate-400">
+                      <Upload size={24} className="mb-1" />
+                      <span className="text-sm">Clique para selecionar</span>
+                      <span className="text-xs">PDF, imagens até 20MB</span>
+                    </div>
+                  )}
+                  <input
+                    type="file"
+                    accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) {
+                        setDocUploadFile(f);
+                        if (!docUploadName) setDocUploadName(f.name.replace(/\.[^/.]+$/, ''));
+                      }
+                    }}
+                  />
+                </label>
+              </div>
+
+              {/* Nome do documento */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Nome do documento <span className="text-red-500">*</span></label>
+                <input
+                  type="text"
+                  value={docUploadName}
+                  onChange={(e) => setDocUploadName(e.target.value)}
+                  placeholder="Ex: Exame de sangue junho 2026"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
+                />
+              </div>
+
+              {/* Tipo de documento */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Tipo</label>
+                <select
+                  value={docUploadType}
+                  onChange={(e) => setDocUploadType(e.target.value as typeof docUploadType)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none bg-white"
+                >
+                  <option value="exame">Exame</option>
+                  <option value="laudo">Laudo</option>
+                  <option value="receita">Receita</option>
+                  <option value="documento_pessoal">Documento Pessoal</option>
+                  <option value="outro">Outro</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex gap-3 px-6 pb-6">
+              <button
+                onClick={() => { setShowDocUploadModal(false); setDocUploadFile(null); setDocUploadName(''); setDocUploadType('outro'); }}
+                className="flex-1 px-4 py-2.5 border border-slate-300 rounded-xl text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleResidentDocUpload}
+                disabled={!docUploadFile || !docUploadName.trim() || isUploadingResidentDoc}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {isUploadingResidentDoc ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    Enviando...
+                  </>
+                ) : (
+                  <>
+                    <Upload size={16} />
+                    Enviar Documento
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {docToDelete && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+            <div className="p-6">
+              <div className="flex items-center justify-center w-12 h-12 rounded-full bg-red-100 mx-auto mb-4">
+                <Trash2 size={22} className="text-red-600" />
+              </div>
+              <h3 className="text-lg font-bold text-slate-800 text-center mb-1">Excluir Documento</h3>
+              <p className="text-sm text-slate-500 text-center">
+                Tem certeza que deseja excluir este documento? Esta ação não pode ser desfeita.
+              </p>
+            </div>
+            <div className="flex gap-3 px-6 pb-6">
+              <button
+                onClick={() => setDocToDelete(null)}
+                className="flex-1 px-4 py-2.5 border border-slate-300 rounded-xl text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleDeleteDocument}
+                className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-xl text-sm font-semibold hover:bg-red-700 transition-colors"
+              >
+                Excluir
               </button>
             </div>
           </div>
