@@ -560,6 +560,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     nextDose: '08:00',
     startDate: new Date().toISOString().split('T')[0],
     endDate: '',
+    isTemporary: false,
     observations: '',
     documentUrl: '',
     documentName: ''
@@ -587,6 +588,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
         nextDose: '08:00',
         startDate: new Date().toISOString().split('T')[0],
         endDate: '',
+        isTemporary: false,
         observations: '',
         documentUrl: '',
         documentName: ''
@@ -2046,7 +2048,13 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     const draft = { ...selectedChecklist, shift: selectedShift };
     const parsed = parseMedications(draft.medicacoesAdministradas);
     if (!parsed && resident.medications && resident.medications.length > 0) {
-      const initialMeds: ChecklistMedication[] = resident.medications.map(med => ({
+      const bulletinDate = draft.date;
+      const activeMeds = resident.medications.filter(med => {
+        if (!med.endDate) return true;
+        const start = med.startDate || '2000-01-01';
+        return start <= bulletinDate && med.endDate >= bulletinDate;
+      });
+      const initialMeds: ChecklistMedication[] = activeMeds.map(med => ({
         id: med.id,
         name: med.name,
         dosage: med.dosage,
@@ -2114,7 +2122,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
       frequency: prescriptionData.frequency,
       nextDose: prescriptionData.nextDose || '08:00',
       startDate: prescriptionData.startDate || new Date().toISOString().split('T')[0],
-      endDate: prescriptionData.endDate || undefined,
+      endDate: (prescriptionData.isTemporary && prescriptionData.endDate) ? prescriptionData.endDate : undefined,
       observations: prescriptionData.observations || undefined,
       documentUrl: prescriptionData.documentUrl || undefined,
       logs: []
@@ -2133,6 +2141,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
       nextDose: '08:00',
       startDate: new Date().toISOString().split('T')[0],
       endDate: '',
+      isTemporary: false,
       observations: '',
       documentUrl: '',
       documentName: ''
@@ -3074,83 +3083,196 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
             );
           })()}
 
-          {activeTab === 'meds' && (
-            <div className="space-y-4">
-              <div className="flex justify-between items-center mb-4">
-                 <h3 className="text-lg font-semibold text-slate-800">Gestão de Medicamentos</h3>
-                 <button 
-                   onClick={() => setIsPrescriptionModalOpen(true)}
-                   className="flex items-center text-sm text-primary-600 font-medium bg-primary-50 px-3 py-1.5 rounded-lg border border-primary-100"
-                 >
-                   <Plus className="h-4 w-4 mr-1" /> Nova Prescrição
-                 </button>
+          {activeTab === 'meds' && (() => {
+            const today = new Date().toISOString().split('T')[0];
+            const permanentMeds = resident.medications.filter(m => !m.endDate);
+            const temporaryMeds = resident.medications.filter(m => !!m.endDate);
+            const renderMedRow = (med: Medication) => (
+              <tr key={med.id} className="hover:bg-slate-50 transition-colors">
+                <td className="px-4 py-3 font-medium text-slate-800">
+                  <div className="flex items-center gap-2">
+                    <span>{med.name}</span>
+                    {med.documentUrl && (
+                      <a
+                        href={med.documentUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-500 hover:text-blue-700 inline-flex items-center gap-0.5 text-xs font-normal"
+                        title="Visualizar receita digitalizada"
+                      >
+                        <FileText size={14} className="text-blue-500" />
+                        <span className="underline">Receita</span>
+                      </a>
+                    )}
+                  </div>
+                  {med.observations && (
+                    <div className="text-xs text-slate-450 font-normal mt-0.5 max-w-xs break-words">{med.observations}</div>
+                  )}
+                </td>
+                <td className="px-4 py-3">{med.dosage} ({med.route})</td>
+                <td className="px-4 py-3">{med.frequency}</td>
+                <td className="px-4 py-3">
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                    {med.nextDose}
+                  </span>
+                </td>
+                <td className="px-4 py-3 text-right">
+                  <button
+                    onClick={() => handleAdministerMedication(med.id)}
+                    className="bg-emerald-600 text-white text-xs px-3 py-1.5 rounded hover:bg-emerald-700 transition-colors mr-2"
+                  >
+                    Checar
+                  </button>
+                  <button className="text-rose-500 hover:text-rose-700 p-1" title="Registrar Reação Adversa">
+                    <AlertOctagon size={16} />
+                  </button>
+                  <button
+                    onClick={() => handleDeleteMedication(med.id)}
+                    className="text-rose-600 hover:text-rose-800 p-1 ml-2 inline-flex items-center"
+                    title="Excluir Prescrição"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </td>
+              </tr>
+            );
+            return (
+              <div className="space-y-6">
+                <div className="flex justify-between items-center">
+                  <h3 className="text-lg font-semibold text-slate-800">Gestão de Medicamentos</h3>
+                  <button
+                    onClick={() => setIsPrescriptionModalOpen(true)}
+                    className="flex items-center text-sm text-primary-600 font-medium bg-primary-50 px-3 py-1.5 rounded-lg border border-primary-100"
+                  >
+                    <Plus className="h-4 w-4 mr-1" /> Nova Prescrição
+                  </button>
+                </div>
+
+                {/* Medicamentos Permanentes */}
+                <div>
+                  <h4 className="text-sm font-semibold text-slate-600 mb-3 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
+                    Medicamentos Permanentes
+                    <span className="text-xs font-normal text-slate-400">({permanentMeds.length})</span>
+                  </h4>
+                  {permanentMeds.length === 0 ? (
+                    <p className="text-xs text-slate-400 italic px-1">Nenhum medicamento de uso contínuo cadastrado.</p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-sm text-slate-600">
+                        <thead className="bg-slate-50 text-slate-800 font-semibold uppercase text-xs">
+                          <tr>
+                            <th className="px-4 py-3 rounded-tl-lg">Medicamento</th>
+                            <th className="px-4 py-3">Dosagem/Via</th>
+                            <th className="px-4 py-3">Frequência</th>
+                            <th className="px-4 py-3">Próxima Dose</th>
+                            <th className="px-4 py-3 rounded-tr-lg text-right">Ação</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {permanentMeds.map(renderMedRow)}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                {/* Medicamentos Temporários */}
+                <div>
+                  <h4 className="text-sm font-semibold text-slate-600 mb-3 flex items-center gap-2">
+                    <Clock className="w-3.5 h-3.5 text-amber-500" />
+                    Medicamentos Temporários
+                    <span className="text-xs font-normal text-slate-400">({temporaryMeds.length})</span>
+                  </h4>
+                  {temporaryMeds.length === 0 ? (
+                    <p className="text-xs text-slate-400 italic px-1">Nenhum medicamento temporário cadastrado.</p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-sm text-slate-600">
+                        <thead className="bg-amber-50 text-slate-800 font-semibold uppercase text-xs">
+                          <tr>
+                            <th className="px-4 py-3 rounded-tl-lg">Medicamento</th>
+                            <th className="px-4 py-3">Dosagem/Via</th>
+                            <th className="px-4 py-3">Frequência</th>
+                            <th className="px-4 py-3">Horário</th>
+                            <th className="px-4 py-3">Período</th>
+                            <th className="px-4 py-3 rounded-tr-lg text-right">Ação</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {temporaryMeds.map(med => {
+                            const isExpired = med.endDate! < today;
+                            const isNotStarted = !!(med.startDate && med.startDate > today);
+                            const isActive = !isExpired && !isNotStarted;
+                            const fmtDate = (d: string) => d.split('-').reverse().join('/');
+                            return (
+                              <tr key={med.id} className={`transition-colors ${isExpired ? 'opacity-50 bg-slate-50' : 'hover:bg-amber-50/40'}`}>
+                                <td className="px-4 py-3 font-medium text-slate-800">
+                                  <div className="flex items-center gap-2">
+                                    <span>{med.name}</span>
+                                    {med.documentUrl && (
+                                      <a
+                                        href={med.documentUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-blue-500 hover:text-blue-700 inline-flex items-center gap-0.5 text-xs font-normal"
+                                        title="Visualizar receita digitalizada"
+                                      >
+                                        <FileText size={14} className="text-blue-500" />
+                                        <span className="underline">Receita</span>
+                                      </a>
+                                    )}
+                                  </div>
+                                  {med.observations && (
+                                    <div className="text-xs text-slate-450 font-normal mt-0.5 max-w-xs break-words">{med.observations}</div>
+                                  )}
+                                </td>
+                                <td className="px-4 py-3">{med.dosage} ({med.route})</td>
+                                <td className="px-4 py-3">{med.frequency}</td>
+                                <td className="px-4 py-3">
+                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                    {med.nextDose}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3">
+                                  <div className="text-xs text-slate-600 font-medium">
+                                    {med.startDate ? fmtDate(med.startDate) : '—'} → {fmtDate(med.endDate!)}
+                                  </div>
+                                  <div className="mt-1">
+                                    {isActive && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">Ativa</span>}
+                                    {isExpired && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-slate-200 text-slate-500">Encerrada</span>}
+                                    {isNotStarted && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">Futura</span>}
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3 text-right">
+                                  <button
+                                    onClick={() => handleAdministerMedication(med.id)}
+                                    className="bg-emerald-600 text-white text-xs px-3 py-1.5 rounded hover:bg-emerald-700 transition-colors mr-2"
+                                  >
+                                    Checar
+                                  </button>
+                                  <button className="text-rose-500 hover:text-rose-700 p-1" title="Registrar Reação Adversa">
+                                    <AlertOctagon size={16} />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteMedication(med.id)}
+                                    className="text-rose-600 hover:text-rose-800 p-1 ml-2 inline-flex items-center"
+                                    title="Excluir Prescrição"
+                                  >
+                                    <Trash2 size={16} />
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
               </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm text-slate-600">
-                  <thead className="bg-slate-50 text-slate-800 font-semibold uppercase text-xs">
-                    <tr>
-                      <th className="px-4 py-3 rounded-tl-lg">Medicamento</th>
-                      <th className="px-4 py-3">Dosagem/Via</th>
-                      <th className="px-4 py-3">Frequência</th>
-                      <th className="px-4 py-3">Próxima Dose</th>
-                      <th className="px-4 py-3 rounded-tr-lg text-right">Ação</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {resident.medications.map((med) => (
-                      <tr key={med.id} className="hover:bg-slate-50 transition-colors">
-                        <td className="px-4 py-3 font-medium text-slate-800">
-                          <div className="flex items-center gap-2">
-                            <span>{med.name}</span>
-                            {med.documentUrl && (
-                              <a 
-                                href={med.documentUrl} 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                className="text-blue-500 hover:text-blue-700 inline-flex items-center gap-0.5 text-xs font-normal"
-                                title="Visualizar receita digitalizada"
-                              >
-                                <FileText size={14} className="text-blue-500" />
-                                <span className="underline">Receita</span>
-                              </a>
-                            )}
-                          </div>
-                          {med.observations && (
-                            <div className="text-xs text-slate-450 font-normal mt-0.5 max-w-xs break-words">{med.observations}</div>
-                          )}
-                        </td>
-                        <td className="px-4 py-3">{med.dosage} ({med.route})</td>
-                        <td className="px-4 py-3">{med.frequency}</td>
-                        <td className="px-4 py-3">
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                            {med.nextDose}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                           <button 
-                            onClick={() => handleAdministerMedication(med.id)}
-                            className="bg-emerald-600 text-white text-xs px-3 py-1.5 rounded hover:bg-emerald-700 transition-colors mr-2"
-                           >
-                             Checar
-                           </button>
-                           <button className="text-rose-500 hover:text-rose-700 p-1" title="Registrar Reação Adversa">
-                             <AlertOctagon size={16} />
-                           </button>
-                           <button 
-                              onClick={() => handleDeleteMedication(med.id)}
-                              className="text-rose-600 hover:text-rose-800 p-1 ml-2 inline-flex items-center"
-                              title="Excluir Prescrição"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
+            );
+          })()}
 
           {activeTab === 'routine' && (
             <div className="space-y-6 animate-in fade-in duration-200">
@@ -4240,7 +4362,13 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                                     <button
                                       type="button"
                                       onClick={() => {
-                                        const initialMeds = resident.medications.map(med => ({
+                                        const bulletinDate = checklistDraft?.date || new Date().toISOString().split('T')[0];
+                                        const activeMeds = resident.medications.filter(med => {
+                                          if (!med.endDate) return true;
+                                          const start = med.startDate || '2000-01-01';
+                                          return start <= bulletinDate && med.endDate >= bulletinDate;
+                                        });
+                                        const initialMeds = activeMeds.map(med => ({
                                           id: med.id,
                                           name: med.name,
                                           dosage: med.dosage,
@@ -5449,25 +5577,50 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">Data de Início</label>
-                  <input 
-                    required 
-                    type="date" 
-                    value={prescriptionData.startDate} 
-                    onChange={e => setPrescriptionData({ ...prescriptionData, startDate: e.target.value })} 
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              <div className="space-y-3">
+                <div className="flex items-start gap-3 p-3 bg-amber-50 border border-amber-100 rounded-xl cursor-pointer"
+                  onClick={() => setPrescriptionData({ ...prescriptionData, isTemporary: !prescriptionData.isTemporary, endDate: prescriptionData.isTemporary ? '' : prescriptionData.endDate })}
+                >
+                  <input
+                    type="checkbox"
+                    id="isTemporary"
+                    checked={prescriptionData.isTemporary}
+                    onChange={() => {}}
+                    className="mt-0.5 w-4 h-4 rounded text-amber-600 border-amber-300 focus:ring-amber-500 cursor-pointer"
                   />
+                  <div>
+                    <label htmlFor="isTemporary" className="text-sm font-semibold text-amber-700 cursor-pointer block">
+                      Medicamento Temporário
+                    </label>
+                    <span className="text-xs text-amber-600">Ex: antibióticos, analgésicos de curto prazo, corticoides em desmame</span>
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">Data de Término (Opcional)</label>
-                  <input 
-                    type="date" 
-                    value={prescriptionData.endDate} 
-                    onChange={e => setPrescriptionData({ ...prescriptionData, endDate: e.target.value })} 
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                  />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1.5">Data de Início</label>
+                    <input
+                      required
+                      type="date"
+                      value={prescriptionData.startDate}
+                      onChange={e => setPrescriptionData({ ...prescriptionData, startDate: e.target.value })}
+                      className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                    />
+                  </div>
+                  {prescriptionData.isTemporary && (
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                        Data de Término <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        required
+                        type="date"
+                        value={prescriptionData.endDate}
+                        min={prescriptionData.startDate}
+                        onChange={e => setPrescriptionData({ ...prescriptionData, endDate: e.target.value })}
+                        className="w-full px-3 py-2.5 border border-amber-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 bg-white"
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
 
