@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, Filter, FileText, X, User, Phone, FileHeart, Plus, AlertCircle, BedDouble, Home, Edit2, Pill, Camera } from 'lucide-react';
+import { Search, Filter, FileText, X, User, Phone, FileHeart, Plus, AlertCircle, BedDouble, Home, Edit2, Pill, Camera, ArrowUpDown, ArrowUp, ArrowDown, ChevronDown } from 'lucide-react';
 import { Resident, Room } from '../types';
 import CustomSelect from './CustomSelect';
 import { compressImage, uploadResidentPhoto } from '../services/supabaseClient';
@@ -49,7 +49,18 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
     return (localStorage.getItem('modal_residents_active_tab') as any) || 'personal';
   });
   const [search, setSearch] = useState('');
+  const [filterCareLevel, setFilterCareLevel] = useState<'' | 'I' | 'II' | 'III'>('');
+  const [sortBy, setSortBy] = useState<'name' | 'age' | 'room' | 'careLevel'>('name');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [showSortMenu, setShowSortMenu] = useState(false);
   const [photoUploading, setPhotoUploading] = useState(false);
+
+  React.useEffect(() => {
+    if (!showSortMenu) return;
+    const close = () => setShowSortMenu(false);
+    document.addEventListener('click', close);
+    return () => document.removeEventListener('click', close);
+  }, [showSortMenu]);
 
   const [formData, setFormData] = useState<Partial<Resident>>(() => {
     const saved = localStorage.getItem('modal_residents_form_data');
@@ -141,10 +152,22 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
     }
   }, [isModalOpen, activeTab, formData, contactTemp, editingResidentId]);
 
-  const filtered = residents.filter(r =>
-    r.name.toLowerCase().includes(search.toLowerCase()) ||
-    r.room.toLowerCase().includes(search.toLowerCase())
-  );
+  const careLevelOrder = { I: 1, II: 2, III: 3 };
+
+  const filtered = residents
+    .filter(r => {
+      const matchSearch = r.name.toLowerCase().includes(search.toLowerCase()) || r.room.toLowerCase().includes(search.toLowerCase());
+      const matchLevel = filterCareLevel === '' || r.careLevel === filterCareLevel;
+      return matchSearch && matchLevel;
+    })
+    .sort((a, b) => {
+      let cmp = 0;
+      if (sortBy === 'name') cmp = a.name.localeCompare(b.name, 'pt-BR');
+      else if (sortBy === 'age') cmp = a.age - b.age;
+      else if (sortBy === 'room') cmp = a.room.localeCompare(b.room, 'pt-BR', { numeric: true });
+      else if (sortBy === 'careLevel') cmp = careLevelOrder[a.careLevel] - careLevelOrder[b.careLevel];
+      return sortOrder === 'asc' ? cmp : -cmp;
+    });
 
   const addContact = () => {
     if (contactTemp.name && contactTemp.phone) {
@@ -361,8 +384,9 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
         </button>
       </div>
 
-      {/* Search */}
-      <div className="bg-white rounded-2xl shadow-sm shadow-blue-100/40 p-3">
+      {/* Search + Filter + Sort */}
+      <div className="bg-white rounded-2xl shadow-sm shadow-blue-100/40 p-3 space-y-3">
+        {/* Search */}
         <div className="relative">
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
           <input
@@ -373,6 +397,87 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
             className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border-0 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
+
+        {/* Filter & Sort row */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Care level filter chips */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mr-0.5 hidden sm:inline">Filtrar:</span>
+            {([['', 'Todos'], ['I', 'Grau I'], ['II', 'Grau II'], ['III', 'Grau III']] as const).map(([val, label]) => {
+              const active = filterCareLevel === val;
+              const colorMap: Record<string, string> = {
+                '': active ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
+                'I': active ? 'bg-emerald-500 text-white' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100',
+                'II': active ? 'bg-amber-500 text-white' : 'bg-amber-50 text-amber-700 hover:bg-amber-100',
+                'III': active ? 'bg-rose-500 text-white' : 'bg-rose-50 text-rose-700 hover:bg-rose-100',
+              };
+              return (
+                <button
+                  key={val}
+                  onClick={() => setFilterCareLevel(val)}
+                  className={`text-xs font-semibold px-3 py-1.5 rounded-full transition-colors ${colorMap[val]}`}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Spacer */}
+          <div className="flex-1" />
+
+          {/* Sort */}
+          <div className="relative">
+            <button
+              onClick={e => { e.stopPropagation(); setShowSortMenu(v => !v); }}
+              className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-full transition-colors"
+            >
+              <ArrowUpDown className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Ordenar: </span>
+              {sortBy === 'name' && 'Nome'}
+              {sortBy === 'age' && 'Idade'}
+              {sortBy === 'room' && 'Quarto'}
+              {sortBy === 'careLevel' && 'Grau'}
+              <ChevronDown className="h-3 w-3 text-slate-400" />
+            </button>
+            {showSortMenu && (
+              <div className="absolute right-0 top-full mt-1 z-20 bg-white border border-slate-100 rounded-xl shadow-lg py-1 min-w-[160px]">
+                {([['name', 'Alfabética (Nome)'], ['age', 'Idade'], ['room', 'Quarto'], ['careLevel', 'Grau de Dependência']] as const).map(([val, label]) => (
+                  <button
+                    key={val}
+                    onClick={() => { setSortBy(val); setShowSortMenu(false); }}
+                    className={`w-full text-left px-4 py-2 text-xs font-semibold transition-colors ${sortBy === val ? 'text-blue-600 bg-blue-50' : 'text-slate-600 hover:bg-slate-50'}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Sort direction toggle */}
+          <button
+            onClick={() => setSortOrder(o => o === 'asc' ? 'desc' : 'asc')}
+            title={sortOrder === 'asc' ? 'Crescente' : 'Decrescente'}
+            className="flex items-center gap-1 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-full transition-colors"
+          >
+            {sortOrder === 'asc' ? <ArrowUp className="h-3.5 w-3.5" /> : <ArrowDown className="h-3.5 w-3.5" />}
+            <span className="hidden sm:inline">{sortOrder === 'asc' ? 'Crescente' : 'Decrescente'}</span>
+          </button>
+        </div>
+
+        {/* Active filter summary */}
+        {(filterCareLevel !== '' || sortBy !== 'name' || sortOrder !== 'asc') && (
+          <div className="flex items-center gap-2 pt-1 border-t border-slate-50">
+            <span className="text-[11px] text-slate-400">{filtered.length} resultado{filtered.length !== 1 ? 's' : ''}</span>
+            <button
+              onClick={() => { setFilterCareLevel(''); setSortBy('name'); setSortOrder('asc'); }}
+              className="text-[11px] text-blue-500 hover:text-blue-700 font-semibold transition-colors"
+            >
+              Limpar filtros
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Grid */}

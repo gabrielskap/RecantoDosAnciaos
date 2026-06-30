@@ -6,7 +6,7 @@ import {
   BedDouble, Home, Wrench, PaintRoller, Edit2, X, Phone, FileHeart, Trash2, Users, Camera, Sun, Moon,
   Key, Printer, Upload, Wind, UserCheck
 } from 'lucide-react';
-import { Resident, CarePlan, AuditLog, DailyChecklist, Medication, RoomStatus, Room, ViewState } from '../types';
+import { Resident, CarePlan, AuditLog, DailyChecklist, Medication, ResidentPrescriptionRecord, RoomStatus, Room, ViewState } from '../types';
 import { residentAvatarSrc } from '../lib/avatar';
 import { toast } from '../services/toast';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
@@ -22,6 +22,66 @@ interface ChecklistMedication {
   status: 'tomou' | 'nao_tomou' | 'pendente';
   time?: string;
 }
+
+// ── Medication schedule helpers ──────────────────────────────────────────────
+
+export const FREQUENCY_OPTIONS = [
+  { label: '1h em 1h',              hours: 1  },
+  { label: '2h em 2h',              hours: 2  },
+  { label: '3h em 3h',              hours: 3  },
+  { label: '4h em 4h',              hours: 4  },
+  { label: '6h em 6h',              hours: 6  },
+  { label: '8h em 8h',              hours: 8  },
+  { label: '12h em 12h',            hours: 12 },
+  { label: '24h em 24h (1× ao dia)', hours: 24 },
+  { label: '48h em 48h (a cada 2 dias)', hours: 48 },
+  { label: '72h em 72h (a cada 3 dias)', hours: 72 },
+];
+
+export const parseFrequencyHours = (label: string): number => {
+  const opt = FREQUENCY_OPTIONS.find(o => o.label === label);
+  if (opt) return opt.hours;
+  const m = label.match(/^(\d+)h/);
+  return m ? parseInt(m[1], 10) : 0;
+};
+
+const fmtMins = (totalMins: number): string => {
+  const h = Math.floor(totalMins / 60) % 24;
+  const m = totalMins % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+};
+
+export const getShiftForTime = (time: string): 'diurno' | 'noturno' => {
+  const h = parseInt(time.split(':')[0], 10);
+  return (h >= 6 && h < 18) ? 'diurno' : 'noturno';
+};
+
+export const computeDailySchedule = (
+  firstDose: string,
+  frequencyHours: number
+): { time: string; shift: 'diurno' | 'noturno' }[] => {
+  if (!firstDose || frequencyHours <= 0) {
+    return [{ time: firstDose || '08:00', shift: getShiftForTime(firstDose || '08:00') }];
+  }
+  const [h, m] = firstDose.split(':').map(Number);
+  const startMins = (h || 0) * 60 + (m || 0);
+  const intervalMins = frequencyHours * 60;
+  if (intervalMins >= 24 * 60) {
+    return [{ time: firstDose, shift: getShiftForTime(firstDose) }];
+  }
+  const results: { time: string; shift: 'diurno' | 'noturno' }[] = [];
+  let cur = startMins;
+  const seen = new Set<number>();
+  while (!seen.has(cur)) {
+    seen.add(cur);
+    const t = fmtMins(cur);
+    results.push({ time: t, shift: getShiftForTime(t) });
+    cur = (cur + intervalMins) % (24 * 60);
+  }
+  return results;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 const parseMedications = (val?: string): ChecklistMedication[] | null => {
   if (!val) return null;
@@ -605,6 +665,64 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     }
   }, [isPrescriptionModalOpen, prescriptionData, resident.id]);
 
+  // Receitas Médicas
+  const [isReceitaModalOpen, setIsReceitaModalOpen] = useState(false);
+  const [receitaFormData, setReceitaFormData] = useState({
+    description: '',
+    expiryDate: '',
+    fileUrl: '',
+    fileName: ''
+  });
+  const [isUploadingReceita, setIsUploadingReceita] = useState(false);
+
+  const handleReceitaFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsUploadingReceita(true);
+    try {
+      const url = await uploadPrescriptionDocument(file);
+      setReceitaFormData(prev => ({ ...prev, fileUrl: url, fileName: file.name }));
+      toast.success('Arquivo carregado com sucesso!');
+    } catch {
+      toast.error('Erro ao fazer upload do arquivo. Tente novamente.');
+    } finally {
+      setIsUploadingReceita(false);
+    }
+  };
+
+  const handleSaveReceita = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!onUpdateResident || !receitaFormData.description || !receitaFormData.expiryDate || !receitaFormData.fileUrl) return;
+
+    const newReceita: ResidentPrescriptionRecord = {
+      id: Math.random().toString(36).substr(2, 9),
+      description: receitaFormData.description,
+      expiryDate: receitaFormData.expiryDate,
+      fileUrl: receitaFormData.fileUrl,
+      fileName: receitaFormData.fileName,
+      createdAt: new Date().toISOString()
+    };
+
+    onUpdateResident({
+      ...resident,
+      prescriptions: [...(resident.prescriptions || []), newReceita]
+    });
+
+    setReceitaFormData({ description: '', expiryDate: '', fileUrl: '', fileName: '' });
+    setIsReceitaModalOpen(false);
+    toast.success('Receita anexada com sucesso!');
+  };
+
+  const handleDeleteReceita = (receitaId: string) => {
+    if (!onUpdateResident) return;
+    if (confirm('Tem certeza que deseja excluir esta receita?')) {
+      onUpdateResident({
+        ...resident,
+        prescriptions: (resident.prescriptions || []).filter(p => p.id !== receitaId)
+      });
+    }
+  };
+
   // Keep track of the loaded care plan key to prevent race conditions
   const lastLoadedCarePlanKeyRef = React.useRef<string | null>(null);
 
@@ -1119,7 +1237,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
           <div>
             <div class="field">
               <div class="field-label">Estado Neurológico</div>
-              <div class="field-value">${selectedChecklist.estadoNeurologico || 'Não informado'}</div>
+              <div class="field-value">${selectedChecklist.estadoNeurologico === 'lucido' ? 'Lúcido' : selectedChecklist.estadoNeurologico === 'confuso' ? 'Confuso' : 'Não informado'}</div>
             </div>
             <div class="field">
               <div class="field-label">Comportamento Observado</div>
@@ -3087,55 +3205,80 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
             const today = new Date().toISOString().split('T')[0];
             const permanentMeds = resident.medications.filter(m => !m.endDate);
             const temporaryMeds = resident.medications.filter(m => !!m.endDate);
-            const renderMedRow = (med: Medication) => (
-              <tr key={med.id} className="hover:bg-slate-50 transition-colors">
-                <td className="px-4 py-3 font-medium text-slate-800">
-                  <div className="flex items-center gap-2">
-                    <span>{med.name}</span>
-                    {med.documentUrl && (
-                      <a
-                        href={med.documentUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue-500 hover:text-blue-700 inline-flex items-center gap-0.5 text-xs font-normal"
-                        title="Visualizar receita digitalizada"
-                      >
-                        <FileText size={14} className="text-blue-500" />
-                        <span className="underline">Receita</span>
-                      </a>
+            const renderMedRow = (med: Medication) => {
+              const freqH = parseFrequencyHours(med.frequency);
+              const schedule = computeDailySchedule(med.nextDose || '08:00', freqH);
+              const diurnoTimes = schedule.filter(s => s.shift === 'diurno');
+              const noturnoTimes = schedule.filter(s => s.shift === 'noturno');
+              return (
+                <tr key={med.id} className="hover:bg-slate-50 transition-colors">
+                  <td className="px-4 py-3 font-medium text-slate-800">
+                    <div className="flex items-center gap-2">
+                      <span>{med.name}</span>
+                      {med.documentUrl && (
+                        <a
+                          href={med.documentUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-500 hover:text-blue-700 inline-flex items-center gap-0.5 text-xs font-normal"
+                          title="Visualizar receita digitalizada"
+                        >
+                          <FileText size={14} className="text-blue-500" />
+                          <span className="underline">Receita</span>
+                        </a>
+                      )}
+                    </div>
+                    {med.observations && (
+                      <div className="text-xs text-slate-450 font-normal mt-0.5 max-w-xs break-words">{med.observations}</div>
                     )}
-                  </div>
-                  {med.observations && (
-                    <div className="text-xs text-slate-450 font-normal mt-0.5 max-w-xs break-words">{med.observations}</div>
-                  )}
-                </td>
-                <td className="px-4 py-3">{med.dosage} ({med.route})</td>
-                <td className="px-4 py-3">{med.frequency}</td>
-                <td className="px-4 py-3">
-                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                    {med.nextDose}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-right">
-                  <button
-                    onClick={() => handleAdministerMedication(med.id)}
-                    className="bg-emerald-600 text-white text-xs px-3 py-1.5 rounded hover:bg-emerald-700 transition-colors mr-2"
-                  >
-                    Checar
-                  </button>
-                  <button className="text-rose-500 hover:text-rose-700 p-1" title="Registrar Reação Adversa">
-                    <AlertOctagon size={16} />
-                  </button>
-                  <button
-                    onClick={() => handleDeleteMedication(med.id)}
-                    className="text-rose-600 hover:text-rose-800 p-1 ml-2 inline-flex items-center"
-                    title="Excluir Prescrição"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </td>
-              </tr>
-            );
+                  </td>
+                  <td className="px-4 py-3">{med.dosage} ({med.route})</td>
+                  <td className="px-4 py-3">{med.frequency}</td>
+                  <td className="px-4 py-3">
+                    <div className="flex flex-col gap-1">
+                      {diurnoTimes.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-1">
+                          <Sun className="w-3 h-3 text-amber-500 shrink-0" />
+                          {diurnoTimes.map(s => (
+                            <span key={s.time} className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+                              {s.time}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {noturnoTimes.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-1">
+                          <Moon className="w-3 h-3 text-indigo-500 shrink-0" />
+                          {noturnoTimes.map(s => (
+                            <span key={s.time} className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">
+                              {s.time}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <button
+                      onClick={() => handleAdministerMedication(med.id)}
+                      className="bg-emerald-600 text-white text-xs px-3 py-1.5 rounded hover:bg-emerald-700 transition-colors mr-2"
+                    >
+                      Checar
+                    </button>
+                    <button className="text-rose-500 hover:text-rose-700 p-1" title="Registrar Reação Adversa">
+                      <AlertOctagon size={16} />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteMedication(med.id)}
+                      className="text-rose-600 hover:text-rose-800 p-1 ml-2 inline-flex items-center"
+                      title="Excluir Prescrição"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </td>
+                </tr>
+              );
+            };
             return (
               <div className="space-y-6">
                 <div className="flex justify-between items-center">
@@ -3165,7 +3308,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                             <th className="px-4 py-3 rounded-tl-lg">Medicamento</th>
                             <th className="px-4 py-3">Dosagem/Via</th>
                             <th className="px-4 py-3">Frequência</th>
-                            <th className="px-4 py-3">Próxima Dose</th>
+                            <th className="px-4 py-3">Horários / Boletim</th>
                             <th className="px-4 py-3 rounded-tr-lg text-right">Ação</th>
                           </tr>
                         </thead>
@@ -3194,7 +3337,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                             <th className="px-4 py-3 rounded-tl-lg">Medicamento</th>
                             <th className="px-4 py-3">Dosagem/Via</th>
                             <th className="px-4 py-3">Frequência</th>
-                            <th className="px-4 py-3">Horário</th>
+                            <th className="px-4 py-3">Horários / Boletim</th>
                             <th className="px-4 py-3">Período</th>
                             <th className="px-4 py-3 rounded-tr-lg text-right">Ação</th>
                           </tr>
@@ -3205,6 +3348,10 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                             const isNotStarted = !!(med.startDate && med.startDate > today);
                             const isActive = !isExpired && !isNotStarted;
                             const fmtDate = (d: string) => d.split('-').reverse().join('/');
+                            const freqHTmp = parseFrequencyHours(med.frequency);
+                            const scheduleTmp = computeDailySchedule(med.nextDose || '08:00', freqHTmp);
+                            const diurnoTmp = scheduleTmp.filter(s => s.shift === 'diurno');
+                            const noturnoTmp = scheduleTmp.filter(s => s.shift === 'noturno');
                             return (
                               <tr key={med.id} className={`transition-colors ${isExpired ? 'opacity-50 bg-slate-50' : 'hover:bg-amber-50/40'}`}>
                                 <td className="px-4 py-3 font-medium text-slate-800">
@@ -3230,9 +3377,28 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                                 <td className="px-4 py-3">{med.dosage} ({med.route})</td>
                                 <td className="px-4 py-3">{med.frequency}</td>
                                 <td className="px-4 py-3">
-                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                                    {med.nextDose}
-                                  </span>
+                                  <div className="flex flex-col gap-1">
+                                    {diurnoTmp.length > 0 && (
+                                      <div className="flex flex-wrap items-center gap-1">
+                                        <Sun className="w-3 h-3 text-amber-500 shrink-0" />
+                                        {diurnoTmp.map(s => (
+                                          <span key={s.time} className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+                                            {s.time}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    )}
+                                    {noturnoTmp.length > 0 && (
+                                      <div className="flex flex-wrap items-center gap-1">
+                                        <Moon className="w-3 h-3 text-indigo-500 shrink-0" />
+                                        {noturnoTmp.map(s => (
+                                          <span key={s.time} className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">
+                                            {s.time}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
                                 </td>
                                 <td className="px-4 py-3">
                                   <div className="text-xs text-slate-600 font-medium">
@@ -3270,9 +3436,179 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                     </div>
                   )}
                 </div>
+
+                {/* Receitas Médicas */}
+                <div>
+                  <div className="flex justify-between items-center mb-3">
+                    <h4 className="text-sm font-semibold text-slate-600 flex items-center gap-2">
+                      <FileText className="w-3.5 h-3.5 text-indigo-500" />
+                      Receitas Médicas
+                      <span className="text-xs font-normal text-slate-400">({(resident.prescriptions || []).length})</span>
+                    </h4>
+                    <button
+                      onClick={() => setIsReceitaModalOpen(true)}
+                      className="flex items-center text-sm text-indigo-600 font-medium bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100 hover:bg-indigo-100 transition-colors"
+                    >
+                      <Plus className="h-4 w-4 mr-1" /> Anexar Receita
+                    </button>
+                  </div>
+                  {(resident.prescriptions || []).length === 0 ? (
+                    <p className="text-xs text-slate-400 italic px-1">Nenhuma receita anexada.</p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-sm text-slate-600">
+                        <thead className="bg-indigo-50 text-slate-800 font-semibold uppercase text-xs">
+                          <tr>
+                            <th className="px-4 py-3 rounded-tl-lg">Descrição</th>
+                            <th className="px-4 py-3">Data de Validade</th>
+                            <th className="px-4 py-3">Status</th>
+                            <th className="px-4 py-3 rounded-tr-lg text-right">Ações</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {(resident.prescriptions || []).map(receita => {
+                            const today = new Date().toISOString().split('T')[0];
+                            const isValid = receita.expiryDate >= today;
+                            const fmtDate = (d: string) => d.split('-').reverse().join('/');
+                            return (
+                              <tr key={receita.id} className="hover:bg-indigo-50/30 transition-colors">
+                                <td className="px-4 py-3 font-medium text-slate-800">
+                                  <div className="flex items-center gap-2">
+                                    <FileText size={14} className="text-indigo-400 shrink-0" />
+                                    <span>{receita.description}</span>
+                                  </div>
+                                  <div className="text-xs text-slate-400 mt-0.5 pl-5">{receita.fileName}</div>
+                                </td>
+                                <td className="px-4 py-3 text-slate-600">{fmtDate(receita.expiryDate)}</td>
+                                <td className="px-4 py-3">
+                                  {isValid ? (
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">Válida</span>
+                                  ) : (
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-rose-100 text-rose-700">Vencida</span>
+                                  )}
+                                </td>
+                                <td className="px-4 py-3 text-right">
+                                  <a
+                                    href={receita.fileUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 font-medium mr-3"
+                                    title="Visualizar receita"
+                                  >
+                                    <FileText size={14} /> Ver
+                                  </a>
+                                  <button
+                                    onClick={() => handleDeleteReceita(receita.id)}
+                                    className="text-rose-500 hover:text-rose-700 p-1 inline-flex items-center"
+                                    title="Excluir receita"
+                                  >
+                                    <Trash2 size={15} />
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
               </div>
             );
           })()}
+
+          {/* Modal: Anexar Receita */}
+          {isReceitaModalOpen && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+                <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+                  <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2">
+                    <FileText size={18} className="text-indigo-500" />
+                    Anexar Receita Médica
+                  </h2>
+                  <button
+                    onClick={() => { setIsReceitaModalOpen(false); setReceitaFormData({ description: '', expiryDate: '', fileUrl: '', fileName: '' }); }}
+                    className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+                <form onSubmit={handleSaveReceita} className="px-6 py-5 space-y-4">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">Descrição <span className="text-rose-500">*</span></label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Ex: Receita de Losartana 50mg"
+                      value={receitaFormData.description}
+                      onChange={e => setReceitaFormData(prev => ({ ...prev, description: e.target.value }))}
+                      className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">Data de Validade <span className="text-rose-500">*</span></label>
+                    <input
+                      type="date"
+                      required
+                      value={receitaFormData.expiryDate}
+                      onChange={e => setReceitaFormData(prev => ({ ...prev, expiryDate: e.target.value }))}
+                      className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">Arquivo (PDF, imagem) <span className="text-rose-500">*</span></label>
+                    {receitaFormData.fileUrl ? (
+                      <div className="flex items-center gap-2 p-2 bg-emerald-50 border border-emerald-200 rounded-lg">
+                        <CheckCircle size={16} className="text-emerald-500 shrink-0" />
+                        <span className="text-xs text-emerald-700 truncate flex-1">{receitaFormData.fileName}</span>
+                        <button
+                          type="button"
+                          onClick={() => setReceitaFormData(prev => ({ ...prev, fileUrl: '', fileName: '' }))}
+                          className="text-slate-400 hover:text-rose-500 shrink-0"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ) : (
+                      <label className={`flex items-center justify-center gap-2 w-full border-2 border-dashed rounded-lg px-3 py-4 text-sm cursor-pointer transition-colors ${isUploadingReceita ? 'border-indigo-300 bg-indigo-50' : 'border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/40'}`}>
+                        {isUploadingReceita ? (
+                          <span className="text-indigo-500 text-xs">Enviando...</span>
+                        ) : (
+                          <>
+                            <Upload size={16} className="text-slate-400" />
+                            <span className="text-slate-500 text-xs">Clique para selecionar o arquivo</span>
+                          </>
+                        )}
+                        <input
+                          type="file"
+                          className="hidden"
+                          accept=".pdf,.png,.jpg,.jpeg,.webp"
+                          disabled={isUploadingReceita}
+                          onChange={handleReceitaFileChange}
+                        />
+                      </label>
+                    )}
+                  </div>
+                  <div className="flex gap-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => { setIsReceitaModalOpen(false); setReceitaFormData({ description: '', expiryDate: '', fileUrl: '', fileName: '' }); }}
+                      className="flex-1 px-4 py-2 border border-slate-200 text-slate-600 text-sm font-medium rounded-lg hover:bg-slate-50 transition-colors"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={!receitaFormData.fileUrl || isUploadingReceita}
+                      className="flex-1 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Salvar Receita
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
 
           {activeTab === 'routine' && (
             <div className="space-y-6 animate-in fade-in duration-200">
@@ -3467,8 +3803,18 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                             </div>
                             <div className="flex justify-between items-center py-1 border-b border-slate-50 border-dotted">
                               <span className="text-slate-550 font-medium text-xs sm:text-sm">Estado Neurológico:</span>
-                              <span className="font-semibold text-slate-700 text-xs shadow-none">
-                                {selectedChecklist.estadoNeurologico || 'Não informado'}
+                              <span className={`font-semibold px-2 py-0.5 rounded text-xs ${
+                                selectedChecklist.estadoNeurologico === 'lucido'
+                                  ? 'bg-emerald-50 text-emerald-800'
+                                  : selectedChecklist.estadoNeurologico === 'confuso'
+                                  ? 'bg-amber-50 text-amber-800'
+                                  : 'text-slate-700'
+                              }`}>
+                                {selectedChecklist.estadoNeurologico === 'lucido'
+                                  ? 'Lúcido'
+                                  : selectedChecklist.estadoNeurologico === 'confuso'
+                                  ? 'Confuso'
+                                  : 'Não informado'}
                               </span>
                             </div>
                             <div className="flex flex-col gap-1.5 pt-1">
@@ -3977,13 +4323,30 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                         {/* Estado Neurológico */}
                         <div className="space-y-1.5">
                           <label className="block text-xs font-bold text-slate-700">Estado neurológico:</label>
-                          <input
-                            type="text"
-                            value={checklistDraft.estadoNeurologico || ''}
-                            onChange={(e) => handleChecklistFieldChange('estadoNeurologico', e.target.value)}
-                            placeholder="Informe o nível de consciência (Ex: Lúcido e orientado, sonolento, confuso)"
-                            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-primary-500"
-                          />
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleChecklistFieldChange('estadoNeurologico', 'lucido')}
+                              className={`flex-1 py-2 px-3 rounded-lg border text-xs font-medium transition-all ${
+                                checklistDraft.estadoNeurologico === 'lucido'
+                                  ? 'bg-emerald-50 border-emerald-400 text-emerald-800 font-bold shadow-sm'
+                                  : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                              }`}
+                            >
+                              Lúcido
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleChecklistFieldChange('estadoNeurologico', 'confuso')}
+                              className={`flex-1 py-2 px-3 rounded-lg border text-xs font-medium transition-all ${
+                                checklistDraft.estadoNeurologico === 'confuso'
+                                  ? 'bg-amber-50 border-amber-400 text-amber-800 font-bold shadow-sm'
+                                  : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                              }`}
+                            >
+                              Confuso
+                            </button>
+                          </div>
                         </div>
 
                         {/* Outras Observações (Comportamento) */}
@@ -5556,26 +5919,67 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">Frequência / Horário</label>
-                  <input 
-                    required 
-                    type="text" 
-                    value={prescriptionData.frequency} 
-                    onChange={e => setPrescriptionData({ ...prescriptionData, frequency: e.target.value })} 
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">Frequência</label>
+                  <select
+                    required
+                    value={prescriptionData.frequency}
+                    onChange={e => setPrescriptionData({ ...prescriptionData, frequency: e.target.value })}
                     className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                    placeholder="Ex: 12h em 12h, Uma vez ao dia" 
-                  />
+                  >
+                    {FREQUENCY_OPTIONS.map(opt => (
+                      <option key={opt.label} value={opt.label}>{opt.label}</option>
+                    ))}
+                  </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">Horário da Próxima Dose</label>
-                  <input 
-                    type="time" 
-                    value={prescriptionData.nextDose} 
-                    onChange={e => setPrescriptionData({ ...prescriptionData, nextDose: e.target.value })} 
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">Horário da Primeira Dose</label>
+                  <input
+                    type="time"
+                    value={prescriptionData.nextDose}
+                    onChange={e => setPrescriptionData({ ...prescriptionData, nextDose: e.target.value })}
                     className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                   />
                 </div>
               </div>
+
+              {/* Preview dos horários calculados */}
+              {prescriptionData.nextDose && prescriptionData.frequency && (() => {
+                const freqH = parseFrequencyHours(prescriptionData.frequency);
+                const schedule = computeDailySchedule(prescriptionData.nextDose, freqH);
+                const diurno = schedule.filter(s => s.shift === 'diurno');
+                const noturno = schedule.filter(s => s.shift === 'noturno');
+                return (
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
+                    <p className="text-xs font-semibold text-slate-600 mb-1">
+                      Horários calculados ({schedule.length} dose{schedule.length !== 1 ? 's' : ''}/dia)
+                    </p>
+                    {diurno.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
+                          <Sun className="w-3 h-3" /> Diurno
+                        </span>
+                        {diurno.map(s => (
+                          <span key={s.time} className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-800 border border-amber-200">
+                            {s.time}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {noturno.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded-full">
+                          <Moon className="w-3 h-3" /> Noturno
+                        </span>
+                        {noturno.map(s => (
+                          <span key={s.time} className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-50 text-indigo-800 border border-indigo-200">
+                            {s.time}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               <div className="space-y-3">
                 <div className="flex items-start gap-3 p-3 bg-amber-50 border border-amber-100 rounded-xl cursor-pointer"
@@ -5799,8 +6203,12 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                               )}
 
                               {chk.estadoNeurologico && (
-                                <span className="bg-slate-100 text-slate-700 border border-slate-200 px-2 py-0.5 rounded-full text-[10px] font-semibold truncate max-w-[180px]" title={chk.estadoNeurologico}>
-                                  Neurológico: {chk.estadoNeurologico}
+                                <span className={`px-2 py-0.5 rounded-full text-[10px] border font-semibold ${
+                                  chk.estadoNeurologico === 'lucido'
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                                    : 'bg-amber-50 text-amber-700 border-amber-100'
+                                }`}>
+                                  Neurológico: {chk.estadoNeurologico === 'lucido' ? 'Lúcido' : 'Confuso'}
                                 </span>
                               )}
                             </div>

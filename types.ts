@@ -20,6 +20,15 @@ export interface Medication {
   documentUrl?: string;
 }
 
+export interface ResidentPrescriptionRecord {
+  id: string;
+  description: string;
+  expiryDate: string; // YYYY-MM-DD
+  fileUrl: string;
+  fileName: string;
+  createdAt: string;
+}
+
 export interface VitalSign {
   timestamp: string;
   bp: string; // Blood Pressure
@@ -61,7 +70,7 @@ export interface DailyChecklist {
   // Detailed clinical and routine fields requested by the user
   queixaDor?: 'nao' | 'sim';
   queixaDorDesc?: string;
-  estadoNeurologico?: string;
+  estadoNeurologico?: 'lucido' | 'confuso';
   arAmbiente?: boolean;
   alimentacao?: 'boa' | 'moderada' | 'ruim';
   alimentacaoDesc?: string;
@@ -206,6 +215,7 @@ export interface Resident {
   socialHistory: string; // Histórico familiar/social
   
   medications: Medication[];
+  prescriptions?: ResidentPrescriptionRecord[];
   allergies: string[];
   vitals: VitalSign[];
   carePlan: CarePlan[];

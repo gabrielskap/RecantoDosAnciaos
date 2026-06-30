@@ -1,5 +1,5 @@
 import { supabase } from './supabaseClient';
-import type { Resident, FinancialRecord, Contract, Invoice, StockItem, Employee, SystemAccessLog, TrainingRecord, CalendarEvent, Room } from '../types';
+import type { Resident, ResidentPrescriptionRecord, FinancialRecord, Contract, Invoice, StockItem, Employee, SystemAccessLog, TrainingRecord, CalendarEvent, Room } from '../types';
 
 export async function fetchResidents(empresaId: string): Promise<Resident[]> {
   const { data, error } = await supabase
@@ -9,6 +9,7 @@ export async function fetchResidents(empresaId: string): Promise<Resident[]> {
       emergencyContacts:Recanto_ContatosEmergencia(*),
       legalGuardian:Recanto_ResponsaveisLegais(*),
       medications:Recanto_Medicacoes(*, logs:Recanto_LogsMedicacao(*)),
+      prescriptions:Recanto_Receitas(*),
       vitals:Recanto_SinaisVitais(*),
       carePlan:Recanto_PlanosAssistencia(*),
       dailyChecklists:Recanto_ChecklistDiario(*, carePlanAdherence:Recanto_AcompanhamentoPlano(*)),
@@ -85,6 +86,16 @@ export async function fetchResidents(empresaId: string): Promise<Resident[]> {
         note: log.note || undefined
       }))
     })),
+    prescriptions: (r.prescriptions || []).map((p: any): ResidentPrescriptionRecord => ({
+      id: p.id,
+      description: p.description,
+      expiryDate: p.expiry_date,
+      fileUrl: p.file_url,
+      fileName: p.file_name,
+      createdAt: p.created_at
+    })).sort((a: ResidentPrescriptionRecord, b: ResidentPrescriptionRecord) =>
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    ),
     allergies: (r.allergies || []).map((a: any) => a.description),
     vitals: (r.vitals || []).map((v: any) => ({
       timestamp: v.timestamp,

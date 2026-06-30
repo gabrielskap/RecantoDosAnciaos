@@ -759,7 +759,30 @@ function AppInner() {
         }
       }
 
-      // 5. Sinais Vitais
+      // 5. Receitas Médicas
+      if (updated.prescriptions !== undefined) {
+        const originalResident = residents.find(r => r.id === updated.id);
+        const originalPrescriptions = originalResident?.prescriptions || [];
+        const updatedIds = updated.prescriptions.map(p => p.id);
+        const deletedPrescriptions = originalPrescriptions.filter(p => !updatedIds.includes(p.id));
+        for (const dp of deletedPrescriptions) {
+          await supabase.from('Recanto_Receitas').delete().eq('id', dp.id);
+        }
+        for (const p of updated.prescriptions) {
+          const isMock = p.id.length < 15;
+          if (isMock) {
+            await supabase.from('Recanto_Receitas').insert({
+              resident_id: updated.id,
+              description: p.description,
+              expiry_date: p.expiryDate,
+              file_url: p.fileUrl,
+              file_name: p.fileName
+            });
+          }
+        }
+      }
+
+      // 6. Sinais Vitais
       if (updated.vitals && updated.vitals.length > 0) {
         for (const vit of updated.vitals) {
           await supabase
