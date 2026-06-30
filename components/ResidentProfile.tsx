@@ -1325,15 +1325,15 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
             <div class="field">
               <div class="field-label">Uso de Fraldas</div>
               <div class="field-value">
-                ${selectedChecklist.usoFraldas === 'sim' ? 'Sim, faz uso de fralda' : 'Não faz uso'}
+                ${(selectedChecklist.usoFraldas || resident.usoFraldas) === 'sim' ? 'Sim, faz uso de fralda' : 'Não faz uso'}
               </div>
             </div>
             <div class="field">
               <div class="field-label">Mobilidade no Turno</div>
               <div class="field-value">
-                ${selectedChecklist.mobilidadeSet === 'independente' ? 'Independente' :
-                  selectedChecklist.mobilidadeSet === 'auxilio' ? 'Com Auxílio' :
-                  selectedChecklist.mobilidadeSet === 'acamado' ? 'Acamado' : 'Não informado'}
+                ${(selectedChecklist.mobilidadeSet || resident.mobilidadeSet) === 'independente' ? 'Independente' :
+                  (selectedChecklist.mobilidadeSet || resident.mobilidadeSet) === 'auxilio' ? 'Necessita de auxilio/supervisão' :
+                  ((selectedChecklist.mobilidadeSet || resident.mobilidadeSet) === 'dependente' || (selectedChecklist.mobilidadeSet || resident.mobilidadeSet) === 'acamado') ? 'Totalmente dependente' : 'Não informado'}
               </div>
             </div>
           </div>
@@ -1341,15 +1341,17 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
             <div class="field">
               <div class="field-label">Higiene Corporal / Banho</div>
               <div class="field-value">
-                ${selectedChecklist.higieneCorporal === 'independente' ? 'Independente' :
-                  selectedChecklist.higieneCorporal === 'auxilio' ? 'Com Auxílio' : 'Não informado'}
+                ${(selectedChecklist.higieneCorporal || resident.higieneCorporal) === 'independente' ? 'Independente' :
+                  (selectedChecklist.higieneCorporal || resident.higieneCorporal) === 'auxilio' ? 'Necessita de auxilio/supervisão' :
+                  (selectedChecklist.higieneCorporal || resident.higieneCorporal) === 'dependente' ? 'Totalmente dependente' : 'Não informado'}
               </div>
             </div>
             <div class="field">
               <div class="field-label">Higiene Oral & Vestir</div>
               <div class="field-value">
-                ${selectedChecklist.higieneOralVestir === 'independente' ? 'Independente' :
-                  selectedChecklist.higieneOralVestir === 'auxilio' ? 'Com Auxílio' : 'Não informado'}
+                ${(selectedChecklist.higieneOralVestir || resident.higieneOralVestir) === 'independente' ? 'Independente' :
+                  (selectedChecklist.higieneOralVestir || resident.higieneOralVestir) === 'auxilio' ? 'Necessita de auxilio/supervisão' :
+                  (selectedChecklist.higieneOralVestir || resident.higieneOralVestir) === 'dependente' ? 'Totalmente dependente' : 'Não informado'}
               </div>
             </div>
           </div>
@@ -2164,6 +2166,11 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   const handleStartEditChecklist = () => {
     if (selectedChecklist.signedBy) return;
     const draft = { ...selectedChecklist, shift: selectedShift };
+    // Seed care routine fields from resident plan when not yet recorded in this checklist
+    if (!draft.usoFraldas) draft.usoFraldas = resident.usoFraldas || 'nao';
+    if (!draft.mobilidadeSet) draft.mobilidadeSet = (resident.mobilidadeSet as any) || 'independente';
+    if (!draft.higieneCorporal) draft.higieneCorporal = (resident.higieneCorporal as any) || 'independente';
+    if (!draft.higieneOralVestir) draft.higieneOralVestir = (resident.higieneOralVestir as any) || 'independente';
     const parsed = parseMedications(draft.medicacoesAdministradas);
     if (!parsed && resident.medications && resident.medications.length > 0) {
       const bulletinDate = draft.date;
@@ -2655,9 +2662,9 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                   <h3 className="font-semibold text-slate-800 mb-3 border-b border-slate-200 pb-2">Plano de Rotina Usual</h3>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mb-4">
                     <p><span className="text-slate-500 font-semibold">Uso de Fraldas:</span> {resident.usoFraldas === 'sim' ? 'Sim' : 'Não'}</p>
-                    <p><span className="text-slate-500 font-semibold">Mobilidade Usual:</span> {resident.mobilidadeSet === 'independente' ? 'Independente' : resident.mobilidadeSet === 'auxilio' ? 'Com auxílio' : 'Acamado'}</p>
-                    <p><span className="text-slate-500 font-semibold">Higiene Corporal:</span> {resident.higieneCorporal === 'independente' ? 'Independente' : 'Com auxílio'}</p>
-                    <p><span className="text-slate-500 font-semibold">Higiene Oral/Vestir:</span> {resident.higieneOralVestir === 'independente' ? 'Independente' : 'Com auxílio'}</p>
+                    <p><span className="text-slate-500 font-semibold">Mobilidade Usual:</span> {resident.mobilidadeSet === 'independente' ? 'Independente' : (resident.mobilidadeSet === 'dependente' || resident.mobilidadeSet === 'acamado') ? 'Totalmente dependente' : 'Necessita de auxilio/supervisão'}</p>
+                    <p><span className="text-slate-500 font-semibold">Higiene Corporal:</span> {resident.higieneCorporal === 'independente' ? 'Independente' : resident.higieneCorporal === 'dependente' ? 'Totalmente dependente' : 'Necessita de auxilio/supervisão'}</p>
+                    <p><span className="text-slate-500 font-semibold">Higiene Oral/Vestir:</span> {resident.higieneOralVestir === 'independente' ? 'Independente' : resident.higieneOralVestir === 'dependente' ? 'Totalmente dependente' : 'Necessita de auxilio/supervisão'}</p>
                   </div>
                   <div className="border-t border-slate-200/60 pt-3">
                     <span className="block text-xs font-bold text-slate-750 mb-2">Cuidados Diários Programados:</span>
@@ -3917,34 +3924,46 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                             3. Cuidados & Mobilidade
                           </h4>
                           <div className="space-y-3 text-sm">
-                            <div className="flex justify-between items-center py-1 border-b border-slate-50 border-dotted">
-                              <span className="text-slate-505 font-medium text-xs sm:text-sm">Uso de Fraldas:</span>
-                              <span className="font-semibold text-xs text-slate-700">
-                                {selectedChecklist.usoFraldas === 'sim' ? 'Sim, usa fraldas' : 'Não faz uso'}
-                              </span>
-                            </div>
-                            <div className="flex justify-between items-center py-1 border-b border-slate-50 border-dotted">
-                              <span className="text-slate-505 font-medium text-xs sm:text-sm">Mobilidade Geral:</span>
-                              <span className="font-semibold text-xs text-slate-700">
-                                {selectedChecklist.mobilidadeSet === 'independente' ? 'Independente' :
-                                selectedChecklist.mobilidadeSet === 'auxilio' ? 'Necessita de Auxílio' :
-                                selectedChecklist.mobilidadeSet === 'acamado' ? 'Acamado' : 'Não informado'}
-                              </span>
-                            </div>
-                            <div className="flex justify-between items-center py-1 border-b border-slate-50 border-dotted">
-                              <span className="text-slate-505 font-medium text-xs sm:text-sm">Higiene / Banho:</span>
-                              <span className="font-semibold text-xs text-slate-700">
-                                {selectedChecklist.higieneCorporal === 'independente' ? 'Independente' :
-                                selectedChecklist.higieneCorporal === 'auxilio' ? 'Com Auxílio' : 'Não informado'}
-                              </span>
-                            </div>
-                            <div className="flex justify-between items-center py-1 border-b border-slate-50 border-dotted">
-                              <span className="text-slate-505 font-medium text-xs sm:text-sm">Higiene Oral & Vestir:</span>
-                              <span className="font-semibold text-xs text-slate-700">
-                                {selectedChecklist.higieneOralVestir === 'independente' ? 'Independente' :
-                                selectedChecklist.higieneOralVestir === 'auxilio' ? 'Com Auxílio' : 'Não informado'}
-                              </span>
-                            </div>
+                            {(() => {
+                              const fraldas = selectedChecklist.usoFraldas || resident.usoFraldas;
+                              const mobilidade = selectedChecklist.mobilidadeSet || (resident.mobilidadeSet as any);
+                              const higieneCorp = selectedChecklist.higieneCorporal || (resident.higieneCorporal as any);
+                              const higieneOral = selectedChecklist.higieneOralVestir || (resident.higieneOralVestir as any);
+                              return (
+                                <>
+                                  <div className="flex justify-between items-center py-1 border-b border-slate-50 border-dotted">
+                                    <span className="text-slate-505 font-medium text-xs sm:text-sm">Uso de Fraldas:</span>
+                                    <span className="font-semibold text-xs text-slate-700">
+                                      {fraldas === 'sim' ? 'Sim, usa fraldas' : 'Não faz uso'}
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between items-center py-1 border-b border-slate-50 border-dotted">
+                                    <span className="text-slate-505 font-medium text-xs sm:text-sm">Mobilidade Geral:</span>
+                                    <span className="font-semibold text-xs text-slate-700">
+                                      {mobilidade === 'independente' ? 'Independente' :
+                                      mobilidade === 'auxilio' ? 'Necessita de auxilio/supervisão' :
+                                      (mobilidade === 'dependente' || mobilidade === 'acamado') ? 'Totalmente dependente' : 'Não informado'}
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between items-center py-1 border-b border-slate-50 border-dotted">
+                                    <span className="text-slate-505 font-medium text-xs sm:text-sm">Higiene / Banho:</span>
+                                    <span className="font-semibold text-xs text-slate-700">
+                                      {higieneCorp === 'independente' ? 'Independente' :
+                                      higieneCorp === 'auxilio' ? 'Necessita de auxilio/supervisão' :
+                                      higieneCorp === 'dependente' ? 'Totalmente dependente' : 'Não informado'}
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between items-center py-1 border-b border-slate-50 border-dotted">
+                                    <span className="text-slate-505 font-medium text-xs sm:text-sm">Higiene Oral & Vestir:</span>
+                                    <span className="font-semibold text-xs text-slate-700">
+                                      {higieneOral === 'independente' ? 'Independente' :
+                                      higieneOral === 'auxilio' ? 'Necessita de auxilio/supervisão' :
+                                      higieneOral === 'dependente' ? 'Totalmente dependente' : 'Não informado'}
+                                    </span>
+                                  </div>
+                                </>
+                              );
+                            })()}
                           </div>
                         </div>
 
@@ -5731,8 +5750,8 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                         className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                       >
                         <option value="independente">Independente</option>
-                        <option value="auxilio">Necessita de Auxílio</option>
-                        <option value="acamado">Acamado</option>
+                        <option value="auxilio">Necessita de auxilio/supervisão</option>
+                        <option value="dependente">Totalmente dependente</option>
                       </select>
                     </div>
                   </div>
@@ -5746,7 +5765,8 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                         className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                       >
                         <option value="independente">Independente</option>
-                        <option value="auxilio">Necessita de Auxílio</option>
+                        <option value="auxilio">Necessita de auxilio/supervisão</option>
+                        <option value="dependente">Totalmente dependente</option>
                       </select>
                     </div>
 
@@ -5758,7 +5778,8 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                         className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                       >
                         <option value="independente">Independente</option>
-                        <option value="auxilio">Necessita de Auxílio</option>
+                        <option value="auxilio">Necessita de auxilio/supervisão</option>
+                        <option value="dependente">Totalmente dependente</option>
                       </select>
                     </div>
                   </div>
