@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Utensils, AlertTriangle, CheckCircle2, PieChart as PieIcon, FileText, Droplets, Plus, X } from 'lucide-react';
-import { Resident, DietPlan, DietConsistency, DietType, MealTime, NutritionalLog } from '../types';
+import { Resident, DietPlan, DietConsistency, DietType, MealTime, NutritionalLog, ViewState } from '../types';
 import { PieChart as RechartPie, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 import { residentAvatarSrc } from '../lib/avatar';
+import { useAuth } from '../contexts/AuthContext';
 
 interface NutritionModuleProps {
   residents: Resident[];
@@ -10,6 +11,9 @@ interface NutritionModuleProps {
 }
 
 const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateResident }) => {
+  const { hasPermission } = useAuth();
+  const canCreate = hasPermission(ViewState.NUTRITION, 'create');
+
   const [activeTab, setActiveTab] = useState<'dashboard' | 'daily' | 'plans'>(() => {
     return (localStorage.getItem('recanto_nutrition_active_tab') as any) || 'dashboard';
   });
@@ -350,12 +354,14 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
       {activeTab === 'plans' && (
         <div className="space-y-4">
           <div className="flex justify-end">
-            <button
-              onClick={() => setShowNewPlanModal(true)}
-              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors shadow-sm shadow-blue-200"
-            >
-              <Plus className="h-4 w-4" /> Novo Plano Alimentar
-            </button>
+            {canCreate && (
+              <button
+                onClick={() => setShowNewPlanModal(true)}
+                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors shadow-sm shadow-blue-200"
+              >
+                <Plus className="h-4 w-4" /> Novo Plano Alimentar
+              </button>
+            )}
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {residents.map(r => (

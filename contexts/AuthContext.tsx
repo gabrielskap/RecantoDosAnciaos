@@ -16,6 +16,7 @@ export interface AuthContextValue {
   hasPermission: (module: ViewState, action: PermissionAction) => boolean;
   updateProfile: (profile: Profile) => Promise<void>;
   addProfile: (profile: Profile) => Promise<void>;
+  deleteProfile: (profileId: string) => Promise<void>;
   addUser: (user: Omit<AuthUser, 'id'> & { employeeId?: string }) => Promise<string | undefined>;
   deleteUser: (id: string) => Promise<void>;
   updateUser: (user: AuthUser) => Promise<void>;
@@ -568,6 +569,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     ];
 
     if (subPages.includes(module)) {
+      // If there's an explicit entry for this sub-module, use it directly
+      const explicitPerm = currentUser.profile.permissions.find((p: Permission) => p.module === module);
+      if (explicitPerm !== undefined) {
+        return explicitPerm.actions.includes(action);
+      }
+
+      // If ANY sub-module has an explicit entry, unconfigured ones default to no access.
+      // This prevents a sub-module with no entry from inheriting parent permissions
+      // when the admin intentionally left it unchecked.
+      const hasAnySubEntry = subPages.some(sp =>
+        currentUser.profile.permissions.some((p: Permission) => p.module === sp)
+      );
+      if (hasAnySubEntry) return false;
+
+      // Legacy fallback: profile predates individual sub-module permissions → inherit parent
       const parentPerm = currentUser.profile.permissions.find(p => p.module === ViewState.RESIDENT_DETAIL);
       if (!parentPerm) return false;
       if (action === 'sign') {
@@ -662,6 +678,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (err: any) {
       console.error(err);
       toast.error(err.message || 'Erro ao adicionar o perfil.');
+    }
+  };
+
+  const deleteProfile = async (profileId: string) => {
+    try {
+      const { error } = await supabase
+        .from('Recanto_Perfis')
+        .delete()
+        .eq('id', profileId);
+
+      if (error) throw error;
+
+      await fetchAllProfiles();
+      toast.success('Perfil excluído com sucesso.');
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err.message || 'Erro ao excluir o perfil.');
     }
   };
 
@@ -831,7 +864,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ currentUser, users, profiles, loading, login, logout, resetPassword, hasPermission, updateProfile, addProfile, addUser, deleteUser, updateUser, updateUserCertificate, accessBlocked, refreshAccessStatus }}>
+    <AuthContext.Provider value={{ currentUser, users, profiles, loading, login, logout, resetPassword, hasPermission, updateProfile, addProfile, deleteProfile, addUser, deleteUser, updateUser, updateUserCertificate, accessBlocked, refreshAccessStatus }}>
       {children}
     </AuthContext.Provider>
   );

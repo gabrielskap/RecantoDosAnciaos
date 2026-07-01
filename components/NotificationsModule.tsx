@@ -4,7 +4,7 @@ import {
   Pencil, RefreshCw, AlertTriangle, CheckCircle2, Clock, XCircle, Loader2, Smartphone,
   ShieldCheck, QrCode, Power, Eye,
 } from 'lucide-react';
-import { Resident, NotificationTemplate, NotificationQueueItem, NotificationChoice, NotificationMessageType, WhatsappInstance } from '../types';
+import { Resident, NotificationTemplate, NotificationQueueItem, NotificationChoice, NotificationMessageType, WhatsappInstance, ViewState } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { toast } from '../services/toast';
 import * as svc from '../services/notificationService';
@@ -175,6 +175,9 @@ const NotificationsModule: React.FC<NotificationsModuleProps> = ({ residents = [
 // Aba: MODELOS
 // ===========================================================================
 const TemplatesTab: React.FC<{ empresaId: string; templates: NotificationTemplate[]; onReload: () => void }> = ({ empresaId, templates, onReload }) => {
+  const { hasPermission } = useAuth();
+  const canCreate = hasPermission(ViewState.NOTIFICATIONS, 'create');
+
   const [editing, setEditing] = useState<Partial<NotificationTemplate> | null>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
 
@@ -220,9 +223,11 @@ const TemplatesTab: React.FC<{ empresaId: string; templates: NotificationTemplat
   return (
     <div className="space-y-4">
       <div className="flex justify-end">
-        <button onClick={() => setEditing(emptyTemplateForm())} className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-xl shadow-sm transition-colors">
-          <Plus className="h-4 w-4" /> Novo modelo
-        </button>
+        {canCreate && (
+          <button onClick={() => setEditing(emptyTemplateForm())} className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-xl shadow-sm transition-colors">
+            <Plus className="h-4 w-4" /> Novo modelo
+          </button>
+        )}
       </div>
 
       {templates.length === 0 ? (

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Shield, Plus, ChevronDown, ChevronUp, Check } from 'lucide-react';
+import { Shield, Plus, ChevronDown, ChevronUp, Check, Trash2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { Profile, Permission, ViewState, PermissionAction } from '../types';
+import { Profile, ViewState, PermissionAction } from '../types';
 
 const MODULE_LABELS: Record<ViewState, string> = {
   [ViewState.DASHBOARD]: 'Painel Geral',
@@ -69,11 +69,18 @@ const ACTION_LABELS: Record<PermissionAction, string> = {
 };
 
 const ProfileManager: React.FC = () => {
-  const { profiles, updateProfile, addProfile } = useAuth();
+  const { profiles, updateProfile, addProfile, deleteProfile } = useAuth();
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showNewForm, setShowNewForm] = useState(false);
   const [newName, setNewName] = useState('');
   const [prontuarioExpanded, setProntuarioExpanded] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  const handleDelete = async (profileId: string) => {
+    await deleteProfile(profileId);
+    setConfirmDeleteId(null);
+    if (expandedId === profileId) setExpandedId(null);
+  };
 
   const toggleAction = (profile: Profile, module: ViewState, action: PermissionAction) => {
     const targets = module === ViewState.RESIDENT_DETAIL
@@ -95,6 +102,10 @@ const ProfileManager: React.FC = () => {
         newPermissions[existingIdx] = { ...existing, actions: newActions };
       } else if (!hasCurrent) {
         newPermissions.push({ module: mod, actions: [action] });
+      } else {
+        // Entry doesn't exist and we're removing: add explicit empty entry so
+        // hasPermission won't fall back to the parent module granting access.
+        newPermissions.push({ module: mod, actions: [] });
       }
     });
 
@@ -159,26 +170,55 @@ const ProfileManager: React.FC = () => {
       <div className="space-y-3">
         {profiles.map(profile => (
           <div key={profile.id} className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-            <button
-              onClick={() => setExpandedId(expandedId === profile.id ? null : profile.id)}
-              className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-slate-50 transition-colors"
-            >
-              <div className="flex items-center gap-3">
-                <div className={`w-2.5 h-2.5 rounded-full ${
-                  profile.type === 'Administrador' ? 'bg-rose-500' :
-                  profile.type === 'Médico' ? 'bg-blue-500' :
-                  profile.type === 'Cuidador' ? 'bg-emerald-500' :
-                  'bg-purple-500'
-                }`} />
-                <span className="font-medium text-sm text-slate-800">{profile.name}</span>
-                {!profile.isEditable && (
-                  <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">Fixo</span>
-                )}
-              </div>
-              {expandedId === profile.id
-                ? <ChevronUp className="h-4 w-4 text-slate-400" />
-                : <ChevronDown className="h-4 w-4 text-slate-400" />}
-            </button>
+            <div className="flex items-center">
+              <button
+                onClick={() => setExpandedId(expandedId === profile.id ? null : profile.id)}
+                className="flex-1 flex items-center justify-between px-4 py-3 text-left hover:bg-slate-50 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <div className={`w-2.5 h-2.5 rounded-full ${
+                    profile.type === 'Administrador' ? 'bg-rose-500' :
+                    profile.type === 'Médico' ? 'bg-blue-500' :
+                    profile.type === 'Cuidador' ? 'bg-emerald-500' :
+                    'bg-purple-500'
+                  }`} />
+                  <span className="font-medium text-sm text-slate-800">{profile.name}</span>
+                  {!profile.isEditable && (
+                    <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">Fixo</span>
+                  )}
+                </div>
+                {expandedId === profile.id
+                  ? <ChevronUp className="h-4 w-4 text-slate-400" />
+                  : <ChevronDown className="h-4 w-4 text-slate-400" />}
+              </button>
+              {profile.isEditable && (
+                confirmDeleteId === profile.id ? (
+                  <div className="flex items-center gap-1 pr-3">
+                    <span className="text-xs text-slate-500">Confirmar?</span>
+                    <button
+                      onClick={() => handleDelete(profile.id)}
+                      className="text-xs bg-rose-600 hover:bg-rose-700 text-white px-2 py-1 rounded transition-colors"
+                    >
+                      Sim
+                    </button>
+                    <button
+                      onClick={() => setConfirmDeleteId(null)}
+                      className="text-xs text-slate-500 hover:text-slate-700 px-2 py-1 rounded hover:bg-slate-100 transition-colors"
+                    >
+                      Não
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={(e: React.MouseEvent) => { e.stopPropagation(); setConfirmDeleteId(profile.id); }}
+                    className="mr-3 p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors"
+                    title="Excluir perfil"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                )
+              )}
+            </div>
 
             {expandedId === profile.id && (
               <div className="border-t border-slate-100 px-4 py-3">

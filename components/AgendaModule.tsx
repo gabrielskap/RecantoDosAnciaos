@@ -1,7 +1,8 @@
 import React, { useState, useRef } from 'react';
 import { CalendarDays, Clock, MapPin, User, Plus, X, ChevronLeft, ChevronRight, Stethoscope, Users, Music, Activity } from 'lucide-react';
-import { CalendarEvent, EventType, Resident } from '../types';
+import { CalendarEvent, EventType, Resident, ViewState } from '../types';
 import CustomSelect from './CustomSelect';
+import { useAuth } from '../contexts/AuthContext';
 
 interface AgendaModuleProps {
   events: CalendarEvent[];
@@ -22,6 +23,9 @@ const monthNames = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho
 const weekDays  = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
 
 const AgendaModule: React.FC<AgendaModuleProps> = ({ events, residents, onAddEvent }) => {
+  const { hasPermission } = useAuth();
+  const canCreate = hasPermission(ViewState.AGENDA, 'create');
+
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [isModalOpen, setIsModalOpen] = useState(() => {
@@ -90,12 +94,14 @@ const AgendaModule: React.FC<AgendaModuleProps> = ({ events, residents, onAddEve
           <h1 className="text-xl font-bold text-slate-900">Agenda e Atividades</h1>
           <p className="text-slate-500 text-sm mt-0.5">Consultas, visitas e rotinas</p>
         </div>
-        <button
-          onClick={() => setIsModalOpen(true)}
-          className="flex items-center gap-2 bg-amber-400 hover:bg-amber-300 text-slate-900 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors shadow-sm"
-        >
-          <Plus className="h-4 w-4" /> Novo Evento
-        </button>
+        {canCreate && (
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="flex items-center gap-2 bg-amber-400 hover:bg-amber-300 text-slate-900 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors shadow-sm"
+          >
+            <Plus className="h-4 w-4" /> Novo Evento
+          </button>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">

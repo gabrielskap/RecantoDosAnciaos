@@ -4,8 +4,9 @@ import {
   Check, AlertCircle, UserPlus, ArrowRightLeft, Bath, DoorClosed, Refrigerator, ShieldAlert
 } from 'lucide-react';
 import { toast } from '../services/toast';
-import { Room, Resident, RoomStatus } from '../types';
+import { Room, Resident, RoomStatus, ViewState } from '../types';
 import CustomSelect from './CustomSelect';
+import { useAuth } from '../contexts/AuthContext';
 
 interface RoomsModuleProps {
   rooms: Room[];
@@ -50,6 +51,11 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
   onDeleteRoom,
   onUpdateResident
 }) => {
+  const { hasPermission } = useAuth();
+  const canCreate = hasPermission(ViewState.ROOMS, 'create');
+  const canEdit   = hasPermission(ViewState.ROOMS, 'edit');
+  const canDelete = hasPermission(ViewState.ROOMS, 'delete');
+
   // Session storage state persistence for persistent modal open
   const [isRoomModalOpen, setIsRoomModalOpen] = useState(() => {
     return localStorage.getItem('modal_rooms_open') === 'true';
@@ -337,13 +343,15 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
           <h1 className="text-xl font-bold text-slate-900">Gerenciamento de Quartos</h1>
           <p className="text-slate-500 text-sm mt-0.5">Gestão de leitos, patrimônio e alocação de residentes</p>
         </div>
-        <button
-          id="btn-new-room"
-          onClick={handleCreateRoomClick}
-          className="flex items-center gap-2 bg-amber-400 hover:bg-amber-300 text-slate-900 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors shadow-sm w-full sm:w-auto justify-center"
-        >
-          <Plus className="h-4 w-4" /> Novo Quarto
-        </button>
+        {canCreate && (
+          <button
+            id="btn-new-room"
+            onClick={handleCreateRoomClick}
+            className="flex items-center gap-2 bg-amber-400 hover:bg-amber-300 text-slate-900 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors shadow-sm w-full sm:w-auto justify-center"
+          >
+            <Plus className="h-4 w-4" /> Novo Quarto
+          </button>
+        )}
       </div>
 
       {/* Stats Cards */}
@@ -537,14 +545,16 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
               <div className="bg-slate-50 px-5 py-3 border-t border-slate-100 flex items-center justify-between shrink-0">
                 <span className="text-xs text-slate-400">Leitos: {roomResidents.length}/{room.capacity}</span>
                 <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => handleEditRoomClick(room)}
-                    className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors border border-transparent hover:border-blue-100 bg-white shadow-sm"
-                    title="Editar Quarto"
-                  >
-                    <Edit3 className="h-4 w-4" />
-                  </button>
-                  {onDeleteRoom && (
+                  {canEdit && (
+                    <button
+                      onClick={() => handleEditRoomClick(room)}
+                      className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors border border-transparent hover:border-blue-100 bg-white shadow-sm"
+                      title="Editar Quarto"
+                    >
+                      <Edit3 className="h-4 w-4" />
+                    </button>
+                  )}
+                  {onDeleteRoom && canDelete && (
                     <button
                       onClick={() => {
                         if (roomResidents.length > 0) {

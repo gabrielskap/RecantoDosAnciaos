@@ -1,8 +1,9 @@
 import React, { useState, useMemo, useRef } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
-import { FinancialRecord, Contract, Invoice, Resident } from '../types';
+import { FinancialRecord, Contract, Invoice, Resident, ViewState } from '../types';
 import { DollarSign, TrendingUp, TrendingDown, Plus, X, FileText, Calendar, CheckCircle2, AlertCircle, FileCheck, Wallet, Trash2 } from 'lucide-react';
 import CustomSelect from './CustomSelect';
+import { useAuth } from '../contexts/AuthContext';
 
 interface FinanceModuleProps {
   records: FinancialRecord[];
@@ -19,6 +20,11 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
   records, contracts, invoices, residents,
   onAddRecord, onDeleteRecord, onAddContract, onUpdateInvoice,
 }) => {
+  const { hasPermission } = useAuth();
+  const canCreate = hasPermission(ViewState.FINANCE, 'create');
+  const canEdit   = hasPermission(ViewState.FINANCE, 'edit');
+  const canDelete = hasPermission(ViewState.FINANCE, 'delete');
+
   const [activeTab, setActiveTab] = useState<'overview' | 'contracts' | 'invoices' | 'expenses'>('overview');
   const [isRecordModalOpen, setIsRecordModalOpen] = useState(() => {
     return localStorage.getItem('modal_finance_record_open') === 'true';
@@ -111,12 +117,12 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
           <p className="text-slate-500 text-sm mt-0.5">Receitas, despesas e mensalidades</p>
         </div>
         <div className="flex gap-2 w-full sm:w-auto">
-          {activeTab === 'contracts' && (
+          {activeTab === 'contracts' && canCreate && (
             <button onClick={() => setIsContractModalOpen(true)} className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-amber-400 hover:bg-amber-300 text-slate-900 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors shadow-sm">
               <Plus className="h-4 w-4" /> Novo Contrato
             </button>
           )}
-          {activeTab === 'expenses' && (
+          {activeTab === 'expenses' && canCreate && (
             <button onClick={() => setIsRecordModalOpen(true)} className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-rose-500 hover:bg-rose-400 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors">
               <Plus className="h-4 w-4" /> Nova Despesa
             </button>
@@ -258,7 +264,9 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
                       </td>
                       <td className="px-6 py-4">
                         {inv.status !== 'Pago'
-                          ? <button onClick={() => onUpdateInvoice({ ...inv, status: 'Pago', paidDate: new Date().toISOString() })} className="text-xs font-semibold text-emerald-600 hover:text-emerald-800 border border-emerald-200 px-3 py-1.5 rounded-lg hover:bg-emerald-50 transition-colors">Confirmar</button>
+                          ? canEdit
+                            ? <button onClick={() => onUpdateInvoice({ ...inv, status: 'Pago', paidDate: new Date().toISOString() })} className="text-xs font-semibold text-emerald-600 hover:text-emerald-800 border border-emerald-200 px-3 py-1.5 rounded-lg hover:bg-emerald-50 transition-colors">Confirmar</button>
+                            : <span className="text-xs text-slate-400">Pendente</span>
                           : <span className="text-xs text-slate-400">Quitado</span>}
                       </td>
                     </tr>
@@ -289,13 +297,15 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
                     <td className="px-6 py-4 font-semibold text-rose-600">- R$ {rec.amount.toLocaleString('pt-BR')}</td>
                     <td className="px-6 py-4"><span className="text-xs font-semibold bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full capitalize">{rec.status}</span></td>
                     <td className="px-6 py-4">
-                      <button
-                        onClick={() => { if (window.confirm('Confirmar exclusão desta despesa?')) onDeleteRecord(rec.id); }}
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
-                        title="Excluir despesa"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                      {canDelete && (
+                        <button
+                          onClick={() => { if (window.confirm('Confirmar exclusão desta despesa?')) onDeleteRecord(rec.id); }}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                          title="Excluir despesa"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

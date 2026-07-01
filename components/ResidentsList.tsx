@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { Search, Filter, FileText, X, User, Phone, FileHeart, Plus, AlertCircle, BedDouble, Home, Edit2, Pill, Camera, ArrowUpDown, ArrowUp, ArrowDown, ChevronDown } from 'lucide-react';
-import { Resident, Room } from '../types';
+import { Resident, Room, ViewState } from '../types';
 import CustomSelect from './CustomSelect';
 import { compressImage, uploadResidentPhoto } from '../services/supabaseClient';
 import { residentAvatarSrc } from '../lib/avatar';
 import { toast } from '../services/toast';
+import { useAuth } from '../contexts/AuthContext';
 
 interface ResidentsListProps {
   residents: Resident[];
@@ -39,8 +40,17 @@ const calculateAge = (birthDateString: string): number => {
 };
 
 const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelectResident, onAddResident, onUpdateResident }) => {
+  const { hasPermission } = useAuth();
+  const canCreate = hasPermission(ViewState.RESIDENTS, 'create');
+  const canEdit = hasPermission(ViewState.RESIDENTS, 'edit');
+
   const [isModalOpen, setIsModalOpen] = useState(() => {
-    return localStorage.getItem('modal_residents_list_open') === 'true';
+    if (localStorage.getItem('modal_residents_list_open') !== 'true') return false;
+    const wasEditing = !!localStorage.getItem('modal_residents_editing_id');
+    // só restaura se o usuário ainda tiver a permissão necessária
+    return wasEditing
+      ? hasPermission(ViewState.RESIDENTS, 'edit')
+      : hasPermission(ViewState.RESIDENTS, 'create');
   });
   const [editingResidentId, setEditingResidentId] = useState<string | null>(() => {
     return localStorage.getItem('modal_residents_editing_id') || null;
@@ -353,35 +363,37 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
           <h1 className="text-xl font-bold text-slate-900">Residentes</h1>
           <p className="text-slate-500 text-sm mt-0.5">{residents.length} residente{residents.length !== 1 ? 's' : ''} cadastrado{residents.length !== 1 ? 's' : ''}</p>
         </div>
-        <button
-          onClick={() => {
-            setEditingResidentId(null);
-            setFormData({
-              name: '', age: 0, room: '', careLevel: 'I', cpf: '', rg: '', birthDate: '', photoUrl: '',
-              addressCep: '', addressState: '', addressCity: '', addressNeighborhood: '',
-              addressStreet: '', addressNumber: '', addressComplement: '',
-              emergencyContacts: [],
-              legalGuardian: { name: '', cpf: '', phone: '', address: '' },
-              clinicalCondition: '', functionalCondition: '', socialHistory: '',
-              usoFraldas: 'nao',
-              mobilidadeSet: 'independente',
-              higieneCorporal: 'independente',
-              higieneOralVestir: 'independente',
-              reqHygiene: null,
-              reqOralCare: null,
-              reqFeeding: null,
-              reqHydration: null,
-              reqMobility: null,
-              reqDressings: null,
-              reqLeisure: null,
-            });
-            setActiveTab('personal');
-            setIsModalOpen(true);
-          }}
-          className="flex items-center gap-2 bg-amber-400 hover:bg-amber-300 text-slate-900 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors shadow-sm w-full sm:w-auto justify-center"
-        >
-          <Plus className="h-4 w-4" /> Novo Residente
-        </button>
+        {canCreate && (
+          <button
+            onClick={() => {
+              setEditingResidentId(null);
+              setFormData({
+                name: '', age: 0, room: '', careLevel: 'I', cpf: '', rg: '', birthDate: '', photoUrl: '',
+                addressCep: '', addressState: '', addressCity: '', addressNeighborhood: '',
+                addressStreet: '', addressNumber: '', addressComplement: '',
+                emergencyContacts: [],
+                legalGuardian: { name: '', cpf: '', phone: '', address: '' },
+                clinicalCondition: '', functionalCondition: '', socialHistory: '',
+                usoFraldas: 'nao',
+                mobilidadeSet: 'independente',
+                higieneCorporal: 'independente',
+                higieneOralVestir: 'independente',
+                reqHygiene: null,
+                reqOralCare: null,
+                reqFeeding: null,
+                reqHydration: null,
+                reqMobility: null,
+                reqDressings: null,
+                reqLeisure: null,
+              });
+              setActiveTab('personal');
+              setIsModalOpen(true);
+            }}
+            className="flex items-center gap-2 bg-amber-400 hover:bg-amber-300 text-slate-900 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors shadow-sm w-full sm:w-auto justify-center"
+          >
+            <Plus className="h-4 w-4" /> Novo Residente
+          </button>
+        )}
       </div>
 
       {/* Search + Filter + Sort */}
@@ -538,13 +550,15 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
                 <div className="pt-3 border-t border-slate-50 flex items-center justify-between">
                   <span className="text-xs text-slate-400">Última aferição: Hoje 08:00</span>
                   <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => handleStartEdit(resident)}
-                      className="flex items-center gap-1 text-xs font-semibold text-slate-600 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-full transition-colors"
-                      title="Editar Residente"
-                    >
-                      <Edit2 className="h-3 w-3" /> Editar
-                    </button>
+                    {canEdit && (
+                      <button
+                        onClick={() => handleStartEdit(resident)}
+                        className="flex items-center gap-1 text-xs font-semibold text-slate-600 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-full transition-colors"
+                        title="Editar Residente"
+                      >
+                        <Edit2 className="h-3 w-3" /> Editar
+                      </button>
+                    )}
                     <button
                       onClick={() => onSelectResident(resident)}
                       className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-full transition-colors"
@@ -569,8 +583,8 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
         )}
       </div>
 
-      {/* Modal - Sempre ativo (não fecha ao clicar no fundo/backdrop) */}
-      {isModalOpen && (
+      {/* Modal - só abre se o usuário tiver permissão de criar ou editar */}
+      {isModalOpen && (canCreate || canEdit) && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/50 backdrop-blur-sm">
           <div
             onClick={(e) => e.stopPropagation()}
