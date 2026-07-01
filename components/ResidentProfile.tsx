@@ -2578,36 +2578,8 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                    {resident.age} anos
                  </p>
                  <span className="text-blue-300">•</span>
-                 <div className="flex items-center group">
-                   <span className="text-blue-200 text-xs md:text-sm mr-2">Quarto: {resident.room}</span>
-                   
-                   {isEditingStatus ? (
-                     <select 
-                       autoFocus
-                       onBlur={() => setIsEditingStatus(false)}
-                       onChange={handleStatusChange}
-                       value={resident.roomStatus || 'Ocupado'}
-                       className="text-[10px] md:text-xs py-0.5 pl-1 pr-6 rounded-full border border-slate-300 focus:ring-2 focus:ring-primary-500 outline-none bg-white"
-                     >
-                       <option value="Ocupado">Ocupado</option>
-                       <option value="Vago">Vago</option>
-                       <option value="Em Limpeza">Em Limpeza</option>
-                       <option value="Manutenção">Manutenção</option>
-                       <option value="Reservado">Reservado</option>
-                     </select>
-                   ) : (
-                     <button 
-                       onClick={() => hasPermission(ViewState.RESIDENT_DETAIL_INFO, 'edit') && setIsEditingStatus(true)}
-                        title={hasPermission(ViewState.RESIDENT_DETAIL_INFO, 'edit') ? "Clique para alterar o status" : undefined}
-                        className={`flex items-center text-[10px] md:text-xs px-2 py-0.5 rounded-full border hover:shadow-sm transition-all ${hasPermission(ViewState.RESIDENT_DETAIL_INFO, 'edit') ? 'cursor-pointer' : 'cursor-default'} ${getRoomStatusColor(resident.roomStatus)}`}
-                     >
-                       {getRoomStatusIcon(resident.roomStatus)}
-                       {resident.roomStatus || 'Ocupado'}
-                       {hasPermission(ViewState.RESIDENT_DETAIL_INFO, 'edit') && (
-                          <Edit2 className="w-2.5 h-2.5 ml-1.5 opacity-0 group-hover:opacity-100 transition-opacity" />
-                        )}
-                     </button>
-                   )}
+                 <div className="flex items-center">
+                   <span className="text-blue-200 text-xs md:text-sm">Quarto: {resident.room}</span>
                  </div>
               </div>
               
@@ -2672,7 +2644,12 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                   <div className="space-y-2 text-sm">
                     <p><span className="text-slate-500">CPF:</span> {resident.cpf || '-'}</p>
                     <p><span className="text-slate-500">RG:</span> {resident.rg || '-'}</p>
-                    <p><span className="text-slate-500">Data Nascimento:</span> {resident.birthDate || '-'}</p>
+                    <p>
+                      <span className="text-slate-500">Data Nascimento:</span>{' '}
+                      {resident.birthDate
+                        ? new Date(resident.birthDate + 'T00:00:00').toLocaleDateString('pt-BR')
+                        : '-'}
+                    </p>
                     <p><span className="text-slate-500">Admissão:</span> {new Date(resident.admissionDate).toLocaleDateString()}</p>
                   </div>
                 </div>
