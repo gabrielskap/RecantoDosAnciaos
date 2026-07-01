@@ -17,7 +17,7 @@ interface DashboardProps {
   stockAlerts?: StockItem[];
   invoices?: Invoice[];
   employees?: Employee[];
-  onNavigate?: (view: ViewState) => void;
+  onNavigate?: (view: ViewState, residentId?: string) => void;
   isAdmin?: boolean;
 }
 
@@ -127,7 +127,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     return months === 1 ? 'Há 1 mês' : `Há ${months} meses`;
   };
 
-  const nav = (view: ViewState) => onNavigate?.(view);
+  const nav = (view: ViewState, residentId?: string) => onNavigate?.(view, residentId);
 
   const allKpis = [
     {
@@ -486,7 +486,12 @@ const Dashboard: React.FC<DashboardProps> = ({
                     </div>
                   )}
                   <div className="min-w-0 flex-1">
-                    <p className="text-xs font-semibold text-slate-700 truncate">{resident.name}</p>
+                    <button
+                      onClick={() => nav(ViewState.RESIDENT_DETAIL, resident.id)}
+                      className="text-xs font-semibold text-slate-700 hover:text-blue-600 hover:underline truncate block text-left w-full"
+                    >
+                      {resident.name}
+                    </button>
                     <p className="text-xs text-slate-400">{resident.age + 1} anos em breve</p>
                   </div>
                   <span className={`text-xs font-bold px-2 py-0.5 rounded-full shrink-0 ${
@@ -527,8 +532,13 @@ const Dashboard: React.FC<DashboardProps> = ({
                       <span className="text-sm font-bold text-blue-600">{r.name.charAt(0)}</span>
                     </div>
                   )}
-                  <div className="min-w-0">
-                    <p className="text-xs font-semibold text-slate-800 truncate">{r.name}</p>
+                  <div className="min-w-0 flex-1">
+                    <button
+                      onClick={() => nav(ViewState.RESIDENT_DETAIL, r.id)}
+                      className="text-xs font-semibold text-slate-800 hover:text-blue-600 hover:underline truncate block text-left w-full"
+                    >
+                      {r.name}
+                    </button>
                     <p className="text-xs text-slate-400 truncate">Quarto {r.room}</p>
                     <div className="flex items-center gap-1.5 mt-1">
                       <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-full ${gradeCfg.badge}`}>

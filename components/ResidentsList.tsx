@@ -354,8 +354,33 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
     { id: 'clinical' as const, label: 'Clínico', icon: FileHeart },
   ];
 
+  const [expandedPhotoUrl, setExpandedPhotoUrl] = useState<string | null>(null);
+
   return (
     <div className="space-y-6">
+
+      {/* Modal para Expandir a Foto */}
+      {expandedPhotoUrl && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm cursor-default"
+          onClick={() => setExpandedPhotoUrl(null)}
+        >
+          <div className="relative max-w-none max-h-none p-0 flex flex-col items-center">
+            <button 
+              onClick={() => setExpandedPhotoUrl(null)}
+              className="absolute top-6 right-6 w-10 h-10 rounded-full bg-black/60 hover:bg-black/80 flex items-center justify-center text-white transition-colors"
+            >
+              <X className="h-6 w-6" />
+            </button>
+            <img
+              src={expandedPhotoUrl}
+              alt="Foto do Residente Ampliada"
+              className="max-w-[95vw] max-h-[95vh] rounded-2xl object-contain shadow-2xl"
+            />
+          </div>
+        </div>
+      )}
+
 
       {/* Header */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -506,10 +531,21 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
                   <img
                     src={residentAvatarSrc(resident.name, resident.photoUrl)}
                     alt={resident.name}
-                    className="w-14 h-14 rounded-2xl object-cover border-2 border-blue-100"
+                    onClick={() => setExpandedPhotoUrl(residentAvatarSrc(resident.name, resident.photoUrl))}
+                    className="w-14 h-14 rounded-2xl object-cover border-2 border-blue-100 cursor-pointer hover:opacity-85 transition-opacity"
+                    title="Clique para expandir a foto"
                   />
                   <div className="flex-1 min-w-0">
-                    <h3 className="font-bold text-slate-800 truncate">{resident.name}</h3>
+                    <h3 
+                      onClick={() => {
+                        localStorage.setItem(`recanto_resident_profile_active_tab_${resident.id}`, 'info');
+                        onSelectResident(resident);
+                      }}
+                      className="font-bold text-slate-800 truncate cursor-pointer hover:text-blue-600 hover:underline transition-colors"
+                      title="Ver dados do residente"
+                    >
+                      {resident.name}
+                    </h3>
                     <p className="text-xs text-slate-500 mt-0.5">{resident.age} anos · Quarto {resident.room}</p>
                   </div>
                 </div>

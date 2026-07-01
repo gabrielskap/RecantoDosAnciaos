@@ -1521,7 +1521,7 @@ function AppInner() {
   }
 
   return (
-    <div className="flex min-h-screen bg-slate-50 text-slate-900">
+    <div className="flex h-screen w-screen overflow-hidden bg-slate-50 text-slate-900">
       <Sidebar
         currentView={currentView}
         onChangeView={navigateTo}
@@ -1530,7 +1530,7 @@ function AppInner() {
         stockAlertCount={lowStockItems.length}
       />
 
-      <main className="flex-1 min-w-0 max-w-full lg:max-w-[calc(100vw-256px)] transition-all">
+      <main className="flex-1 min-w-0 max-w-full lg:max-w-[calc(100vw-256px)] flex flex-col h-full overflow-hidden transition-all">
         {/* Mobile Header - Sticky */}
         <div className="sticky top-0 z-20 lg:hidden px-4 py-3 bg-white border-b border-slate-100 flex justify-between items-center shadow-sm select-none">
           <div className="flex items-center gap-2">
@@ -1634,8 +1634,10 @@ function AppInner() {
           </div>
         </div>
 
-        <div className="p-4 md:p-8 max-w-7xl mx-auto">
-          {renderContent()}
+        <div className="flex-1 overflow-y-auto p-4 md:p-8">
+          <div className="max-w-7xl mx-auto">
+            {renderContent()}
+          </div>
         </div>
       </main>
 
