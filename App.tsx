@@ -1160,6 +1160,8 @@ function AppInner() {
           registration_number: newEmployee.registrationNumber || null,
           is_technical_lead: newEmployee.isTechnicalLead,
           shift: newEmployee.shift,
+          shift_start: newEmployee.shiftStart || null,
+          shift_end: newEmployee.shiftEnd || null,
           status: newEmployee.status,
           admission_date: newEmployee.admissionDate,
           auth_user_id: newEmployee.auth_user_id || null
@@ -1168,7 +1170,7 @@ function AppInner() {
         .single();
       if (error) throw error;
       await fetchEmployees();
-      
+
       const mapped: Employee = {
         id: data.id,
         auth_user_id: data.auth_user_id || undefined,
@@ -1180,6 +1182,8 @@ function AppInner() {
         registrationNumber: data.registration_number || undefined,
         isTechnicalLead: data.is_technical_lead,
         shift: data.shift,
+        shiftStart: data.shift_start ? data.shift_start.slice(0, 5) : undefined,
+        shiftEnd: data.shift_end ? data.shift_end.slice(0, 5) : undefined,
         status: data.status,
         admissionDate: data.admission_date
       };
@@ -1203,6 +1207,8 @@ function AppInner() {
           registration_number: updatedEmployee.registrationNumber || null,
           is_technical_lead: updatedEmployee.isTechnicalLead,
           shift: updatedEmployee.shift,
+          shift_start: updatedEmployee.shiftStart || null,
+          shift_end: updatedEmployee.shiftEnd || null,
           status: updatedEmployee.status,
           admission_date: updatedEmployee.admissionDate,
           auth_user_id: updatedEmployee.auth_user_id || null
@@ -1212,7 +1218,7 @@ function AppInner() {
         .single();
       if (error) throw error;
       await fetchEmployees();
-      
+
       const mapped: Employee = {
         id: data.id,
         auth_user_id: data.auth_user_id || undefined,
@@ -1224,6 +1230,8 @@ function AppInner() {
         registrationNumber: data.registration_number || undefined,
         isTechnicalLead: data.is_technical_lead,
         shift: data.shift,
+        shiftStart: data.shift_start ? data.shift_start.slice(0, 5) : undefined,
+        shiftEnd: data.shift_end ? data.shift_end.slice(0, 5) : undefined,
         status: data.status,
         admissionDate: data.admission_date
       };
@@ -1368,6 +1376,7 @@ function AppInner() {
             invoices={invoices}
             employees={employees}
             onNavigate={navigateTo}
+            isAdmin={currentUser?.profile.type === 'Administrador'}
           />
         );
       case ViewState.RESIDENTS:
@@ -1479,7 +1488,7 @@ function AppInner() {
       case ViewState.PROFILE:
         return <UserProfile />;
       default:
-        return <Dashboard residents={residents} financials={financials} invoices={invoices} employees={employees} onNavigate={navigateTo} />;
+        return <Dashboard residents={residents} financials={financials} invoices={invoices} employees={employees} onNavigate={navigateTo} isAdmin={currentUser?.profile.type === 'Administrador'} />;
     }
   };
 

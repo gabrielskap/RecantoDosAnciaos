@@ -47,6 +47,13 @@ const TeamModule: React.FC<TeamModuleProps> = ({
   });
 
   // New Employee Form State
+  const SHIFT_TIMES: Record<string, { shiftStart: string; shiftEnd: string }> = {
+    Matutino:  { shiftStart: '07:00', shiftEnd: '13:00' },
+    Vespertino:{ shiftStart: '13:00', shiftEnd: '19:00' },
+    Noturno:   { shiftStart: '19:00', shiftEnd: '07:00' },
+    '12x36':   { shiftStart: '', shiftEnd: '' },
+  };
+
   const [newEmp, setNewEmp] = useState<Partial<Employee>>(() => {
     const saved = localStorage.getItem('modal_team_new_emp');
     return saved ? JSON.parse(saved) : {
@@ -56,6 +63,8 @@ const TeamModule: React.FC<TeamModuleProps> = ({
       email: '',
       phone: '',
       shift: 'Matutino',
+      shiftStart: '07:00',
+      shiftEnd: '13:00',
       isTechnicalLead: false,
       status: 'Ativo'
     };
@@ -89,6 +98,20 @@ const TeamModule: React.FC<TeamModuleProps> = ({
     const valid = ['Enfermeiro', 'Cuidador', 'Médico', 'Nutricionista'];
     return valid.includes(type) ? type : 'Cuidador';
   };
+
+  const ROLE_OPTIONS: { value: UserRole; label: string }[] = [
+    { value: 'Admin',          label: 'Administrador' },
+    { value: 'Enfermeiro',     label: 'Enfermeiro(a)' },
+    { value: 'Cuidador',       label: 'Cuidador(a) de Idosos' },
+    { value: 'Médico',         label: 'Médico(a)' },
+    { value: 'Nutricionista',  label: 'Nutricionista' },
+    { value: 'Fisioterapeuta', label: 'Fisioterapeuta' },
+  ];
+
+  const ROLE_LABEL: Record<string, string> = Object.fromEntries(
+    ROLE_OPTIONS.map(o => [o.value, o.label])
+  );
+  const roleLabel = (role: string) => ROLE_LABEL[role] ?? role;
 
   const linkedUser = !editingEmpId && linkUserMode !== 'none'
     ? users.find(u => u.id === linkUserMode) ?? null
@@ -139,6 +162,8 @@ const TeamModule: React.FC<TeamModuleProps> = ({
       email: '',
       phone: '',
       shift: 'Matutino',
+      shiftStart: '07:00',
+      shiftEnd: '13:00',
       isTechnicalLead: false,
       status: 'Ativo'
     });
@@ -158,6 +183,8 @@ const TeamModule: React.FC<TeamModuleProps> = ({
       phone: emp.phone,
       registrationNumber: emp.registrationNumber || '',
       shift: emp.shift,
+      shiftStart: emp.shiftStart || '',
+      shiftEnd: emp.shiftEnd || '',
       isTechnicalLead: emp.isTechnicalLead,
       status: emp.status
     });
@@ -196,6 +223,8 @@ const TeamModule: React.FC<TeamModuleProps> = ({
         registrationNumber: newEmp.registrationNumber,
         isTechnicalLead: newEmp.isTechnicalLead || false,
         shift: newEmp.shift as any,
+        shiftStart: newEmp.shiftStart,
+        shiftEnd: newEmp.shiftEnd,
         status: (newEmp.status as any) || 'Ativo',
         admissionDate: editingEmpId ? (employees.find(emp => emp.id === editingEmpId)?.admissionDate || new Date().toISOString().split('T')[0]) : new Date().toISOString().split('T')[0],
         auth_user_id: (linkUserMode !== 'none' && linkUserMode !== 'create') ? linkUserMode : undefined
@@ -224,11 +253,12 @@ const TeamModule: React.FC<TeamModuleProps> = ({
         }
       }
 
-      setNewEmp({ name: '', role: 'Cuidador', cpf: '', email: '', phone: '', shift: 'Matutino', isTechnicalLead: false, status: 'Ativo' });
+      setNewEmp({ name: '', role: 'Cuidador', cpf: '', email: '', phone: '', shift: 'Matutino', shiftStart: '07:00', shiftEnd: '13:00', isTechnicalLead: false, status: 'Ativo' });
       setLinkUserMode('none');
       setAccessPassword('');
       setAccessProfileId('');
       setEditingEmpId(null);
+      setIsEmpModalOpen(false);
     } catch (err: any) {
       console.error(err);
       toast.error(err.message || 'Erro ao salvar colaborador.');
@@ -455,31 +485,63 @@ const TeamModule: React.FC<TeamModuleProps> = ({
         )}
 
         {/* SCHEDULE TAB */}
-        {activeTab === 'schedule' && (
-          <div className="p-6">
-             <div className="flex justify-between items-center mb-6">
+        {activeTab === 'schedule' && (() => {
+          const fmtTime = (t?: string) => {
+            if (!t) return '--';
+            const [h, m] = t.slice(0, 5).split(':');
+            return m === '00' ? `${h}h` : `${h}h${m}`;
+          };
+          const SHIFT_GROUPS: { key: Employee['shift']; label: string }[] = [
+            { key: 'Matutino',   label: 'Matutino' },
+            { key: 'Vespertino', label: 'Vespertino' },
+            { key: 'Noturno',    label: 'Noturno' },
+            { key: '12x36',      label: '12×36' },
+          ];
+          return (
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-6">
                 <h3 className="font-semibold text-slate-800">Escala Semanal Vigente</h3>
                 <button className="text-primary-600 text-sm font-medium hover:underline">Imprimir Escala</button>
-             </div>
-             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {['Matutino (07h-13h)', 'Vespertino (13h-19h)', 'Noturno (19h-07h)'].map((shift) => (
-                  <div key={shift} className="bg-slate-50 rounded-lg p-4 border border-slate-200">
-                    <h4 className="font-semibold text-slate-700 mb-3 flex items-center">
-                      <Calendar className="h-4 w-4 mr-2 text-primary-500" /> {shift}
-                    </h4>
-                    <ul className="space-y-2">
-                      {employees.filter(e => shift.includes(e.shift) || (e.shift === '12x36' && shift.includes('Noturno'))).map(e => (
-                        <li key={e.id} className="bg-white p-2 rounded shadow-sm border border-slate-100 flex justify-between items-center">
-                          <span className="text-sm font-medium text-slate-800">{e.name}</span>
-                          <span className="text-xs text-slate-500">{e.role}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ))}
-             </div>
-          </div>
-        )}
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+                {SHIFT_GROUPS.map(({ key, label }) => {
+                  const group = employees.filter(e => e.shift === key);
+                  const def = SHIFT_TIMES[key];
+                  const times = def?.shiftStart && def?.shiftEnd
+                    ? `${fmtTime(def.shiftStart)}–${fmtTime(def.shiftEnd)}`
+                    : null;
+                  return (
+                    <div key={key} className="bg-slate-50 rounded-lg p-4 border border-slate-200">
+                      <h4 className="font-semibold text-slate-700 mb-3 flex items-center gap-2">
+                        <Calendar className="h-4 w-4 text-primary-500 shrink-0" />
+                        <span>{label}</span>
+                        {times && <span className="text-xs font-normal text-slate-400">({times})</span>}
+                      </h4>
+                      <ul className="space-y-2">
+                        {group.map(e => (
+                          <li key={e.id} className="bg-white p-2 rounded shadow-sm border border-slate-100">
+                            <div className="flex justify-between items-center">
+                              <span className="text-sm font-medium text-slate-800">{e.name}</span>
+                              <span className="text-xs text-slate-500">{e.role}</span>
+                            </div>
+                            {(e.shiftStart || e.shiftEnd) && (
+                              <span className="text-xs text-slate-400 mt-0.5 block">
+                                {fmtTime(e.shiftStart)} – {fmtTime(e.shiftEnd)}
+                              </span>
+                            )}
+                          </li>
+                        ))}
+                        {group.length === 0 && (
+                          <li className="text-xs text-slate-400 italic py-1">Nenhum colaborador</li>
+                        )}
+                      </ul>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* TRAINING TAB */}
         {activeTab === 'training' && (
@@ -596,7 +658,66 @@ const TeamModule: React.FC<TeamModuleProps> = ({
                </button>
              </div>
              <form onSubmit={handleEmpSubmit} className="p-6 space-y-4 flex-1 overflow-y-auto">
-                  {editingEmpId ? (
+                  {/* Novo colaborador: seleção de usuário no topo */}
+                  {!editingEmpId && (
+                    <div className="space-y-2">
+                      <label className="block text-xs font-semibold text-slate-600 mb-1.5">Vincular a Usuário do Sistema</label>
+                      <CustomSelect
+                        value={linkUserMode}
+                        onChange={(val) => {
+                          setLinkUserMode(val);
+                          if (val !== 'none') {
+                            const u = users.find(user => user.id === val);
+                            if (u) {
+                              setNewEmp(prev => ({
+                                ...prev,
+                                name: u.name,
+                                email: u.email,
+                                cpf: u.cpf || prev.cpf || '',
+                                role: mapProfileTypeToRole(u.profile.type) as any,
+                              }));
+                            }
+                          } else {
+                            setNewEmp(prev => ({ ...prev, name: '', email: '', cpf: '', role: 'Cuidador' as any }));
+                          }
+                        }}
+                        options={[
+                          { value: 'none', label: 'Selecione um usuário...' },
+                          ...linkableUsers.map(u => ({
+                            value: u.id,
+                            label: `${u.name} (${u.profile.name})`,
+                            desc: `E-mail: ${u.email}`
+                          }))
+                        ]}
+                      />
+                      {showUsersTab && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsEmpModalOpen(false);
+                            setActiveTab('users');
+                            setAutoOpenUsersCreate(true);
+                          }}
+                          className="flex items-center gap-1.5 text-sm text-primary-600 hover:text-primary-700 font-medium pt-1"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          Criar Novo Usuário de Acesso
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Novo colaborador: card do usuário vinculado */}
+                  {!editingEmpId && linkedUser && (
+                    <div className="bg-slate-50 rounded-xl p-3 border border-slate-100">
+                      <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Usuário vinculado</p>
+                      <p className="font-semibold text-slate-800 mt-1">{linkedUser.name}</p>
+                      <p className="text-xs text-slate-500">{linkedUser.email}</p>
+                    </div>
+                  )}
+
+                  {/* Edição: campos pessoais completos */}
+                  {editingEmpId && (
                     <>
                       <div>
                         <label className="block text-xs font-semibold text-slate-600 mb-1.5">Nome Completo</label>
@@ -608,7 +729,7 @@ const TeamModule: React.FC<TeamModuleProps> = ({
                           <CustomSelect
                             value={newEmp.role || ''}
                             onChange={v => setNewEmp({ ...newEmp, role: v as any })}
-                            options={employeeProfiles.map(p => ({ value: p.name, label: p.name }))}
+                            options={ROLE_OPTIONS}
                             placeholder="Selecione um perfil..."
                           />
                         </div>
@@ -631,17 +752,49 @@ const TeamModule: React.FC<TeamModuleProps> = ({
                         <label className="block text-xs font-semibold text-slate-600 mb-1.5">Nº Registro (CRM/COREN)</label>
                         <input type="text" value={newEmp.registrationNumber} onChange={e => setNewEmp({...newEmp, registrationNumber: e.target.value})} className={inputClass} />
                       </div>
+                    </>
+                  )}
+
+                  {/* Novo colaborador com usuário vinculado: função, CPF e registro */}
+                  {!editingEmpId && linkedUser && (
+                    <>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1.5">Função (Perfil)</label>
+                        <CustomSelect
+                          value={newEmp.role || ''}
+                          onChange={v => setNewEmp({ ...newEmp, role: v as any })}
+                          options={ROLE_OPTIONS}
+                          placeholder="Selecione um perfil..."
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1.5">CPF</label>
+                        <input required type="text" value={newEmp.cpf || ''} onChange={e => setNewEmp({...newEmp, cpf: e.target.value})} className={inputClass} placeholder="000.000.000-00" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1.5">Nº Registro (CRM/COREN)</label>
+                        <input type="text" value={newEmp.registrationNumber || ''} onChange={e => setNewEmp({...newEmp, registrationNumber: e.target.value})} className={inputClass} />
+                      </div>
+                    </>
+                  )}
+
+                  {/* Campos de turno/horário compartilhados entre edição e novo colaborador */}
+                  {(editingEmpId || linkedUser) && (
+                    <>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
                           <label className="block text-xs font-semibold text-slate-600 mb-1.5">Turno</label>
                           <CustomSelect
                             value={newEmp.shift || 'Matutino'}
-                            onChange={v => setNewEmp({ ...newEmp, shift: v as any })}
+                            onChange={v => {
+                              const times = SHIFT_TIMES[v] ?? { shiftStart: '', shiftEnd: '' };
+                              setNewEmp({ ...newEmp, shift: v as any, ...times });
+                            }}
                             options={[
-                              { value: 'Matutino', label: 'Matutino', desc: '07h – 13h' },
+                              { value: 'Matutino',   label: 'Matutino',  desc: '07h – 13h' },
                               { value: 'Vespertino', label: 'Vespertino', desc: '13h – 19h' },
-                              { value: 'Noturno', label: 'Noturno', desc: '19h – 07h' },
-                              { value: '12x36', label: '12x36', desc: 'Regime 12 horas' },
+                              { value: 'Noturno',    label: 'Noturno',   desc: '19h – 07h' },
+                              { value: '12x36',      label: '12×36',     desc: 'Regime 12 horas' },
                             ]}
                           />
                         </div>
@@ -651,10 +804,30 @@ const TeamModule: React.FC<TeamModuleProps> = ({
                             value={newEmp.status || 'Ativo'}
                             onChange={v => setNewEmp({ ...newEmp, status: v as any })}
                             options={[
-                              { value: 'Ativo', label: 'Ativo' },
-                              { value: 'Férias', label: 'Férias' },
-                              { value: 'Afastado', label: 'Afastado' },
+                              { value: 'Ativo',     label: 'Ativo' },
+                              { value: 'Férias',    label: 'Férias' },
+                              { value: 'Afastado',  label: 'Afastado' },
                             ]}
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1.5">Início do Expediente</label>
+                          <input
+                            type="time"
+                            value={newEmp.shiftStart || ''}
+                            onChange={e => setNewEmp({ ...newEmp, shiftStart: e.target.value })}
+                            className={inputClass}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1.5">Fim do Expediente</label>
+                          <input
+                            type="time"
+                            value={newEmp.shiftEnd || ''}
+                            onChange={e => setNewEmp({ ...newEmp, shiftEnd: e.target.value })}
+                            className={inputClass}
                           />
                         </div>
                       </div>
@@ -664,174 +837,70 @@ const TeamModule: React.FC<TeamModuleProps> = ({
                           <span className="text-sm font-medium text-slate-700">Resp. Técnico</span>
                         </label>
                       </div>
-                      <div className="pt-4 border-t border-slate-100 space-y-4">
-                        <div>
-                          <label className="block text-xs font-semibold text-slate-650 mb-1.5">Vincular a Usuário do Sistema</label>
-                          <CustomSelect
-                            value={linkUserMode}
-                            onChange={(val) => {
-                              setLinkUserMode(val);
-                              if (val === 'create' && employeeProfiles.length > 0 && !accessProfileId) {
-                                setAccessProfileId(employeeProfiles[0].id);
-                              }
-                              if (val !== 'none' && val !== 'create') {
-                                const u = users.find(user => user.id === val);
-                                if (u) {
-                                  setNewEmp(prev => ({
-                                    ...prev,
-                                    name: prev.name || u.name,
-                                    email: prev.email || u.email
-                                  }));
-                                }
-                              }
-                            }}
-                            options={[
-                              { value: 'none', label: 'Não vincular a nenhum usuário' },
-                              { value: 'create', label: '➕ Criar Novo Usuário de Acesso...', desc: 'Criar novas credenciais de acesso' },
-                              ...linkableUsers.map(u => ({
-                                value: u.id,
-                                label: `${u.name} (${u.profile.name})`,
-                                desc: `E-mail: ${u.email}`
-                              }))
-                            ]}
-                            placeholder="Selecione..."
-                          />
-                        </div>
-                        {linkUserMode === 'create' && (
-                          <div className="bg-primary-50/20 p-4 border border-primary-100 rounded-xl space-y-3 animate-fadeIn">
-                            <div>
-                              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1 text-slate-600">Perfil de Acesso</label>
-                              <CustomSelect
-                                value={accessProfileId}
-                                onChange={setAccessProfileId}
-                                options={employeeProfiles.map(p => ({ value: p.id, label: p.name, desc: p.type }))}
-                                placeholder="Selecione um perfil..."
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1 text-slate-600">Senha Inicial</label>
-                              <input
-                                required={linkUserMode === 'create'}
-                                type="password"
-                                autoComplete="new-password"
-                                placeholder="••••••••"
-                                value={accessPassword}
-                                onChange={e => setAccessPassword(e.target.value)}
-                                className={inputClass}
-                              />
-                            </div>
-                          </div>
-                        )}
-                      </div>
                     </>
-                  ) : (
-                    <>
-                      <div className="space-y-2">
-                        <label className="block text-xs font-semibold text-slate-600 mb-1.5">Vincular a Usuário do Sistema</label>
+                  )}
+
+                  {/* Edição: vincular a usuário do sistema (seção inferior) */}
+                  {editingEmpId && (
+                    <div className="pt-4 border-t border-slate-100 space-y-4">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-650 mb-1.5">Vincular a Usuário do Sistema</label>
                         <CustomSelect
                           value={linkUserMode}
                           onChange={(val) => {
                             setLinkUserMode(val);
-                            if (val !== 'none') {
+                            if (val === 'create' && employeeProfiles.length > 0 && !accessProfileId) {
+                              setAccessProfileId(employeeProfiles[0].id);
+                            }
+                            if (val !== 'none' && val !== 'create') {
                               const u = users.find(user => user.id === val);
                               if (u) {
                                 setNewEmp(prev => ({
                                   ...prev,
-                                  name: u.name,
-                                  email: u.email,
-                                  cpf: u.cpf || prev.cpf || '',
-                                  role: mapProfileTypeToRole(u.profile.type) as any,
+                                  name: prev.name || u.name,
+                                  email: prev.email || u.email
                                 }));
                               }
-                            } else {
-                              setNewEmp(prev => ({ ...prev, name: '', email: '', cpf: '', role: 'Cuidador' as any }));
                             }
                           }}
                           options={[
-                            { value: 'none', label: 'Selecione um usuário...' },
+                            { value: 'none',   label: 'Não vincular a nenhum usuário' },
+                            { value: 'create', label: '➕ Criar Novo Usuário de Acesso...', desc: 'Criar novas credenciais de acesso' },
                             ...linkableUsers.map(u => ({
                               value: u.id,
                               label: `${u.name} (${u.profile.name})`,
                               desc: `E-mail: ${u.email}`
                             }))
                           ]}
+                          placeholder="Selecione..."
                         />
-                        {showUsersTab && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setIsEmpModalOpen(false);
-                              setActiveTab('users');
-                              setAutoOpenUsersCreate(true);
-                            }}
-                            className="flex items-center gap-1.5 text-sm text-primary-600 hover:text-primary-700 font-medium pt-1"
-                          >
-                            <Plus className="h-3.5 w-3.5" />
-                            Criar Novo Usuário de Acesso
-                          </button>
-                        )}
                       </div>
-
-                      {linkedUser && (
-                        <>
-                          <div className="bg-slate-50 rounded-xl p-3 border border-slate-100">
-                            <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Usuário vinculado</p>
-                            <p className="font-semibold text-slate-800 mt-1">{linkedUser.name}</p>
-                            <p className="text-xs text-slate-500">{linkedUser.email}</p>
-                          </div>
+                      {linkUserMode === 'create' && (
+                        <div className="bg-primary-50/20 p-4 border border-primary-100 rounded-xl space-y-3 animate-fadeIn">
                           <div>
-                            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Função (Perfil)</label>
+                            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1 text-slate-600">Perfil de Acesso</label>
                             <CustomSelect
-                              value={newEmp.role || ''}
-                              onChange={v => setNewEmp({ ...newEmp, role: v as any })}
-                              options={employeeProfiles.map(p => ({ value: p.name, label: p.name }))}
+                              value={accessProfileId}
+                              onChange={setAccessProfileId}
+                              options={employeeProfiles.map(p => ({ value: p.id, label: p.name, desc: p.type }))}
                               placeholder="Selecione um perfil..."
                             />
                           </div>
                           <div>
-                            <label className="block text-xs font-semibold text-slate-600 mb-1.5">CPF</label>
-                            <input required type="text" value={newEmp.cpf || ''} onChange={e => setNewEmp({...newEmp, cpf: e.target.value})} className={inputClass} placeholder="000.000.000-00" />
+                            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1 text-slate-600">Senha Inicial</label>
+                            <input
+                              required={linkUserMode === 'create'}
+                              type="password"
+                              autoComplete="new-password"
+                              placeholder="••••••••"
+                              value={accessPassword}
+                              onChange={e => setAccessPassword(e.target.value)}
+                              className={inputClass}
+                            />
                           </div>
-                          <div>
-                            <label className="block text-xs font-semibold text-slate-600 mb-1.5">Nº Registro (CRM/COREN)</label>
-                            <input type="text" value={newEmp.registrationNumber || ''} onChange={e => setNewEmp({...newEmp, registrationNumber: e.target.value})} className={inputClass} />
-                          </div>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div>
-                              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Turno</label>
-                              <CustomSelect
-                                value={newEmp.shift || 'Matutino'}
-                                onChange={v => setNewEmp({ ...newEmp, shift: v as any })}
-                                options={[
-                                  { value: 'Matutino', label: 'Matutino', desc: '07h – 13h' },
-                                  { value: 'Vespertino', label: 'Vespertino', desc: '13h – 19h' },
-                                  { value: 'Noturno', label: 'Noturno', desc: '19h – 07h' },
-                                  { value: '12x36', label: '12x36', desc: 'Regime 12 horas' },
-                                ]}
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Status</label>
-                              <CustomSelect
-                                value={newEmp.status || 'Ativo'}
-                                onChange={v => setNewEmp({ ...newEmp, status: v as any })}
-                                options={[
-                                  { value: 'Ativo', label: 'Ativo' },
-                                  { value: 'Férias', label: 'Férias' },
-                                  { value: 'Afastado', label: 'Afastado' },
-                                ]}
-                              />
-                            </div>
-                          </div>
-                          <div className="flex items-center">
-                            <label className="flex items-center space-x-2 cursor-pointer w-full min-h-[44px]">
-                              <input type="checkbox" checked={newEmp.isTechnicalLead} onChange={e => setNewEmp({...newEmp, isTechnicalLead: e.target.checked})} className="rounded text-primary-600 focus:ring-primary-500 h-5 w-5 sm:h-4 sm:w-4" />
-                              <span className="text-sm font-medium text-slate-700">Resp. Técnico</span>
-                            </label>
-                          </div>
-                        </>
+                        </div>
                       )}
-                    </>
+                    </div>
                   )}
                   <div className="pt-4 border-t border-slate-100 flex gap-3 shrink-0">
                     <button

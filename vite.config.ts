@@ -10,6 +10,14 @@ export default defineConfig(({ mode }) => {
       port: 3000,
       host: '0.0.0.0',
       strictPort: true,
+      proxy: {
+        '/supabase-api': {
+          target: env.VITE_SUPABASE_URL || 'https://supabase-hml.quantumtecnologia.com.br',
+          changeOrigin: true,
+          secure: false,
+          rewrite: (path) => path.replace(/^\/supabase-api/, '')
+        }
+      }
     },
     plugins: [react(), tailwindcss()],
     define: {

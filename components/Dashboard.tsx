@@ -18,6 +18,7 @@ interface DashboardProps {
   invoices?: Invoice[];
   employees?: Employee[];
   onNavigate?: (view: ViewState) => void;
+  isAdmin?: boolean;
 }
 
 const fmtCurrency = (val: number) =>
@@ -40,7 +41,7 @@ const CARE_GRADE = {
 
 const Dashboard: React.FC<DashboardProps> = ({
   residents, financials, events = [], stockAlerts = [],
-  invoices = [], employees = [], onNavigate,
+  invoices = [], employees = [], onNavigate, isAdmin = false,
 }) => {
   const now = new Date();
   const todayStr = now.toISOString().split('T')[0];
@@ -128,7 +129,7 @@ const Dashboard: React.FC<DashboardProps> = ({
 
   const nav = (view: ViewState) => onNavigate?.(view);
 
-  const kpis = [
+  const allKpis = [
     {
       label: 'Ocupação',
       value: `${totalResidents}/${capacity}`,
@@ -138,6 +139,7 @@ const Dashboard: React.FC<DashboardProps> = ({
       ring: 'border-blue-100',
       progress: occupancyRate,
       progressColor: 'bg-blue-500',
+      adminOnly: false,
     },
     {
       label: 'Alta Complexidade',
@@ -146,6 +148,7 @@ const Dashboard: React.FC<DashboardProps> = ({
       icon: Activity,
       accent: 'bg-rose-50 text-rose-500',
       ring: 'border-rose-100',
+      adminOnly: false,
     },
     {
       label: 'Receita do Mês',
@@ -155,6 +158,7 @@ const Dashboard: React.FC<DashboardProps> = ({
       icon: Wallet,
       accent: 'bg-emerald-50 text-emerald-600',
       ring: 'border-emerald-100',
+      adminOnly: true,
     },
     {
       label: 'Eventos Hoje',
@@ -163,8 +167,11 @@ const Dashboard: React.FC<DashboardProps> = ({
       icon: Calendar,
       accent: 'bg-violet-50 text-violet-600',
       ring: 'border-violet-100',
+      adminOnly: false,
     },
   ];
+
+  const kpis = allKpis.filter(k => !k.adminOnly || isAdmin);
 
   const quickActions = [
     { label: 'Residentes',  icon: Users,       view: ViewState.RESIDENTS, color: 'hover:bg-blue-50   hover:text-blue-700   hover:border-blue-200'   },
@@ -274,7 +281,7 @@ const Dashboard: React.FC<DashboardProps> = ({
       )}
 
       {/* ── Quick Actions ─────────────────────────────────────────────── */}
-      {onNavigate && (
+      {onNavigate && isAdmin && (
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-4">Acesso Rápido</p>
           <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
@@ -389,10 +396,10 @@ const Dashboard: React.FC<DashboardProps> = ({
       </div>
 
       {/* ── Bottom row: Financial + Birthdays ────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
+      <div className={`grid grid-cols-1 ${isAdmin ? 'lg:grid-cols-5' : ''} gap-5`}>
 
-        {/* Financial summary */}
-        <div className="lg:col-span-3 bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+        {/* Financial summary — admin only */}
+        {isAdmin && <div className="lg:col-span-3 bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
           <div className="flex items-center justify-between mb-5">
             <p className="text-sm font-bold text-slate-800">Resumo Financeiro — {now.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}</p>
             {onNavigate && (
@@ -450,10 +457,10 @@ const Dashboard: React.FC<DashboardProps> = ({
           {financials.length === 0 && (
             <p className="text-xs text-slate-300 text-center mt-4">Nenhum lançamento registrado este mês</p>
           )}
-        </div>
+        </div>}
 
         {/* Upcoming birthdays */}
-        <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+        <div className={`${isAdmin ? 'lg:col-span-2' : ''} bg-white rounded-2xl border border-slate-100 shadow-sm p-5`}>
           <div className="flex items-center justify-between mb-5">
             <p className="text-sm font-bold text-slate-800">Aniversários Próximos</p>
             <Cake className="h-4 w-4 text-slate-300" />

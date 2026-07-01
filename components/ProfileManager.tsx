@@ -18,6 +18,17 @@ const MODULE_LABELS: Record<ViewState, string> = {
   [ViewState.NOTIFICATIONS]: 'Notificações',
   [ViewState.SETTINGS]: 'Configurações',
   [ViewState.PROFILE]: 'Meu Perfil',
+  
+  // Sub-pages of Prontuário
+  [ViewState.RESIDENT_DETAIL_INFO]: 'Cadastro',
+  [ViewState.RESIDENT_DETAIL_VITALS]: 'Sinais Vitais',
+  [ViewState.RESIDENT_DETAIL_MEDS]: 'Medicamentos',
+  [ViewState.RESIDENT_DETAIL_ROUTINE]: 'Rotina Diária',
+  [ViewState.RESIDENT_DETAIL_CARE_PLAN]: 'Plano Evolutivo',
+  [ViewState.RESIDENT_DETAIL_VISITS]: 'Visitas',
+  [ViewState.RESIDENT_DETAIL_DOCS]: 'Documentos',
+  [ViewState.RESIDENT_DETAIL_EVOLUTION]: 'Evolução',
+  [ViewState.RESIDENT_DETAIL_HISTORY]: 'Auditoria',
 };
 
 const EDITABLE_MODULES = [
@@ -36,12 +47,25 @@ const EDITABLE_MODULES = [
   ViewState.SETTINGS,
 ];
 
-const ALL_ACTIONS: PermissionAction[] = ['view', 'edit', 'create', 'delete'];
+const SUB_MODULES = [
+  ViewState.RESIDENT_DETAIL_INFO,
+  ViewState.RESIDENT_DETAIL_VITALS,
+  ViewState.RESIDENT_DETAIL_MEDS,
+  ViewState.RESIDENT_DETAIL_ROUTINE,
+  ViewState.RESIDENT_DETAIL_CARE_PLAN,
+  ViewState.RESIDENT_DETAIL_VISITS,
+  ViewState.RESIDENT_DETAIL_DOCS,
+  ViewState.RESIDENT_DETAIL_EVOLUTION,
+  ViewState.RESIDENT_DETAIL_HISTORY,
+];
+
+const ALL_ACTIONS: PermissionAction[] = ['view', 'edit', 'create', 'delete', 'sign'];
 const ACTION_LABELS: Record<PermissionAction, string> = {
   view: 'Ver',
   edit: 'Editar',
   create: 'Criar',
   delete: 'Excluir',
+  sign: 'Assinar',
 };
 
 const ProfileManager: React.FC = () => {
@@ -49,22 +73,30 @@ const ProfileManager: React.FC = () => {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showNewForm, setShowNewForm] = useState(false);
   const [newName, setNewName] = useState('');
+  const [prontuarioExpanded, setProntuarioExpanded] = useState(false);
 
   const toggleAction = (profile: Profile, module: ViewState, action: PermissionAction) => {
-    const existing = profile.permissions.find(p => p.module === module);
-    let newPermissions: Permission[];
+    const targets = module === ViewState.RESIDENT_DETAIL
+      ? [ViewState.RESIDENT_DETAIL, ...SUB_MODULES]
+      : [module];
 
-    if (existing) {
-      const hasAction = existing.actions.includes(action);
-      const newActions = hasAction
-        ? existing.actions.filter(a => a !== action)
-        : [...existing.actions, action];
-      newPermissions = profile.permissions.map(p =>
-        p.module === module ? { ...p, actions: newActions } : p
-      );
-    } else {
-      newPermissions = [...profile.permissions, { module, actions: [action] }];
-    }
+    const hasCurrent = hasAction(profile, module, action);
+    let newPermissions = [...profile.permissions];
+
+    targets.forEach(mod => {
+      const existingIdx = newPermissions.findIndex(p => p.module === mod);
+      if (existingIdx >= 0) {
+        const existing = newPermissions[existingIdx];
+        const newActions = hasCurrent
+          ? existing.actions.filter(a => a !== action)
+          : existing.actions.includes(action)
+            ? existing.actions
+            : [...existing.actions, action];
+        newPermissions[existingIdx] = { ...existing, actions: newActions };
+      } else if (!hasCurrent) {
+        newPermissions.push({ module: mod, actions: [action] });
+      }
+    });
 
     updateProfile({ ...profile, permissions: newPermissions });
   };
@@ -154,35 +186,97 @@ const ProfileManager: React.FC = () => {
                   <p className="text-sm text-slate-400 italic">Este perfil não pode ser editado.</p>
                 ) : (
                   <div className="overflow-x-auto">
-                    <table className="w-full text-xs">
+                    <table className="w-full text-xs text-left">
                       <thead>
-                        <tr className="text-slate-500">
-                          <th className="text-left font-medium pb-2 pr-4">Módulo</th>
+                        <tr className="text-slate-500 border-b border-slate-200">
+                          <th className="font-medium pb-2 pr-4 w-1/3">Módulo</th>
                           {ALL_ACTIONS.map(a => (
                             <th key={a} className="text-center font-medium pb-2 px-2">{ACTION_LABELS[a]}</th>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
-                        {EDITABLE_MODULES.map(mod => (
-                          <tr key={mod} className="border-t border-slate-50">
-                            <td className="py-2 pr-4 text-slate-700 font-medium whitespace-nowrap">{MODULE_LABELS[mod]}</td>
-                            {ALL_ACTIONS.map(action => (
-                              <td key={action} className="py-2 px-2 text-center">
-                                <button
-                                  onClick={() => toggleAction(profile, mod, action)}
-                                  className={`w-6 h-6 rounded flex items-center justify-center mx-auto transition-colors ${
-                                    hasAction(profile, mod, action)
-                                      ? 'bg-primary-500 text-white'
-                                      : 'bg-slate-100 text-slate-300 hover:bg-slate-200'
-                                  }`}
-                                >
-                                  {hasAction(profile, mod, action) && <Check className="h-3.5 w-3.5" />}
-                                </button>
-                              </td>
-                            ))}
-                          </tr>
-                        ))}
+                        {EDITABLE_MODULES.map(mod => {
+                          const isParent = mod === ViewState.RESIDENT_DETAIL;
+                          return (
+                            <React.Fragment key={mod}>
+                              <tr className="border-t border-slate-100 hover:bg-slate-50/40">
+                                <td className="py-2.5 pr-4 text-slate-700 font-medium whitespace-nowrap">
+                                  <div className="flex items-center gap-1.5">
+                                    {isParent && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setProntuarioExpanded(!prontuarioExpanded);
+                                        }}
+                                        className="p-0.5 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-600 transition-colors shrink-0 cursor-pointer"
+                                        title={prontuarioExpanded ? "Recolher sub-páginas" : "Expandir sub-páginas"}
+                                      >
+                                        {prontuarioExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                                      </button>
+                                    )}
+                                    <span>{MODULE_LABELS[mod]}</span>
+                                    {isParent && (
+                                      <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full font-normal shrink-0">
+                                        Módulo Geral
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
+                                {ALL_ACTIONS.map(action => {
+                                  const supportsSign = SUB_MODULES.includes(mod) || mod === ViewState.RESIDENT_DETAIL;
+                                  if (action === 'sign' && !supportsSign) {
+                                    return (
+                                      <td key={action} className="py-2.5 px-2 text-center text-slate-300">
+                                        —
+                                      </td>
+                                    );
+                                  }
+                                  return (
+                                    <td key={action} className="py-2.5 px-2 text-center">
+                                      <button
+                                        onClick={() => toggleAction(profile, mod, action)}
+                                        className={`w-6 h-6 rounded flex items-center justify-center mx-auto transition-colors ${
+                                          hasAction(profile, mod, action)
+                                            ? 'bg-primary-500 text-white'
+                                            : 'bg-slate-100 text-slate-300 hover:bg-slate-200'
+                                        }`}
+                                      >
+                                        {hasAction(profile, mod, action) && <Check className="h-3.5 w-3.5" />}
+                                      </button>
+                                    </td>
+                                  );
+                                })}
+                              </tr>
+
+                              {isParent && prontuarioExpanded && SUB_MODULES.map(subMod => (
+                                <tr key={subMod} className="bg-slate-50/50 hover:bg-slate-100/40">
+                                  <td className="py-2 pl-8 pr-4 text-slate-600 font-medium whitespace-nowrap">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-slate-300 font-normal">↳</span>
+                                      <span>{MODULE_LABELS[subMod]}</span>
+                                    </div>
+                                  </td>
+                                  {ALL_ACTIONS.map(action => (
+                                    <td key={action} className="py-2 px-2 text-center">
+                                      <button
+                                        onClick={() => toggleAction(profile, subMod, action)}
+                                        className={`w-6 h-6 rounded flex items-center justify-center mx-auto transition-colors ${
+                                          hasAction(profile, subMod, action)
+                                            ? 'bg-primary-500 text-white'
+                                            : 'bg-slate-100 text-slate-300 hover:bg-slate-200'
+                                        }`}
+                                      >
+                                        {hasAction(profile, subMod, action) && <Check className="h-3.5 w-3.5" />}
+                                      </button>
+                                    </td>
+                                  ))}
+                                </tr>
+                              ))}
+                            </React.Fragment>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>

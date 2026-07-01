@@ -329,6 +329,8 @@ export interface Employee {
   registrationNumber?: string; // COREN, CRM, etc.
   isTechnicalLead: boolean; // Responsável Técnico
   shift: 'Matutino' | 'Vespertino' | 'Noturno' | '12x36';
+  shiftStart?: string; // HH:MM
+  shiftEnd?: string;   // HH:MM
   status: 'Ativo' | 'Férias' | 'Afastado';
   admissionDate: string;
 }
@@ -384,7 +386,18 @@ export enum ViewState {
   ROOMS = 'ROOMS',
   NOTIFICATIONS = 'NOTIFICATIONS',
   SETTINGS = 'SETTINGS',
-  PROFILE = 'PROFILE'
+  PROFILE = 'PROFILE',
+  
+  // Sub-pages of RESIDENT_DETAIL (Prontuário)
+  RESIDENT_DETAIL_INFO = 'RESIDENT_DETAIL_INFO',
+  RESIDENT_DETAIL_VITALS = 'RESIDENT_DETAIL_VITALS',
+  RESIDENT_DETAIL_MEDS = 'RESIDENT_DETAIL_MEDS',
+  RESIDENT_DETAIL_ROUTINE = 'RESIDENT_DETAIL_ROUTINE',
+  RESIDENT_DETAIL_CARE_PLAN = 'RESIDENT_DETAIL_CARE_PLAN',
+  RESIDENT_DETAIL_VISITS = 'RESIDENT_DETAIL_VISITS',
+  RESIDENT_DETAIL_DOCS = 'RESIDENT_DETAIL_DOCS',
+  RESIDENT_DETAIL_EVOLUTION = 'RESIDENT_DETAIL_EVOLUTION',
+  RESIDENT_DETAIL_HISTORY = 'RESIDENT_DETAIL_HISTORY'
 }
 
 // --- NOTIFICAÇÕES WHATSAPP (UAZAPI) ---
@@ -457,7 +470,7 @@ export interface WhatsappInstance {
 
 export type ProfileType = 'Administrador' | 'Médico' | 'Cuidador' | 'Responsável';
 
-export type PermissionAction = 'view' | 'edit' | 'create' | 'delete';
+export type PermissionAction = 'view' | 'edit' | 'create' | 'delete' | 'sign';
 
 export interface Permission {
   module: ViewState;

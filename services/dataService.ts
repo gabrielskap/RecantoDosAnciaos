@@ -335,6 +335,8 @@ export async function fetchEmployees(empresaId: string): Promise<Employee[]> {
     registrationNumber: e.registration_number || undefined,
     isTechnicalLead: e.is_technical_lead,
     shift: e.shift,
+    shiftStart: e.shift_start ? e.shift_start.slice(0, 5) : undefined,
+    shiftEnd: e.shift_end ? e.shift_end.slice(0, 5) : undefined,
     status: e.status,
     admissionDate: e.admission_date
   }));

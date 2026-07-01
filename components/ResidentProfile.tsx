@@ -154,10 +154,49 @@ interface ResidentProfileProps {
 }
 
 const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBack, onUpdateResident }) => {
+  const { currentUser, hasPermission } = useAuth();
+
+  const TAB_VIEW_STATE_MAP: Record<string, ViewState> = {
+    info: ViewState.RESIDENT_DETAIL_INFO,
+    vitals: ViewState.RESIDENT_DETAIL_VITALS,
+    meds: ViewState.RESIDENT_DETAIL_MEDS,
+    routine: ViewState.RESIDENT_DETAIL_ROUTINE,
+    care_plan: ViewState.RESIDENT_DETAIL_CARE_PLAN,
+    visits: ViewState.RESIDENT_DETAIL_VISITS,
+    docs: ViewState.RESIDENT_DETAIL_DOCS,
+    evolution: ViewState.RESIDENT_DETAIL_EVOLUTION,
+    history: ViewState.RESIDENT_DETAIL_HISTORY,
+  };
+
+  const rawTabs = [
+    { id: 'info', label: 'Cadastro', icon: User },
+    { id: 'vitals', label: 'Sinais Vitais', icon: Activity },
+    { id: 'meds', label: 'Medicamentos', icon: Pill },
+    { id: 'routine', label: 'Rotina Diária', icon: ClipboardList },
+    { id: 'care_plan', label: 'Plano Evolutivo', icon: FileHeart },
+    { id: 'visits', label: 'Visitas', icon: Users },
+    { id: 'docs', label: 'Documentos', icon: Paperclip },
+    { id: 'evolution', label: 'Evolução', icon: FileText },
+    { id: 'history', label: 'Auditoria', icon: History },
+  ];
+
+  const visibleTabs = rawTabs.filter(tab => {
+    const vs = TAB_VIEW_STATE_MAP[tab.id];
+    return vs ? hasPermission(vs, 'view') : true;
+  });
+
   const [activeTab, setActiveTab] = useState<'info' | 'meds' | 'vitals' | 'routine' | 'care_plan' | 'visits' | 'docs' | 'evolution' | 'history'>(() => {
     const saved = localStorage.getItem(`recanto_resident_profile_active_tab_${resident.id}`);
-    return (saved as any) || 'vitals';
+    const initialTab = (saved as any) || 'vitals';
+    const isVisible = visibleTabs.some(t => t.id === initialTab);
+    return isVisible ? initialTab : (visibleTabs[0]?.id || 'vitals');
   });
+
+  React.useEffect(() => {
+    if (visibleTabs.length > 0 && !visibleTabs.some(t => t.id === activeTab)) {
+      setActiveTab(visibleTabs[0].id as any);
+    }
+  }, [visibleTabs, activeTab]);
 
   React.useEffect(() => {
     localStorage.setItem(`recanto_resident_profile_active_tab_${resident.id}`, activeTab);
@@ -171,7 +210,6 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   const [docUploadType, setDocUploadType] = useState<'exame' | 'laudo' | 'receita' | 'documento_pessoal' | 'outro'>('outro');
   const [isUploadingResidentDoc, setIsUploadingResidentDoc] = useState(false);
 
-  const { currentUser, hasPermission } = useAuth();
   const [isVisitModalOpen, setIsVisitModalOpen] = useState(false);
   const [visitData, setVisitData] = useState({
     visitorName: '',
@@ -183,17 +221,15 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     observations: ''
   });
 
-  const canRegisterVisits = currentUser?.profile.type === 'Administrador' || 
-                            currentUser?.profile.type === 'Médico' || 
-                            currentUser?.profile.type === 'Cuidador';
+  const canRegisterVisits = hasPermission(ViewState.RESIDENT_DETAIL_VISITS, 'create') || 
+                            hasPermission(ViewState.RESIDENT_DETAIL_VISITS, 'edit');
 
-  const canManageCarePlan = currentUser?.profile.type === 'Médico' ||
-                            currentUser?.employeeRole === 'Médico' ||
-                            currentUser?.employeeRole === 'Nutricionista' ||
-                            currentUser?.employeeRole === 'Fisioterapeuta' ||
-                            currentUser?.profile.type === 'Administrador';
+  const canDeleteVisits = hasPermission(ViewState.RESIDENT_DETAIL_VISITS, 'delete');
 
-  const canManageDocuments = hasPermission(ViewState.RESIDENT_DETAIL, 'delete');
+  const canManageCarePlan = hasPermission(ViewState.RESIDENT_DETAIL_CARE_PLAN, 'create') ||
+                            hasPermission(ViewState.RESIDENT_DETAIL_CARE_PLAN, 'edit');
+
+  const canManageDocuments = hasPermission(ViewState.RESIDENT_DETAIL_DOCS, 'delete');
 
   const [docToDelete, setDocToDelete] = useState<string | null>(null);
 
@@ -2508,17 +2544,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     }
   };
 
-  const tabs = [
-    { id: 'info', label: 'Cadastro', icon: User },
-    { id: 'vitals', label: 'Sinais Vitais', icon: Activity },
-    { id: 'meds', label: 'Medicamentos', icon: Pill },
-    { id: 'routine', label: 'Rotina Diária', icon: ClipboardList },
-    { id: 'care_plan', label: 'Plano Evolutivo', icon: FileHeart },
-    { id: 'visits', label: 'Visitas', icon: Users },
-    { id: 'docs', label: 'Documentos', icon: Paperclip },
-    { id: 'evolution', label: 'Evolução', icon: FileText },
-    { id: 'history', label: 'Auditoria', icon: History },
-  ];
+
 
   return (
     <div className="space-y-6">
@@ -2571,13 +2597,15 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                      </select>
                    ) : (
                      <button 
-                       onClick={() => setIsEditingStatus(true)}
-                       title="Clique para alterar o status"
-                       className={`flex items-center text-[10px] md:text-xs px-2 py-0.5 rounded-full border hover:shadow-sm transition-all cursor-pointer ${getRoomStatusColor(resident.roomStatus)}`}
+                       onClick={() => hasPermission(ViewState.RESIDENT_DETAIL_INFO, 'edit') && setIsEditingStatus(true)}
+                        title={hasPermission(ViewState.RESIDENT_DETAIL_INFO, 'edit') ? "Clique para alterar o status" : undefined}
+                        className={`flex items-center text-[10px] md:text-xs px-2 py-0.5 rounded-full border hover:shadow-sm transition-all ${hasPermission(ViewState.RESIDENT_DETAIL_INFO, 'edit') ? 'cursor-pointer' : 'cursor-default'} ${getRoomStatusColor(resident.roomStatus)}`}
                      >
                        {getRoomStatusIcon(resident.roomStatus)}
                        {resident.roomStatus || 'Ocupado'}
-                       <Edit2 className="w-2.5 h-2.5 ml-1.5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                       {hasPermission(ViewState.RESIDENT_DETAIL_INFO, 'edit') && (
+                          <Edit2 className="w-2.5 h-2.5 ml-1.5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                        )}
                      </button>
                    )}
                  </div>
@@ -2589,21 +2617,23 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
             </div>
           </div>
           
-          <div className="flex w-full md:w-auto gap-2 mt-2 md:mt-0">
-             <button
-               onClick={handleStartEditResident}
-               className="flex-1 md:flex-none flex justify-center items-center px-4 py-2 bg-white/20 border border-white/30 text-white rounded-xl text-sm font-semibold hover:bg-white/30 transition-colors"
-             >
-                <Edit2 className="h-4 w-4 mr-2" />
-                <span>Editar Perfil</span>
-             </button>
-          </div>
+          {hasPermission(ViewState.RESIDENT_DETAIL_INFO, 'edit') && (
+            <div className="flex w-full md:w-auto gap-2 mt-2 md:mt-0">
+               <button
+                 onClick={handleStartEditResident}
+                 className="flex-1 md:flex-none flex justify-center items-center px-4 py-2 bg-white/20 border border-white/30 text-white rounded-xl text-sm font-semibold hover:bg-white/30 transition-colors"
+               >
+                  <Edit2 className="h-4 w-4 mr-2" />
+                  <span>Editar Perfil</span>
+               </button>
+            </div>
+          )}
         </div>
 
         {/* Tabs Navigation - Improved Scroll */}
         <div className="border-b border-slate-200 bg-white sticky top-0 z-10">
           <div className="flex overflow-x-auto px-2 md:px-6 no-scrollbar">
-            {tabs.map((tab) => (
+            {visibleTabs.map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
@@ -2625,14 +2655,16 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
           
           {activeTab === 'info' && (
             <div className="space-y-6">
-              <div className="flex justify-end">
-                <button
-                  onClick={handleStartEditResident}
-                  className="flex items-center gap-1.5 text-xs font-semibold text-blue-700 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-4 py-2 rounded-xl border border-blue-200 transition-colors shadow-sm"
-                >
-                  <Edit2 className="h-3.5 w-3.5" /> Editar Cadastro & Plano de Rotina
-                </button>
-              </div>
+              {hasPermission(ViewState.RESIDENT_DETAIL_INFO, 'edit') && (
+                <div className="flex justify-end">
+                  <button
+                    onClick={handleStartEditResident}
+                    className="flex items-center gap-1.5 text-xs font-semibold text-blue-700 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-4 py-2 rounded-xl border border-blue-200 transition-colors shadow-sm"
+                  >
+                    <Edit2 className="h-3.5 w-3.5" /> Editar Cadastro & Plano de Rotina
+                  </button>
+                </div>
+              )}
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
@@ -3266,22 +3298,26 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                     </div>
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <button
-                      onClick={() => handleAdministerMedication(med.id)}
-                      className="bg-emerald-600 text-white text-xs px-3 py-1.5 rounded hover:bg-emerald-700 transition-colors mr-2"
-                    >
-                      Checar
-                    </button>
+                    {hasPermission(ViewState.RESIDENT_DETAIL_MEDS, 'edit') && (
+                      <button
+                        onClick={() => handleAdministerMedication(med.id)}
+                        className="bg-emerald-600 text-white text-xs px-3 py-1.5 rounded hover:bg-emerald-700 transition-colors mr-2 cursor-pointer"
+                      >
+                        Checar
+                      </button>
+                    )}
                     <button className="text-rose-500 hover:text-rose-700 p-1" title="Registrar Reação Adversa">
                       <AlertOctagon size={16} />
                     </button>
-                    <button
-                      onClick={() => handleDeleteMedication(med.id)}
-                      className="text-rose-600 hover:text-rose-800 p-1 ml-2 inline-flex items-center"
-                      title="Excluir Prescrição"
-                    >
-                      <Trash2 size={16} />
-                    </button>
+                    {hasPermission(ViewState.RESIDENT_DETAIL_MEDS, 'delete') && (
+                      <button
+                        onClick={() => handleDeleteMedication(med.id)}
+                        className="text-rose-600 hover:text-rose-800 p-1 ml-2 inline-flex items-center cursor-pointer"
+                        title="Excluir Prescrição"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
                   </td>
                 </tr>
               );
@@ -3290,12 +3326,14 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
               <div className="space-y-6">
                 <div className="flex justify-between items-center">
                   <h3 className="text-lg font-semibold text-slate-800">Gestão de Medicamentos</h3>
-                  <button
-                    onClick={() => setIsPrescriptionModalOpen(true)}
-                    className="flex items-center text-sm text-primary-600 font-medium bg-primary-50 px-3 py-1.5 rounded-lg border border-primary-100"
-                  >
-                    <Plus className="h-4 w-4 mr-1" /> Nova Prescrição
-                  </button>
+                  {hasPermission(ViewState.RESIDENT_DETAIL_MEDS, 'create') && (
+                    <button
+                      onClick={() => setIsPrescriptionModalOpen(true)}
+                      className="flex items-center text-sm text-primary-600 font-medium bg-primary-50 px-3 py-1.5 rounded-lg border border-primary-100 cursor-pointer"
+                    >
+                      <Plus className="h-4 w-4 mr-1" /> Nova Prescrição
+                    </button>
+                  )}
                 </div>
 
                 {/* Medicamentos Permanentes */}
@@ -3418,22 +3456,26 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                                   </div>
                                 </td>
                                 <td className="px-4 py-3 text-right">
-                                  <button
-                                    onClick={() => handleAdministerMedication(med.id)}
-                                    className="bg-emerald-600 text-white text-xs px-3 py-1.5 rounded hover:bg-emerald-700 transition-colors mr-2"
-                                  >
-                                    Checar
-                                  </button>
+                                  {hasPermission(ViewState.RESIDENT_DETAIL_MEDS, 'edit') && (
+                      <button
+                        onClick={() => handleAdministerMedication(med.id)}
+                        className="bg-emerald-600 text-white text-xs px-3 py-1.5 rounded hover:bg-emerald-700 transition-colors mr-2 cursor-pointer"
+                      >
+                        Checar
+                      </button>
+                    )}
                                   <button className="text-rose-500 hover:text-rose-700 p-1" title="Registrar Reação Adversa">
                                     <AlertOctagon size={16} />
                                   </button>
-                                  <button
-                                    onClick={() => handleDeleteMedication(med.id)}
-                                    className="text-rose-600 hover:text-rose-800 p-1 ml-2 inline-flex items-center"
-                                    title="Excluir Prescrição"
-                                  >
-                                    <Trash2 size={16} />
-                                  </button>
+                                  {hasPermission(ViewState.RESIDENT_DETAIL_MEDS, 'delete') && (
+                      <button
+                        onClick={() => handleDeleteMedication(med.id)}
+                        className="text-rose-600 hover:text-rose-800 p-1 ml-2 inline-flex items-center cursor-pointer"
+                        title="Excluir Prescrição"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
                                 </td>
                               </tr>
                             );
@@ -3452,12 +3494,14 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                       Receitas Médicas
                       <span className="text-xs font-normal text-slate-400">({(resident.prescriptions || []).length})</span>
                     </h4>
-                    <button
-                      onClick={() => setIsReceitaModalOpen(true)}
-                      className="flex items-center text-sm text-indigo-600 font-medium bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100 hover:bg-indigo-100 transition-colors"
-                    >
-                      <Plus className="h-4 w-4 mr-1" /> Anexar Receita
-                    </button>
+                    {hasPermission(ViewState.RESIDENT_DETAIL_MEDS, 'create') && (
+                      <button
+                        onClick={() => setIsReceitaModalOpen(true)}
+                        className="flex items-center text-sm text-indigo-600 font-medium bg-indigo-50 px-3 py-1.5 rounded-lg border border-indigo-100 hover:bg-indigo-100 transition-colors cursor-pointer"
+                      >
+                        <Plus className="h-4 w-4 mr-1" /> Anexar Receita
+                      </button>
+                    )}
                   </div>
                   {(resident.prescriptions || []).length === 0 ? (
                     <p className="text-xs text-slate-400 italic px-1">Nenhuma receita anexada.</p>
@@ -3504,13 +3548,15 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                                   >
                                     <FileText size={14} /> Ver
                                   </a>
-                                  <button
-                                    onClick={() => handleDeleteReceita(receita.id)}
-                                    className="text-rose-500 hover:text-rose-700 p-1 inline-flex items-center"
-                                    title="Excluir receita"
-                                  >
-                                    <Trash2 size={15} />
-                                  </button>
+                                  {hasPermission(ViewState.RESIDENT_DETAIL_MEDS, 'delete') && (
+                                    <button
+                                      onClick={() => handleDeleteReceita(receita.id)}
+                                      className="text-rose-500 hover:text-rose-700 p-1 inline-flex items-center cursor-pointer"
+                                      title="Excluir receita"
+                                    >
+                                      <Trash2 size={15} />
+                                    </button>
+                                  )}
                                 </td>
                               </tr>
                             );
@@ -3720,13 +3766,15 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                       <p className="text-sm text-slate-500 max-w-sm mb-6">
                         O prontuário {selectedShift === 'diurno' ? 'diurno' : 'noturno'} para este dia ainda não foi iniciado para este residente. Crie o boletim para registrar a evolução de rotina.
                       </p>
-                      <button
-                        onClick={handleStartEditChecklist}
-                        className="flex items-center px-6 py-3 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 transition-all shadow-md hover:shadow-lg"
-                      >
-                        <Plus className="h-5 w-5 mr-2" />
-                        Preencher Boletim {selectedShift === 'diurno' ? 'Diurno' : 'Noturno'}
-                      </button>
+                      {hasPermission(ViewState.RESIDENT_DETAIL_ROUTINE, 'create') && (
+                        <button
+                          onClick={handleStartEditChecklist}
+                          className="flex items-center px-6 py-3 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 transition-all shadow-md hover:shadow-lg cursor-pointer"
+                        >
+                          <Plus className="h-5 w-5 mr-2" />
+                          Preencher Boletim {selectedShift === 'diurno' ? 'Diurno' : 'Noturno'}
+                        </button>
+                      )}
                     </div>
                   ) : (
                     /* Completed Summary Card View */
@@ -3762,20 +3810,24 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 mr-1.5 animate-pulse"></span>
                                 Salvo no prontuário
                               </span>
-                              <button
-                                onClick={() => handleRequestSign('read')}
-                                className="flex items-center px-4 py-2 bg-blue-600 text-white border border-blue-700 rounded-xl text-xs font-semibold hover:bg-blue-700 transition-all shadow-sm cursor-pointer"
-                              >
-                                <PenTool className="h-3.5 w-3.5 mr-1.5" />
-                                Assinar Digitalmente
-                              </button>
-                              <button
-                                onClick={handleStartEditChecklist}
-                                className="flex items-center px-4 py-2 bg-white text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold hover:bg-slate-50 transition-all shadow-sm cursor-pointer"
-                              >
-                                <Edit2 className="h-3.5 w-3.5 mr-1.5 text-primary-600" />
-                                Editar Boletim
-                              </button>
+                              {hasPermission(ViewState.RESIDENT_DETAIL_ROUTINE, 'sign') && (
+                                <button
+                                  onClick={() => handleRequestSign('read')}
+                                  className="flex items-center px-4 py-2 bg-blue-600 text-white border border-blue-700 rounded-xl text-xs font-semibold hover:bg-blue-700 transition-all shadow-sm cursor-pointer"
+                                >
+                                  <PenTool className="h-3.5 w-3.5 mr-1.5" />
+                                  Assinar Digitalmente
+                                </button>
+                              )}
+                              {hasPermission(ViewState.RESIDENT_DETAIL_ROUTINE, 'edit') && (
+                                <button
+                                  onClick={handleStartEditChecklist}
+                                  className="flex items-center px-4 py-2 bg-white text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold hover:bg-slate-50 transition-all shadow-sm cursor-pointer"
+                                >
+                                  <Edit2 className="h-3.5 w-3.5 mr-1.5 text-primary-600" />
+                                  Editar Boletim
+                                </button>
+                              )}
                               <button
                                 onClick={handlePrintChecklist}
                                 className="flex items-center px-4 py-2 bg-white text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold hover:bg-slate-50 transition-all shadow-sm cursor-pointer"
@@ -5171,14 +5223,16 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
           {activeTab === 'docs' && (
             <div className="space-y-6">
                <div className="flex justify-between items-center">
-                 <h3 className="text-lg font-semibold text-slate-800">Documentos Digitalizados</h3>
-                 <button
-                   onClick={() => setShowDocUploadModal(true)}
-                   className="flex items-center text-sm text-primary-600 font-medium bg-primary-50 px-3 py-1.5 rounded-lg border border-primary-100 hover:bg-primary-100 transition-colors"
-                 >
-                   <Plus className="h-4 w-4 mr-1" /> Novo Upload
-                 </button>
-               </div>
+                  <h3 className="text-lg font-semibold text-slate-800">Documentos Digitalizados</h3>
+                  {hasPermission(ViewState.RESIDENT_DETAIL_DOCS, 'create') && (
+                    <button
+                      onClick={() => setShowDocUploadModal(true)}
+                      className="flex items-center text-sm text-primary-600 font-medium bg-primary-50 px-3 py-1.5 rounded-lg border border-primary-100 hover:bg-primary-100 transition-colors cursor-pointer"
+                    >
+                      <Plus className="h-4 w-4 mr-1" /> Novo Upload
+                    </button>
+                  )}
+                </div>
                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                  {resident.documents?.map((doc) => (
                    <div
@@ -5228,22 +5282,24 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
 
             return (
               <div className="space-y-4">
-                 <div className="flex gap-2 mb-4">
-                   <textarea 
-                     value={newNoteText}
-                     onChange={(e) => setNewNoteText(e.target.value)}
-                     className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-sm resize-none" 
-                     rows={3} 
-                     placeholder="Nova anotação de enfermagem..."
-                   />
-                   <button 
-                     onClick={handleSaveEvolutionNote}
-                     disabled={!newNoteText.trim()}
-                     className="bg-primary-600 text-white px-4 rounded-lg font-medium hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                   >
-                     Salvar
-                   </button>
-                 </div>
+                 {hasPermission(ViewState.RESIDENT_DETAIL_EVOLUTION, 'create') && (
+                    <div className="flex gap-2 mb-4">
+                      <textarea 
+                        value={newNoteText}
+                        onChange={(e) => setNewNoteText(e.target.value)}
+                        className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-sm resize-none" 
+                        rows={3} 
+                        placeholder="Nova anotação de enfermagem..."
+                      />
+                      <button 
+                        onClick={handleSaveEvolutionNote}
+                        disabled={!newNoteText.trim()}
+                        className="bg-primary-600 text-white px-4 rounded-lg font-medium hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all cursor-pointer"
+                      >
+                        Salvar
+                      </button>
+                    </div>
+                  )}
                  {evolutionLogs.length > 0 ? (
                    <div className="space-y-6 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-slate-300 before:to-transparent">
                       {evolutionLogs.map((log, i) => (

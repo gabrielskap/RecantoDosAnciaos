@@ -550,7 +550,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     
     const perm = currentUser.profile.permissions.find(p => p.module === module);
-    return perm ? perm.actions.includes(action) : false;
+    if (perm) {
+      return perm.actions.includes(action);
+    }
+
+    // Fallback logic for sub-pages of RESIDENT_DETAIL
+    const subPages = [
+      ViewState.RESIDENT_DETAIL_INFO,
+      ViewState.RESIDENT_DETAIL_VITALS,
+      ViewState.RESIDENT_DETAIL_MEDS,
+      ViewState.RESIDENT_DETAIL_ROUTINE,
+      ViewState.RESIDENT_DETAIL_CARE_PLAN,
+      ViewState.RESIDENT_DETAIL_VISITS,
+      ViewState.RESIDENT_DETAIL_DOCS,
+      ViewState.RESIDENT_DETAIL_EVOLUTION,
+      ViewState.RESIDENT_DETAIL_HISTORY,
+    ];
+
+    if (subPages.includes(module)) {
+      const parentPerm = currentUser.profile.permissions.find(p => p.module === ViewState.RESIDENT_DETAIL);
+      if (!parentPerm) return false;
+      if (action === 'sign') {
+        return parentPerm.actions.includes('edit') || parentPerm.actions.includes('create');
+      }
+      return parentPerm.actions.includes(action);
+    }
+    
+    return false;
   };
 
   const updateProfile = async (updated: Profile) => {
