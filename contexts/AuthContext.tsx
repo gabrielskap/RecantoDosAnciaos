@@ -155,6 +155,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const computeAccessStatus = async (user: AuthUser | null) => {
     if (!user?.empresaId) { setAccessBlocked(false); return; }
     try {
+      // Verifica o status da empresa primeiro — fonte mais confiável e sem dependência de RLS complexo.
+      const { data: empresa } = await supabase
+        .from('Recanto_Empresas')
+        .select('status')
+        .eq('empresa_id', user.empresaId)
+        .maybeSingle();
+
+      if (empresa?.status === 'ativa') {
+        setAccessBlocked(false);
+        return;
+      }
+
+      // Fallback: verifica a assinatura Asaas pendente.
       const { data } = await supabase
         .from('Recanto_Assinaturas')
         .select('status, gateway_pagamento, ativada_em')

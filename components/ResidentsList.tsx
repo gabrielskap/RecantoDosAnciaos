@@ -75,7 +75,7 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
   const [formData, setFormData] = useState<Partial<Resident>>(() => {
     const saved = localStorage.getItem('modal_residents_form_data');
     return saved ? JSON.parse(saved) : {
-      name: '', age: 0, room: '', careLevel: 'I', cpf: '', rg: '', birthDate: '', photoUrl: '',
+      name: '', age: 0, room: '', careLevel: 'I', cpf: '', rg: '', birthDate: '', admissionDate: '', photoUrl: '',
       addressCep: '', addressState: '', addressCity: '', addressNeighborhood: '',
       addressStreet: '', addressNumber: '', addressComplement: '',
       emergencyContacts: [],
@@ -196,6 +196,7 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
       cpf: resident.cpf || '',
       rg: resident.rg || '',
       birthDate: resident.birthDate || '',
+      admissionDate: resident.admissionDate || '',
       photoUrl: resident.photoUrl || '',
       addressCep: resident.addressCep || '',
       addressState: resident.addressState || '',
@@ -260,6 +261,7 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
             cpf: formData.cpf,
             rg: formData.rg,
             birthDate: formData.birthDate,
+            admissionDate: formData.admissionDate || original.admissionDate,
             addressCep: formData.addressCep,
             addressState: formData.addressState,
             addressCity: formData.addressCity,
@@ -294,7 +296,7 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
         careLevel: (formData.careLevel as 'I' | 'II' | 'III') || 'I',
         cpf: formData.cpf, rg: formData.rg, birthDate: formData.birthDate,
         photoUrl: formData.photoUrl || '',
-        admissionDate: new Date().toISOString(),
+        admissionDate: formData.admissionDate || new Date().toISOString().split('T')[0],
         addressCep: formData.addressCep,
         addressState: formData.addressState,
         addressCity: formData.addressCity,
@@ -325,7 +327,7 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
     }
     setEditingResidentId(null);
     setFormData({
-      name: '', age: 0, room: '', careLevel: 'I', photoUrl: '',
+      name: '', age: 0, room: '', careLevel: 'I', admissionDate: '', photoUrl: '',
       addressCep: '', addressState: '', addressCity: '', addressNeighborhood: '',
       addressStreet: '', addressNumber: '', addressComplement: '',
       emergencyContacts: [],
@@ -393,7 +395,7 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
             onClick={() => {
               setEditingResidentId(null);
               setFormData({
-                name: '', age: 0, room: '', careLevel: 'I', cpf: '', rg: '', birthDate: '', photoUrl: '',
+                name: '', age: 0, room: '', careLevel: 'I', cpf: '', rg: '', birthDate: '', admissionDate: '', photoUrl: '',
                 addressCep: '', addressState: '', addressCity: '', addressNeighborhood: '',
                 addressStreet: '', addressNumber: '', addressComplement: '',
                 emergencyContacts: [],
@@ -766,6 +768,16 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
                       )}
                     </div>
                   </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1.5">Data de Admissão ao Lar</label>
+                    <input
+                      type="date"
+                      value={formData.admissionDate || ''}
+                      onChange={e => setFormData({ ...formData, admissionDate: e.target.value })}
+                      className={inputClass}
+                    />
+                  </div>
+
                   <div>
                     <label className="block text-xs font-semibold text-slate-600 mb-1.5">Grau de Dependência</label>
                     <CustomSelect
