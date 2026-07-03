@@ -3,7 +3,7 @@ import {
   HeartPulse, Users, DollarSign, Package, BarChart3, Calendar,
   Stethoscope, Utensils, Brain, Check, Star, Menu, X, ChevronRight,
   AlertCircle, Mail, Lock, ArrowRight, Shield, Zap, Building2,
-  Activity, ClipboardList
+  Activity, ClipboardList, Eye, EyeOff
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -21,6 +21,7 @@ const LandingPage: React.FC = () => {
   const [resetLoading, setResetLoading] = useState(false);
   const [resetError, setResetError] = useState('');
   const [resetSuccess, setResetSuccess] = useState(false);
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'gestores' | 'grupos'>('gestores');
   const [pricingPeriod, setPricingPeriod] = useState<'mensal' | 'anual'>('mensal');
@@ -894,7 +895,7 @@ const LandingPage: React.FC = () => {
           onMouseUp={(e) => { if (!loginModalMouseDown.current && e.target === e.currentTarget) { setShowLoginModal(false); closeResetMode(); } }}
         >
           <div
-            className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-8 relative"
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-md px-8 pt-10 pb-8 relative"
             onMouseDown={(e) => { loginModalMouseDown.current = true; e.stopPropagation(); }}
           >
             <button
@@ -1013,13 +1014,22 @@ const LandingPage: React.FC = () => {
                     <div className="relative">
                       <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                       <input
-                        type="password"
+                        type={showLoginPassword ? 'text' : 'password'}
                         value={loginPassword}
                         onChange={e => setLoginPassword(e.target.value)}
                         placeholder="••••••••"
                         required
-                        className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm text-slate-800 placeholder-slate-400"
+                        className="w-full pl-10 pr-10 py-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm text-slate-800 placeholder-slate-400"
                       />
+                      <button
+                        type="button"
+                        onClick={() => setShowLoginPassword(v => !v)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+                        tabIndex={-1}
+                        aria-label={showLoginPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                      >
+                        {showLoginPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
                     </div>
                   </div>
 

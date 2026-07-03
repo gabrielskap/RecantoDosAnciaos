@@ -142,6 +142,7 @@ const CheckoutPage: React.FC = () => {
   const [loadingCNPJ, setLoadingCNPJ] = useState(false);
   const [cnpjFound, setCnpjFound] = useState(false);
   const [savingRascunho, setSavingRascunho] = useState(false);
+  const [cnpjJaCadastrado, setCnpjJaCadastrado] = useState(false);
 
   const [planos, setPlanos] = useState<PlanoView[]>(PLANOS_FALLBACK);
   const [result, setResult] = useState<CheckoutResult | null>(null);
@@ -271,10 +272,20 @@ const CheckoutPage: React.FC = () => {
     const formatted = formatCNPJ(val);
     set('cnpj', formatted);
     setCnpjFound(false);
+    setCnpjJaCadastrado(false);
     const clean = formatted.replace(/\D/g, '');
     if (clean.length !== 14) return;
     setLoadingCNPJ(true);
     try {
+      // Verifica se o CNPJ já está cadastrado e ativo antes de prosseguir
+      if (validarCNPJ(formatted)) {
+        const { data: ativo } = await supabase.rpc('check_cnpj_ativo', { cnpj_input: clean });
+        if (ativo) {
+          setCnpjJaCadastrado(true);
+          return;
+        }
+      }
+
       const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${clean}`);
       if (!res.ok) return;
       const d = await res.json();
@@ -399,10 +410,6 @@ const CheckoutPage: React.FC = () => {
       };
       sessionStorage.setItem('rc_emp', JSON.stringify(empData));
       await saveRascunho('empresa', empData);
-      // Pré-preenche o e-mail do responsável com o e-mail comercial da empresa
-      if (!form.emailAdmin && form.emailComercial) {
-        setForm(f => ({ ...f, emailAdmin: form.emailComercial }));
-      }
       setStep('admin');
     } else if (step === 'admin' && validateAdmin()) {
       // Salva dados do admin no rascunho (sem senha)
@@ -1240,6 +1247,54 @@ const CheckoutPage: React.FC = () => {
           </>
         )}
       </div>
+
+      {/* ── Modal: CNPJ já cadastrado e ativo ── */}
+      {cnpjJaCadastrado && (
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          onClick={() => { setCnpjJaCadastrado(false); set('cnpj', ''); setCnpjFound(false); }}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-8"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex flex-col items-center text-center">
+              <div className="w-16 h-16 bg-amber-50 rounded-2xl flex items-center justify-center mb-5">
+                <Building2 className="h-8 w-8 text-amber-500" />
+              </div>
+
+              <h2 className="text-xl font-bold text-slate-900 mb-2">
+                Empresa já cadastrada
+              </h2>
+
+              <p className="text-sm text-slate-500 mb-1">O CNPJ</p>
+              <p className="text-base font-semibold text-blue-700 mb-3 font-mono tracking-wide">
+                {form.cnpj}
+              </p>
+              <p className="text-sm text-slate-500 mb-8 leading-relaxed">
+                já possui uma conta ativa no RecantoCare. Acesse sua conta existente ou informe um CNPJ diferente para continuar o cadastro.
+              </p>
+
+              <div className="flex flex-col gap-3 w-full">
+                <button
+                  onClick={irParaLogin}
+                  className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-3 rounded-xl transition-all text-sm"
+                >
+                  <LogIn className="h-4 w-4" />
+                  Ir para o login
+                </button>
+                <button
+                  onClick={() => { setCnpjJaCadastrado(false); set('cnpj', ''); setCnpjFound(false); }}
+                  className="flex items-center justify-center gap-2 border-2 border-slate-200 hover:border-blue-300 text-slate-700 font-semibold px-6 py-3 rounded-xl transition-all text-sm"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                  Informar outro CNPJ
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
