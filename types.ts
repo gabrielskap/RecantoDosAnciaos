@@ -516,6 +516,18 @@ export type PlanoId = 'essencial' | 'profissional' | 'enterprise';
 export type FormaPagamento = 'cartao' | 'pix' | 'boleto';
 export type Periodicidade = 'mensal' | 'anual';
 
+export interface PlanoView {
+  id: PlanoId;
+  nome: string;
+  precoMensal: number;
+  precoMensalAnual: number;
+  precoAnualTotal: number;
+  selfService: boolean;
+  desc: string;
+  features: string[];
+  popular?: boolean;
+}
+
 export interface Empresa {
   id: string;
   empresaId: string;

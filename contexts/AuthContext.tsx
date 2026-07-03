@@ -5,6 +5,13 @@ import { toast } from '../services/toast';
 
 // --- Context ---
 
+export interface TrialInfo {
+  isInTrial: boolean;
+  daysRemaining: number;
+  expiraEm: string | null;
+  isExpired: boolean;
+}
+
 export interface AuthContextValue {
   currentUser: AuthUser | null;
   users: AuthUser[];
@@ -21,8 +28,10 @@ export interface AuthContextValue {
   deleteUser: (id: string) => Promise<void>;
   updateUser: (user: AuthUser) => Promise<void>;
   updateUserCertificate: (userId: string, cert: DigitalCertificate | null) => Promise<void>;
-  /** true quando a assinatura Asaas está pendente e o acesso aos módulos deve ser bloqueado. */
+  /** true quando o acesso deve ser bloqueado (pagamento pendente ou trial expirado). */
   accessBlocked: boolean;
+  /** Informações do período de trial quando ativo. */
+  trialInfo: TrialInfo | null;
   /** Reconsulta o status da assinatura (usado pela tela de pagamento pendente). */
   refreshAccessStatus: () => Promise<void>;
 }
@@ -65,7 +74,7 @@ const fetchUserProfile = async (authUserId: string): Promise<AuthUser | null> =>
         )
       `)
       .eq('auth_user_id', authUserId)
-      .single(),
+      .maybeSingle(),
     supabase
       .from('Recanto_Certificados')
       .select('*')
@@ -78,8 +87,11 @@ const fetchUserProfile = async (authUserId: string): Promise<AuthUser | null> =>
       .maybeSingle(),
   ]);
 
-  if (userResult.error || !userResult.data) {
+  if (userResult.error) {
     console.error('Erro ao buscar perfil do usuário no Supabase:', userResult.error);
+    return null;
+  }
+  if (!userResult.data) {
     return null;
   }
 
@@ -147,6 +159,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
   const [accessBlocked, setAccessBlocked] = useState(false);
+  const [trialInfo, setTrialInfo] = useState<TrialInfo | null>(null);
 
   // --- Gate de ativação (assinatura Asaas) ---
   // Bloqueia o acesso apenas quando a última assinatura da empresa for Asaas,
@@ -167,15 +180,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return;
       }
 
-      // Fallback: verifica a assinatura Asaas pendente.
+      // Fallback: verifica a assinatura mais recente.
       const { data } = await supabase
         .from('Recanto_Assinaturas')
-        .select('status, gateway_pagamento, ativada_em')
+        .select('status, gateway_pagamento, ativada_em, trial_expira_em')
         .eq('empresa_id', user.empresaId)
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
 
+      // Trial: em_trial com expiração futura → libera acesso, exibe banner
+      if (data?.status === 'em_trial') {
+        const expiraEm = data.trial_expira_em ? new Date(data.trial_expira_em) : null;
+        const now = new Date();
+        const isExpired = expiraEm ? expiraEm <= now : false;
+        const daysRemaining = expiraEm
+          ? Math.max(0, Math.ceil((expiraEm.getTime() - now.getTime()) / 86400000))
+          : 7;
+        setTrialInfo({ isInTrial: true, daysRemaining, expiraEm: data.trial_expira_em, isExpired });
+        setAccessBlocked(isExpired);
+        return;
+      }
+
+      setTrialInfo(null);
       const blocked = !!data
         && data.gateway_pagamento === 'asaas'
         && data.status === 'pendente'
@@ -877,7 +904,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ currentUser, users, profiles, loading, login, logout, resetPassword, hasPermission, updateProfile, addProfile, deleteProfile, addUser, deleteUser, updateUser, updateUserCertificate, accessBlocked, refreshAccessStatus }}>
+    <AuthContext.Provider value={{ currentUser, users, profiles, loading, login, logout, resetPassword, hasPermission, updateProfile, addProfile, deleteProfile, addUser, deleteUser, updateUser, updateUserCertificate, accessBlocked, trialInfo, refreshAccessStatus }}>
       {children}
     </AuthContext.Provider>
   );

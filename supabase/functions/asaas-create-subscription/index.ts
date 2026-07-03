@@ -4,6 +4,9 @@
 // Checkout público da assinatura SaaS. Cria empresa + assinatura + usuário admin
 // (status pendente) e a cobrança real no Asaas (cartão / PIX / boleto).
 //
+// Suporta payLater=true para criar conta com trial de 7 dias sem pagamento.
+// Suporta rascunhoToken para carregar dados salvos progressivamente no checkout.
+//
 // Segurança:
 //   - Apenas POST; responde OPTIONS (CORS).
 //   - Valida Origin contra allowlist (CHECKOUT_ALLOWED_ORIGINS).
@@ -18,9 +21,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 // ─── Constantes ────────────────────────────────────────────────────────────
-// Os segredos do Asaas (ASAAS_API_KEY/ASAAS_API_URL) ficam na tabela
-// Recanto_Integracao_Secrets e são lidos por requisição via service_role.
-// Há fallback para variável de ambiente caso a chave ainda não exista na tabela.
 const SECRETS_TABLE = 'Recanto_Integracao_Secrets';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
@@ -30,7 +30,6 @@ const ALLOWED_ORIGINS = (Deno.env.get('CHECKOUT_ALLOWED_ORIGINS') ?? '')
 
 const ASAAS_TIMEOUT_MS = 20000;
 
-// Rate limit — tentativas na última hora por chave.
 const RATE_LIMIT_IP = 8;
 const RATE_LIMIT_EMAIL = 4;
 const RATE_LIMIT_CPF_CNPJ = 4;
@@ -58,7 +57,6 @@ const cleanEmail = (s: unknown) => String(s ?? '').trim().toLowerCase();
 const isEmail = (s: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
 
 function corsHeaders(origin: string | null): Record<string, string> {
-  // Sem allowlist configurada → reflete a origem (modo sandbox/dev).
   let allow = '*';
   if (ALLOWED_ORIGINS.length > 0) {
     allow = origin && ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
@@ -74,8 +72,8 @@ function corsHeaders(origin: string | null): Record<string, string> {
 }
 
 function originAllowed(origin: string | null): boolean {
-  if (ALLOWED_ORIGINS.length === 0) return true;     // allowlist não configurada
-  if (!origin) return true;                          // sem Origin (curl/server) → captcha+rate limit cuidam
+  if (ALLOWED_ORIGINS.length === 0) return true;
+  if (!origin) return true;
   return ALLOWED_ORIGINS.includes(origin);
 }
 
@@ -120,7 +118,6 @@ async function verifyCaptcha(token: string, ip: string | null): Promise<boolean>
   }
 }
 
-// Lê os segredos do Asaas da tabela Recanto_Integracao_Secrets (fallback: env).
 async function loadAsaasConfig(admin: any): Promise<{ apiUrl: string; apiKey: string }> {
   let row: Record<string, string> = {};
   try {
@@ -129,9 +126,6 @@ async function loadAsaasConfig(admin: any): Promise<{ apiUrl: string; apiKey: st
       .select('chave, valor')
       .in('chave', ['ASAAS_API_KEY', 'ASAAS_API_URL']);
     if (error) {
-      // A PostgREST devolve o erro em `error` (não lança): PGRST205 (cache de
-      // schema desatualizado), 401/PGRST301 (service_role inválida), etc.
-      // Logamos os METADADOS do erro — NUNCA os valores dos segredos.
       console.error('[asaas-create] Falha ao ler segredos do banco (PostgREST):', JSON.stringify({
         code: error.code, message: error.message, details: error.details, hint: error.hint,
       }));
@@ -145,13 +139,11 @@ async function loadAsaasConfig(admin: any): Promise<{ apiUrl: string; apiKey: st
   const apiKey = (row['ASAAS_API_KEY'] ?? Deno.env.get('ASAAS_API_KEY') ?? '').trim();
   const apiUrl = (row['ASAAS_API_URL'] ?? Deno.env.get('ASAAS_API_URL') ?? 'https://api-sandbox.asaas.com/v3')
     .trim().replace(/\/+$/, '');
-  // Origem da chave (tabela/env/nenhuma) e apiUrl (não é segredo) — sem valores.
   const origem = row['ASAAS_API_KEY'] ? 'tabela' : (Deno.env.get('ASAAS_API_KEY') ? 'env' : 'nenhuma');
   console.log(`[asaas-create] Config Asaas: apiKey=${apiKey ? 'presente' : 'AUSENTE'} (origem: ${origem}), apiUrl=${apiUrl}.`);
   return { apiUrl, apiKey };
 }
 
-// Cliente Asaas vinculado à config (apiUrl/apiKey) carregada por requisição.
 function makeAsaasFetch(apiUrl: string, apiKey: string) {
   return async (path: string, method: string, body?: unknown) => {
     const controller = new AbortController();
@@ -175,7 +167,6 @@ function makeAsaasFetch(apiUrl: string, apiKey: string) {
   };
 }
 
-// Mensagem de erro do Asaas sem vazar dados sensíveis.
 function asaasError(data: any): string {
   const first = data?.errors?.[0];
   return first?.description || data?.message || 'Falha na comunicação com o gateway de pagamento.';
@@ -202,13 +193,8 @@ Deno.serve(async (req: Request) => {
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
   const ip = clientIp(req);
 
-  // Carrega os segredos do Asaas (tabela Recanto_Integracao_Secrets, fallback env).
-  const asaasCfg = await loadAsaasConfig(admin);
-  if (!asaasCfg.apiKey) {
-    console.error('[asaas-create] ASAAS_API_KEY ausente (tabela de segredos e env).');
-    return json({ error: 'Serviço de pagamento indisponível no momento.' }, 500, origin);
-  }
-  const asaasFetch = makeAsaasFetch(asaasCfg.apiUrl, asaasCfg.apiKey);
+  // Carrega os segredos do Asaas apenas quando necessário (não-payLater)
+  // Para evitar latência desnecessária no caminho do trial, carregamos após checar payLater.
 
   // Estado para rollback
   let empresaId: string | null = null;
@@ -227,10 +213,9 @@ Deno.serve(async (req: Request) => {
       if (empresaId) {
         await admin.from('Recanto_Empresas').update({ status: 'cancelada' }).eq('empresa_id', empresaId);
       }
-      // Remove o usuário Auth para liberar o e-mail em uma nova tentativa.
       if (authUserId) {
-        await admin.from('Recanto_Usuarios').delete().eq('auth_user_id', authUserId).catch(() => {});
-        await admin.auth.admin.deleteUser(authUserId).catch(() => {});
+        try { await admin.from('Recanto_Usuarios').delete().eq('auth_user_id', authUserId); } catch { /* noop */ }
+        try { await admin.auth.admin.deleteUser(authUserId); } catch { /* noop */ }
       }
     } catch (err) {
       console.error('[asaas-create] Falha no rollback:', (err as Error).message);
@@ -246,38 +231,61 @@ Deno.serve(async (req: Request) => {
       return json({ error: 'Payload inválido.' }, 400, origin);
     }
 
+    const payLater = payload?.payLater === true;
+    const rascunhoToken = String(payload?.rascunhoToken ?? '').trim();
+
+    // Carrega dados do rascunho quando token fornecido
+    let rascunho: any = null;
+    if (rascunhoToken) {
+      const { data: rd } = await admin
+        .from('Recanto_Checkout_Rascunhos')
+        .select('dados_empresa, dados_admin, dados_plano')
+        .eq('rascunho_token', rascunhoToken)
+        .gt('expires_at', new Date().toISOString())
+        .maybeSingle();
+      rascunho = rd;
+    }
+
+    // planoId e periodicidade: payload > rascunho
     const formaPagamento = String(payload?.formaPagamento ?? '');
-    const periodicidade = String(payload?.periodicidade ?? '');
-    const planoId = String(payload?.planoId ?? '');
+    const periodicidade = String(
+      payload?.periodicidade ?? rascunho?.dados_plano?.periodicidade ?? ''
+    );
+    const planoId = String(
+      payload?.planoId ?? rascunho?.dados_plano?.planoId ?? ''
+    );
 
     // 2. CAPTCHA
     const captchaOk = await verifyCaptcha(String(payload?.captchaToken ?? ''), ip);
     if (!captchaOk) {
       await admin.from('Recanto_Checkout_Tentativas').insert({
-        ip, email: cleanEmail(payload?.admin?.email), cpf_cnpj: onlyDigits(payload?.customer?.cpfCnpj),
-        plano_id: planoId, forma_pagamento: formaPagamento, status: 'captcha_falha',
+        ip, email: cleanEmail(payload?.admin?.email ?? rascunho?.dados_admin?.emailAdmin),
+        cpf_cnpj: onlyDigits(payload?.customer?.cpfCnpj),
+        plano_id: planoId, forma_pagamento: formaPagamento || 'trial', status: 'captcha_falha',
       });
       return json({ error: 'Falha na verificação de segurança (CAPTCHA). Recarregue e tente novamente.' }, 400, origin);
     }
 
-    // 3. Validação básica do payload
-    const empresaNome = cleanText(payload?.empresa?.nome);
-    const empresaEmail = cleanEmail(payload?.empresa?.email);
-    const empresaCnpj = onlyDigits(payload?.empresa?.cnpj);
-    const empresaTelefone = onlyDigits(payload?.empresa?.telefone);
+    // 3. Extrai dados — payload direto tem prioridade, rascunho é fallback
+    const empData = rascunho?.dados_empresa ?? {};
+    const admData = rascunho?.dados_admin ?? {};
 
-    const adminNome = cleanText(payload?.admin?.nome);
-    const adminEmail = cleanEmail(payload?.admin?.email);
-    const adminTelefone = onlyDigits(payload?.admin?.telefone);
-    const adminSenha = String(payload?.admin?.senha ?? '');
+    const empresaNome = cleanText(payload?.empresa?.nome ?? empData.nomeInstituicao);
+    const empresaEmail = cleanEmail(payload?.empresa?.email ?? empData.emailComercial);
+    const empresaCnpj = onlyDigits(payload?.empresa?.cnpj ?? empData.cnpj);
+    const empresaTelefone = onlyDigits(payload?.empresa?.telefone ?? empData.telefoneEmpresa);
+
+    const adminNome = cleanText(payload?.admin?.nome ?? admData.nomeAdmin);
+    const adminEmail = cleanEmail(payload?.admin?.email ?? admData.emailAdmin);
+    const adminTelefone = onlyDigits(payload?.admin?.telefone ?? admData.telefoneAdmin);
+    const adminSenha = String(payload?.senha ?? payload?.admin?.senha ?? '');
 
     const customerNome = cleanText(payload?.customer?.name);
     const customerCpfCnpj = onlyDigits(payload?.customer?.cpfCnpj);
     const customerEmail = cleanEmail(payload?.customer?.email) || adminEmail;
     const customerPhone = onlyDigits(payload?.customer?.phone) || adminTelefone || empresaTelefone;
 
-    if (!['cartao', 'pix', 'boleto'].includes(formaPagamento))
-      return json({ error: 'Forma de pagamento inválida.' }, 400, origin);
+    // 4. Validações (payment fields só validados quando !payLater)
     if (!['mensal', 'anual'].includes(periodicidade))
       return json({ error: 'Periodicidade inválida.' }, 400, origin);
     if (!planoId)
@@ -286,30 +294,34 @@ Deno.serve(async (req: Request) => {
     if (!adminNome) return json({ error: 'Nome do responsável é obrigatório.' }, 400, origin);
     if (!isEmail(adminEmail)) return json({ error: 'E-mail do responsável inválido.' }, 400, origin);
     if (adminSenha.length < 8) return json({ error: 'A senha deve ter ao menos 8 caracteres.' }, 400, origin);
-    if (!customerNome) return json({ error: 'Nome do titular é obrigatório.' }, 400, origin);
-    if (customerCpfCnpj.length !== 11 && customerCpfCnpj.length !== 14)
-      return json({ error: 'CPF/CNPJ do titular inválido.' }, 400, origin);
 
-    if (formaPagamento === 'cartao') {
-      const c = payload?.card;
-      if (!c || !c.number || !c.expiryMonth || !c.expiryYear || !c.ccv || !c.holderName)
-        return json({ error: 'Dados do cartão incompletos.' }, 400, origin);
+    if (!payLater) {
+      if (!['cartao', 'pix', 'boleto'].includes(formaPagamento))
+        return json({ error: 'Forma de pagamento inválida.' }, 400, origin);
+      if (!customerNome) return json({ error: 'Nome do titular é obrigatório.' }, 400, origin);
+      if (customerCpfCnpj.length !== 11 && customerCpfCnpj.length !== 14)
+        return json({ error: 'CPF/CNPJ do titular inválido.' }, 400, origin);
+      if (formaPagamento === 'cartao') {
+        const c = payload?.card;
+        if (!c || !c.number || !c.expiryMonth || !c.expiryYear || !c.ccv || !c.holderName)
+          return json({ error: 'Dados do cartão incompletos.' }, 400, origin);
+      }
     }
 
-    // 4. Rate limit (registra a tentativa atomicamente)
+    // 5. Rate limit
     const { data: rl } = await admin.rpc('recanto_registrar_tentativa_checkout', {
-      p_ip: ip, p_email: adminEmail, p_cpf_cnpj: customerCpfCnpj,
-      p_plano_id: planoId, p_forma: formaPagamento,
+      p_ip: ip, p_email: adminEmail, p_cpf_cnpj: customerCpfCnpj || '00000000000',
+      p_plano_id: planoId, p_forma: formaPagamento || 'trial',
     });
     if (rl && (
       (rl.ip_count ?? 0) >= RATE_LIMIT_IP ||
       (rl.email_count ?? 0) >= RATE_LIMIT_EMAIL ||
-      (rl.cpf_cnpj_count ?? 0) >= RATE_LIMIT_CPF_CNPJ
+      (!payLater && (rl.cpf_cnpj_count ?? 0) >= RATE_LIMIT_CPF_CNPJ)
     )) {
       return json({ error: 'Muitas tentativas. Aguarde alguns minutos e tente novamente.' }, 429, origin);
     }
 
-    // 5. Buscar plano em Recanto_Planos (fonte oficial do preço)
+    // 6. Buscar plano em Recanto_Planos (fonte oficial do preço)
     const { data: plano, error: planoErr } = await admin
       .from('Recanto_Planos')
       .select('plano_id, plano_nome, preco_mensal, preco_anual_total, ativo, self_service')
@@ -323,12 +335,12 @@ Deno.serve(async (req: Request) => {
     if (!plano.self_service)
       return json({ error: 'Este plano não está disponível para contratação online. Fale com o nosso time comercial.' }, 400, origin);
 
-    // 6. Calcular valor no servidor
+    // 7. Calcular valor no servidor (necessário apenas para assinaturas pagas)
     const valor = periodicidade === 'anual' ? Number(plano.preco_anual_total) : Number(plano.preco_mensal);
-    if (!valor || valor <= 0)
+    if (!payLater && (!valor || valor <= 0))
       return json({ error: 'Valor do plano indisponível. Fale com o comercial.' }, 400, origin);
 
-    // 7. Dedupe por CNPJ
+    // 8. Dedupe por CNPJ
     if (empresaCnpj) {
       const { data: empExistente } = await admin
         .from('Recanto_Empresas')
@@ -345,14 +357,15 @@ Deno.serve(async (req: Request) => {
           .maybeSingle();
         if (assEx?.status === 'ativa')
           return json({ error: 'Já existe uma assinatura ativa para este CNPJ.' }, 409, origin);
+        if (assEx?.status === 'em_trial')
+          return json({ error: 'Já existe uma conta em período de teste para este CNPJ.' }, 409, origin);
         if (assEx?.status === 'pendente' &&
             (!assEx.checkout_expira_em || new Date(assEx.checkout_expira_em) > new Date()))
           return json({ error: 'Há um checkout pendente para este CNPJ. Conclua o pagamento já iniciado ou aguarde a expiração.' }, 409, origin);
-        // Caso contrário (cancelada/erro/expirada) prossegue com novo cadastro.
       }
     }
 
-    // 8. Dedupe por e-mail do admin
+    // 9. Dedupe por e-mail do admin
     const { data: userExistente } = await admin
       .from('Recanto_Usuarios')
       .select('id')
@@ -361,7 +374,7 @@ Deno.serve(async (req: Request) => {
     if (userExistente)
       return json({ error: 'Este e-mail já está cadastrado. Faça login ou use outro e-mail.' }, 409, origin);
 
-    // 9. Criar empresa (pendente)
+    // 10. Criar empresa
     const hoje = new Date();
     empresaId = `emp_${ymd(hoje).replace(/-/g, '')}_${crypto.randomUUID().slice(0, 8)}`;
 
@@ -379,21 +392,35 @@ Deno.serve(async (req: Request) => {
       return json({ error: 'Não foi possível registrar a empresa.' }, 500, origin);
     }
 
-    // 10. Criar assinatura local (pendente)
+    // 11. Criar assinatura local
+    const trialExpiraEm = new Date(hoje.getTime() + 7 * 24 * 60 * 60 * 1000);
     const checkoutExpira = new Date(hoje.getTime() + 3 * 24 * 60 * 60 * 1000);
-    const { data: assData, error: assErr } = await admin.from('Recanto_Assinaturas').insert({
+
+    const assinaturaInsert: Record<string, unknown> = {
       empresa_id: empresaId,
       plano_id: plano.plano_id,
       plano_nome: plano.plano_nome,
-      valor_mensal: valor,
+      valor_mensal: valor || Number(plano.preco_mensal),
       periodicidade,
-      gateway_pagamento: 'asaas',
-      forma_pagamento: formaPagamento,
-      status: 'pendente',
       data_inicio: ymd(hoje),
-      checkout_expira_em: checkoutExpira.toISOString(),
       checkout_etapa: 'empresa_criada',
-    }).select('id').single();
+    };
+
+    if (payLater) {
+      assinaturaInsert.gateway_pagamento = 'trial';
+      assinaturaInsert.status = 'em_trial';
+      assinaturaInsert.trial_expira_em = trialExpiraEm.toISOString();
+    } else {
+      assinaturaInsert.gateway_pagamento = 'asaas';
+      assinaturaInsert.forma_pagamento = formaPagamento;
+      assinaturaInsert.status = 'pendente';
+      assinaturaInsert.checkout_expira_em = checkoutExpira.toISOString();
+    }
+
+    const { data: assData, error: assErr } = await admin.from('Recanto_Assinaturas')
+      .insert(assinaturaInsert)
+      .select('id')
+      .single();
 
     if (assErr || !assData) {
       console.error('[asaas-create] Erro ao criar assinatura:', assErr?.message);
@@ -402,7 +429,7 @@ Deno.serve(async (req: Request) => {
     }
     assinaturaId = assData.id;
 
-    // 11. Criar usuário admin no Supabase Auth (trigger cria perfil/permissões/usuário)
+    // 12. Criar usuário admin no Supabase Auth
     const { data: created, error: createErr } = await admin.auth.admin.createUser({
       email: adminEmail,
       password: adminSenha,
@@ -426,7 +453,7 @@ Deno.serve(async (req: Request) => {
     authUserId = created.user.id;
     await admin.from('Recanto_Assinaturas').update({ checkout_etapa: 'usuario_criado' }).eq('id', assinaturaId);
 
-    // 12. Garantir perfil Administrador + permissões + Recanto_Usuarios (idempotente)
+    // 13. Garantir perfil Administrador + permissões + Recanto_Usuarios
     let profileId: string | null = null;
     const { data: perfilExistente } = await admin
       .from('Recanto_Perfis')
@@ -463,7 +490,43 @@ Deno.serve(async (req: Request) => {
       celular: adminTelefone || null,
     }, { onConflict: 'auth_user_id' });
 
-    // 13. Criar customer no Asaas
+    // Marca rascunho como convertido (se houver)
+    if (rascunhoToken) {
+      try {
+        await admin.from('Recanto_Checkout_Rascunhos')
+          .update({ expires_at: new Date(0).toISOString() })
+          .eq('rascunho_token', rascunhoToken);
+      } catch { /* noop */ }
+    }
+
+    // ── Trial: retorna sem chamar Asaas ────────────────────────────────────
+    if (payLater) {
+      await admin.from('Recanto_Assinaturas').update({ checkout_etapa: 'trial_iniciado' }).eq('id', assinaturaId);
+      await admin.from('Recanto_Logs_Empresa').insert({
+        empresa_id: empresaId,
+        tipo: 'empresa_criada',
+        descricao: `Conta criada em período de trial — plano ${plano.plano_nome} (${periodicidade}). Trial expira em ${ymd(trialExpiraEm)}.`,
+        metadata: { plano_id: plano.plano_id, periodicidade, gateway: 'trial', trial_expira_em: trialExpiraEm.toISOString() },
+      });
+
+      return json({
+        success: true,
+        assinaturaId,
+        status: 'em_trial',
+        trialExpiraEm: trialExpiraEm.toISOString(),
+      }, 200, origin);
+    }
+
+    // ── Pagamento imediato: cria customer + subscription no Asaas ──────────
+    const asaasCfg = await loadAsaasConfig(admin);
+    if (!asaasCfg.apiKey) {
+      console.error('[asaas-create] ASAAS_API_KEY ausente (tabela de segredos e env).');
+      await rollback('ASAAS_API_KEY ausente.');
+      return json({ error: 'Serviço de pagamento indisponível no momento.' }, 500, origin);
+    }
+    const asaasFetch = makeAsaasFetch(asaasCfg.apiUrl, asaasCfg.apiKey);
+
+    // 14. Criar customer no Asaas
     const customerResp = await asaasFetch('/customers', 'POST', {
       name: customerNome,
       cpfCnpj: customerCpfCnpj,
@@ -482,7 +545,7 @@ Deno.serve(async (req: Request) => {
       checkout_etapa: 'asaas_customer_criado',
     }).eq('id', assinaturaId);
 
-    // 14. Criar subscription no Asaas
+    // 15. Criar subscription no Asaas
     const nextDue = formaPagamento === 'boleto'
       ? new Date(hoje.getTime() + 3 * 24 * 60 * 60 * 1000)
       : hoje;
@@ -520,13 +583,11 @@ Deno.serve(async (req: Request) => {
     const subResp = await asaasFetch('/subscriptions', 'POST', subBody);
     if (!subResp.ok || !subResp.data?.id) {
       console.error('[asaas-create] Erro ao criar subscription Asaas:', subResp.status);
-      // Customer Asaas já criado: registrado para limpeza manual via gateway_customer_id.
       await rollback(`Falha ao criar assinatura no gateway. customer=${customerId}`);
       return json({ error: asaasError(subResp.data) }, 502, origin);
     }
     const subscriptionId = subResp.data.id as string;
 
-    // Payload do Asaas SEM dados sensíveis (a resposta não traz número/CVV do cartão).
     const safePayload = {
       subscription: {
         id: subResp.data.id,
@@ -545,7 +606,7 @@ Deno.serve(async (req: Request) => {
       checkout_etapa: 'asaas_subscription_criada',
     }).eq('id', assinaturaId);
 
-    // 15. Buscar primeira cobrança (PIX/boleto/cartão) p/ payment id + URLs
+    // 16. Buscar primeira cobrança (PIX/boleto/cartão) p/ payment id + URLs
     let firstPayment: any = null;
     const payList = await asaasFetch(`/payments?subscription=${subscriptionId}&limit=1`, 'GET');
     if (payList.ok && Array.isArray(payList.data?.data) && payList.data.data.length > 0) {
@@ -580,7 +641,6 @@ Deno.serve(async (req: Request) => {
         };
       }
 
-      // Registra a cobrança (idempotente — o webhook faz upsert pelo mesmo id).
       await admin.from('Recanto_Assinatura_Pagamentos').upsert({
         empresa_id: empresaId,
         assinatura_id: assinaturaId,
@@ -598,7 +658,6 @@ Deno.serve(async (req: Request) => {
 
     await admin.from('Recanto_Assinaturas').update({ checkout_etapa: 'aguardando_pagamento' }).eq('id', assinaturaId);
 
-    // Log de criação (sem dados sensíveis)
     await admin.from('Recanto_Logs_Empresa').insert({
       empresa_id: empresaId,
       tipo: 'empresa_criada',

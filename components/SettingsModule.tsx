@@ -11,6 +11,7 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../services/supabaseClient';
 import { toast } from '../services/toast';
+import SubscriptionModal from './SubscriptionModal';
 
 interface InstitutionSettings {
   name: string;
@@ -1067,6 +1068,7 @@ interface AssinaturaData {
   status: string;
   data_inicio?: string;
   data_vencimento?: string;
+  trial_expira_em?: string;
 }
 
 const PLANOS_INFO = [
@@ -1120,11 +1122,13 @@ function formatDateBR(dateStr?: string) {
 }
 
 const SubscriptionTab: React.FC<{ empresaId?: string; isAdmin: boolean }> = ({ empresaId, isAdmin }) => {
+  const { trialInfo } = useAuth();
   const [assinatura, setAssinatura] = useState<AssinaturaData | null>(null);
   const [loadingSub, setLoadingSub] = useState(true);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showPlanModal, setShowPlanModal] = useState(false);
   const [planModalInitialId, setPlanModalInitialId] = useState<string | undefined>();
+  const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
 
   useEffect(() => {
     const fetchAssinatura = async () => {
@@ -1188,6 +1192,123 @@ const SubscriptionTab: React.FC<{ empresaId?: string; isAdmin: boolean }> = ({ e
   const statusConfig = getStatusConfig(assinatura.status);
   const isInadimplente = assinatura.status === 'vencida' || assinatura.status === 'pagamento_recusado';
   const isCancelada = assinatura.status === 'cancelada';
+
+  const isEmTrial = assinatura.status === 'em_trial' || trialInfo?.isInTrial === true;
+  const trialDaysRemaining = (() => {
+    if (trialInfo?.daysRemaining !== undefined) return trialInfo.daysRemaining;
+    if (assinatura.trial_expira_em)
+      return Math.max(0, Math.ceil((new Date(assinatura.trial_expira_em).getTime() - Date.now()) / 86400000));
+    return 0;
+  })();
+  const countdownChipClass =
+    trialDaysRemaining <= 2 ? 'bg-rose-100 text-rose-700 border-rose-200'
+    : trialDaysRemaining <= 5 ? 'bg-amber-100 text-amber-700 border-amber-200'
+    : 'bg-emerald-100 text-emerald-700 border-emerald-200';
+  const trialEndDate = assinatura.trial_expira_em ? formatDateBR(assinatura.trial_expira_em) : '—';
+
+  if (isEmTrial) {
+    return (
+      <div className="space-y-4">
+        <div className="bg-white rounded-2xl border border-amber-200 shadow-sm overflow-hidden">
+          <div className="flex items-center gap-2.5 px-5 py-3.5 border-b border-amber-100 bg-amber-50/60">
+            <Clock className="h-4 w-4 text-amber-600 shrink-0" />
+            <h3 className="text-sm font-semibold text-amber-800">Período de Teste Gratuito</h3>
+          </div>
+          <div className="p-5">
+            <div className="flex flex-col sm:flex-row sm:items-start gap-4">
+              <div className="w-14 h-14 rounded-2xl flex items-center justify-center bg-amber-100 shrink-0">
+                <Clock className="h-7 w-7 text-amber-600" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex flex-wrap items-center gap-2 mb-1">
+                  <h3 className="text-lg font-bold text-slate-900">Você está no período de teste</h3>
+                  <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-0.5 rounded-full border ${countdownChipClass}`}>
+                    <Clock className="h-3 w-3" />
+                    {trialDaysRemaining === 0 ? 'Expira hoje'
+                      : trialDaysRemaining === 1 ? '1 dia restante'
+                      : `${trialDaysRemaining} dias restantes`}
+                  </span>
+                </div>
+                <p className="text-sm text-slate-500">
+                  Você está utilizando o sistema no período de teste. Nenhuma assinatura foi vinculada ainda.
+                </p>
+                <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  <div className="bg-slate-50 rounded-xl p-3">
+                    <p className="text-xs text-slate-400 font-medium uppercase tracking-wide">Início</p>
+                    <p className="text-sm font-semibold text-slate-700 mt-1">{formatDateBR(assinatura.data_inicio)}</p>
+                  </div>
+                  <div className="bg-slate-50 rounded-xl p-3">
+                    <p className="text-xs text-slate-400 font-medium uppercase tracking-wide">Fim do Teste</p>
+                    <p className="text-sm font-semibold text-slate-700 mt-1">{trialEndDate}</p>
+                  </div>
+                  <div className="bg-slate-50 rounded-xl p-3">
+                    <p className="text-xs text-slate-400 font-medium uppercase tracking-wide">Status</p>
+                    <p className="text-sm font-semibold text-amber-600 mt-1">Trial gratuito</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            {isAdmin && (
+              <div className="mt-4 pt-4 border-t border-slate-50 flex justify-end">
+                <button
+                  onClick={() => setShowSubscriptionModal(true)}
+                  className="flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all shadow-sm"
+                >
+                  <CreditCard className="h-4 w-4" />
+                  Assinar Agora
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <SectionCard title="Escolha seu Plano" icon={Star}>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {PLANOS_INFO.map(plano => (
+              <div
+                key={plano.id}
+                className={`relative rounded-2xl border-2 p-4 transition-all ${plano.popular ? 'border-blue-400 bg-blue-50/30 shadow-md' : 'border-slate-100 bg-white'}`}
+              >
+                {plano.popular && (
+                  <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 px-3 py-0.5 bg-blue-600 text-white text-xs font-bold rounded-full shadow-sm whitespace-nowrap">
+                    Mais popular
+                  </span>
+                )}
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-3 ${plano.colorClass}`}>
+                  <Zap className="h-5 w-5 text-white" />
+                </div>
+                <h4 className="font-bold text-slate-900">{plano.nome}</h4>
+                <p className="text-xs text-slate-500 mt-0.5 mb-2">{plano.desc}</p>
+                <p className="font-bold text-blue-700 text-sm mb-3">
+                  {plano.precoMensal === 0 ? 'Sob consulta' : `R$ ${plano.precoMensal}/mês`}
+                </p>
+                <ul className="space-y-1.5">
+                  {plano.features.map(f => (
+                    <li key={f} className="flex items-start gap-1.5 text-xs text-slate-600">
+                      <CheckCircle className="h-3.5 w-3.5 text-emerald-500 shrink-0 mt-0.5" />
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+                {isAdmin && (
+                  <button
+                    onClick={() => setShowSubscriptionModal(true)}
+                    className={`mt-4 w-full py-2 text-xs font-semibold rounded-xl transition-all ${plano.colorClass} text-white hover:opacity-90`}
+                  >
+                    {plano.precoMensal === 0 ? 'Falar com equipe' : 'Contratar'}
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+
+        {showSubscriptionModal && (
+          <SubscriptionModal isOpen={showSubscriptionModal} onClose={() => setShowSubscriptionModal(false)} />
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">

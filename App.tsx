@@ -21,6 +21,8 @@ import NotificationsModule from './components/NotificationsModule';
 import SettingsModule from './components/SettingsModule';
 import CheckoutPage from './components/CheckoutPage';
 import PendingPaymentScreen from './components/PendingPaymentScreen';
+import TrialBanner from './components/TrialBanner';
+import SubscriptionModal from './components/SubscriptionModal';
 import ResetPassword from './components/ResetPassword';
 import ToastContainer from './components/ToastContainer';
 import { toast } from './services/toast';
@@ -110,7 +112,8 @@ const viewToPath = (view: ViewState, residentId?: string): string => {
 };
 
 function AppInner() {
-  const { currentUser, loading, logout, accessBlocked } = useAuth();
+  const { currentUser, loading, logout, accessBlocked, trialInfo } = useAuth();
+  const [subscriptionModalOpen, setSubscriptionModalOpen] = useState(false);
   const [currentView, setCurrentView] = useState<ViewState>(ViewState.DASHBOARD);
   const [selectedResident, setSelectedResident] = useState<Resident | null>(null);
   const [dataLoaded, setDataLoaded] = useState(false);
@@ -1510,9 +1513,20 @@ function AppInner() {
 
   if (!currentUser) return <LandingPage />;
 
-  // Gate de ativação: assinatura Asaas pendente → bloqueia todo acesso interno.
+  // Gate de ativação: assinatura Asaas pendente ou trial expirado → bloqueia acesso interno.
   if (accessBlocked) {
-    return <PendingPaymentScreen />;
+    return (
+      <>
+        <PendingPaymentScreen
+          mode={trialInfo?.isExpired ? 'trial_expired' : 'payment_pending'}
+          onAssinar={() => setSubscriptionModalOpen(true)}
+        />
+        <SubscriptionModal
+          isOpen={subscriptionModalOpen}
+          onClose={() => setSubscriptionModalOpen(false)}
+        />
+      </>
+    );
   }
 
   // Responsável: portal simplificado
@@ -1532,6 +1546,12 @@ function AppInner() {
       />
 
       <main className="flex-1 min-w-0 max-w-full lg:max-w-[calc(100vw-256px)] flex flex-col h-full overflow-hidden transition-all">
+        {trialInfo?.isInTrial && !trialInfo.isExpired && (
+          <TrialBanner
+            daysRemaining={trialInfo.daysRemaining}
+            onAssinar={() => setSubscriptionModalOpen(true)}
+          />
+        )}
         {/* Mobile Header - Sticky */}
         <div className="sticky top-0 z-20 lg:hidden px-4 py-3 bg-white border-b border-slate-100 flex justify-between items-center shadow-sm select-none">
           <div className="flex items-center gap-2">
@@ -1649,6 +1669,11 @@ function AppInner() {
           onClearAll={handleClearAllAlerts}
         />
       )}
+
+      <SubscriptionModal
+        isOpen={subscriptionModalOpen}
+        onClose={() => setSubscriptionModalOpen(false)}
+      />
 
       <ToastContainer />
     </div>

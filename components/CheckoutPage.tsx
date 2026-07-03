@@ -2,31 +2,15 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   HeartPulse, ArrowLeft, ArrowRight, Check, Building2, User, CreditCard,
   ClipboardList, XCircle, Clock, Eye, EyeOff, Shield, Lock,
-  Loader2, Copy, FileText, ExternalLink, QrCode
+  Loader2, Copy, FileText, ExternalLink, QrCode, Sparkles, Mail, LogIn
 } from 'lucide-react';
 import { supabase } from '../services/supabaseClient';
-import type { CheckoutFormData, PlanoId, Periodicidade, FormaPagamento } from '../types';
+import PlanoCards from './PlanoCards';
+import type { CheckoutFormData, PlanoId, Periodicidade, FormaPagamento, PlanoView } from '../types';
 
-// hCaptcha — opcional. Quando VITE_HCAPTCHA_SITE_KEY estiver definido, o widget é
-// renderizado e o token exigido. Sem a chave, o checkout segue sem CAPTCHA (e a
-// Edge Function também ignora a verificação quando HCAPTCHA_SECRET não existe).
 const HCAPTCHA_SITE_KEY = ((import.meta as any).env?.VITE_HCAPTCHA_SITE_KEY as string | undefined) || '';
 
-// ─── Catálogo de exibição (fallback) ──────────────────────────────────────────
-// A fonte oficial de preço é a tabela Recanto_Planos (lida no servidor). Estes
-// valores são apenas para exibição enquanto o catálogo carrega.
-interface PlanoView {
-  id: PlanoId;
-  nome: string;
-  precoMensal: number;          // R$/mês no ciclo mensal
-  precoMensalAnual: number;     // R$/mês equivalente no ciclo anual
-  precoAnualTotal: number;      // R$ cobrado de fato no ciclo anual
-  selfService: boolean;
-  desc: string;
-  features: string[];
-  popular?: boolean;
-}
-
+// ─── Catálogo de exibição (fallback enquanto carrega do banco) ─────────────
 const PLANOS_FALLBACK: PlanoView[] = [
   {
     id: 'essencial', nome: 'Essencial', precoMensal: 399, precoMensalAnual: 299, precoAnualTotal: 3588,
@@ -112,13 +96,14 @@ const money = (v: number) =>
   v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 });
 
 // ─── Tipos internos ───────────────────────────────────────────────────────────
-type Step = 'empresa' | 'admin' | 'plano' | 'pagamento' | 'processando' | 'resultado' | 'erro';
+type Step = 'empresa' | 'admin' | 'plano' | 'pagamento' | 'processando' | 'resultado' | 'resultado_trial' | 'erro' | 'email_existente';
 
 interface CheckoutResult {
   assinaturaId: string;
-  subscriptionId: string;
+  subscriptionId?: string;
   status: string;
-  formaPagamento: FormaPagamento;
+  formaPagamento?: FormaPagamento;
+  trialExpiraEm?: string;
   pix?: { encodedImage: string; payload: string };
   boleto?: { invoiceUrl?: string; bankSlipUrl?: string };
 }
@@ -141,6 +126,8 @@ const EMPTY_FORM: CheckoutFormData = {
   numeroCartao: '', validadeCartao: '', cvv: '', enderecoCobranca: '',
 };
 
+const RASCUNHO_KEY = 'rascunhoCheckout';
+
 const irParaLogin = () => { window.history.pushState(null, '', '/login'); window.location.reload(); };
 
 // ─── Componente principal ─────────────────────────────────────────────────────
@@ -152,24 +139,32 @@ const CheckoutPage: React.FC = () => {
   const [showConfirm, setShowConfirm] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [loadingCEP, setLoadingCEP] = useState(false);
+  const [loadingCNPJ, setLoadingCNPJ] = useState(false);
+  const [cnpjFound, setCnpjFound] = useState(false);
+  const [savingRascunho, setSavingRascunho] = useState(false);
 
   const [planos, setPlanos] = useState<PlanoView[]>(PLANOS_FALLBACK);
   const [result, setResult] = useState<CheckoutResult | null>(null);
   const [copied, setCopied] = useState(false);
+
+  // Token do rascunho — persiste em sessionStorage para recuperação
+  const [rascunhoToken, setRascunhoToken] = useState<string>(() =>
+    sessionStorage.getItem(RASCUNHO_KEY) ?? ''
+  );
 
   // CAPTCHA (hCaptcha) — opcional
   const [captchaToken, setCaptchaToken] = useState('');
   const captchaRef = useRef<HTMLDivElement>(null);
   const captchaWidgetId = useRef<string | null>(null);
 
-  // ── Carrega o catálogo de planos (fonte oficial: Recanto_Planos) ──
+  // ── Carrega o catálogo de planos ──
   useEffect(() => {
     (async () => {
       const { data, error } = await supabase
         .from('Recanto_Planos')
         .select('plano_id, plano_nome, preco_mensal, preco_anual_total, preco_mensal_equivalente_anual, ativo, self_service')
         .eq('ativo', true);
-      if (error || !data || data.length === 0) return; // mantém fallback
+      if (error || !data || data.length === 0) return;
       const mapped: PlanoView[] = data.map((p: any) => {
         const fb = PLANOS_FALLBACK.find(f => f.id === p.plano_id);
         return {
@@ -184,14 +179,13 @@ const CheckoutPage: React.FC = () => {
           popular: fb?.popular,
         };
       });
-      // Ordena na ordem essencial → profissional → enterprise quando possível
       const order = ['essencial', 'profissional', 'enterprise'];
       mapped.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
       setPlanos(mapped);
     })();
   }, []);
 
-  // ── Pré-seleção via querystring (?plano=&periodo=). Enterprise não é comprável. ──
+  // ── Pré-seleção via querystring ──
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const p = params.get('plano') as PlanoId | null;
@@ -239,7 +233,6 @@ const CheckoutPage: React.FC = () => {
   }, [step]);
 
   const planoSelecionado = planos.find(p => p.id === form.planoId) ?? planos[0];
-  const selfServicePlanos = planos.filter(p => p.selfService);
 
   const valorMensalExibicao = form.periodicidade === 'mensal'
     ? planoSelecionado.precoMensal
@@ -268,17 +261,77 @@ const CheckoutPage: React.FC = () => {
             setErrors(e => ({ ...e, cidade: undefined, estado: undefined }));
           }
         }
-      } catch (err) {
-        console.error('Erro ao buscar CEP:', err);
-      } finally {
+      } catch { /* noop */ } finally {
         setLoadingCEP(false);
       }
+    }
+  };
+
+  const handleCNPJChange = async (val: string) => {
+    const formatted = formatCNPJ(val);
+    set('cnpj', formatted);
+    setCnpjFound(false);
+    const clean = formatted.replace(/\D/g, '');
+    if (clean.length !== 14) return;
+    setLoadingCNPJ(true);
+    try {
+      const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${clean}`);
+      if (!res.ok) return;
+      const d = await res.json();
+      if (d?.message) return;
+      const phone = (d.ddd_telefone_1 || '').replace(/\D/g, '');
+      const parts = [d.logradouro, d.numero, d.complemento, d.bairro].filter(Boolean);
+      const cepRaw = (d.cep || '').replace(/\D/g, '');
+      setForm(f => ({
+        ...f,
+        razaoSocial: d.razao_social || f.razaoSocial,
+        nomeFantasia: d.nome_fantasia || f.nomeFantasia,
+        nomeInstituicao: f.nomeInstituicao || d.nome_fantasia || d.razao_social || f.nomeInstituicao,
+        telefoneEmpresa: phone ? formatPhone(phone) : f.telefoneEmpresa,
+        emailComercial: d.email || f.emailComercial,
+        endereco: parts.join(', ') || f.endereco,
+        cidade: d.municipio || f.cidade,
+        estado: d.uf || f.estado,
+        cep: cepRaw ? formatCEP(cepRaw) : f.cep,
+      }));
+      setErrors(e => ({ ...e, razaoSocial: undefined, cidade: undefined, estado: undefined, cep: undefined, cnpj: undefined }));
+      setCnpjFound(true);
+    } catch { /* noop */ } finally {
+      setLoadingCNPJ(false);
     }
   };
 
   const set = (field: keyof CheckoutFormData, value: string) => {
     setForm(f => ({ ...f, [field]: value }));
     setErrors(e => ({ ...e, [field]: undefined }));
+  };
+
+  // ── Salva rascunho no banco ──────────────────────────────────────────────
+  const saveRascunho = async (step: 'empresa' | 'admin' | 'plano', data: Record<string, unknown>) => {
+    setSavingRascunho(true);
+    try {
+      let token = rascunhoToken;
+      if (!token) {
+        token = crypto.randomUUID();
+        setRascunhoToken(token);
+        sessionStorage.setItem(RASCUNHO_KEY, token);
+      }
+      const update: Record<string, unknown> = { rascunho_token: token, dados_empresa: {} };
+      if (step === 'empresa') update.dados_empresa = data;
+      if (step === 'admin') {
+        update.dados_empresa = JSON.parse(sessionStorage.getItem('rc_emp') ?? '{}');
+        update.dados_admin = data;
+      }
+      if (step === 'plano') {
+        update.dados_empresa = JSON.parse(sessionStorage.getItem('rc_emp') ?? '{}');
+        update.dados_admin = JSON.parse(sessionStorage.getItem('rc_adm') ?? '{}');
+        update.dados_plano = data;
+      }
+
+      await supabase.from('Recanto_Checkout_Rascunhos').upsert(update, { onConflict: 'rascunho_token', returning: 'minimal' });
+    } catch { /* falha silenciosa — sessionStorage já tem os dados */ } finally {
+      setSavingRascunho(false);
+    }
   };
 
   // ─── Validações por etapa ─────────────────────────────────────────────────
@@ -301,8 +354,8 @@ const CheckoutPage: React.FC = () => {
   const validateAdmin = (): boolean => {
     const e: typeof errors = {};
     if (!form.nomeAdmin.trim()) e.nomeAdmin = 'Campo obrigatório';
-    if (!form.cpfAdmin.trim()) e.cpfAdmin = 'Campo obrigatório';
-    else if (!validarCPF(form.cpfAdmin)) e.cpfAdmin = 'CPF inválido';
+    // CPF é opcional — só valida o formato se preenchido
+    if (form.cpfAdmin.trim() && !validarCPF(form.cpfAdmin)) e.cpfAdmin = 'CPF inválido';
     if (!form.emailAdmin.trim()) e.emailAdmin = 'Campo obrigatório';
     else if (!/\S+@\S+\.\S+/.test(form.emailAdmin)) e.emailAdmin = 'E-mail inválido';
     if (!form.cargo.trim()) e.cargo = 'Campo obrigatório';
@@ -327,11 +380,47 @@ const CheckoutPage: React.FC = () => {
   };
 
   // ─── Navegação ─────────────────────────────────────────────────────────────
-  const next = () => {
-    if (step === 'empresa' && validateEmpresa()) setStep('admin');
-    else if (step === 'admin' && validateAdmin()) setStep('plano');
-    else if (step === 'plano') setStep('pagamento');
-    else if (step === 'pagamento' && validatePagamento()) finalizar();
+  const next = async () => {
+    if (step === 'empresa' && validateEmpresa()) {
+      // Salva dados da empresa no rascunho
+      const empData = {
+        nomeInstituicao: form.nomeInstituicao,
+        cnpj: form.cnpj.replace(/\D/g, ''),
+        razaoSocial: form.razaoSocial,
+        nomeFantasia: form.nomeFantasia,
+        telefoneEmpresa: form.telefoneEmpresa,
+        emailComercial: form.emailComercial,
+        endereco: form.endereco,
+        cidade: form.cidade,
+        estado: form.estado,
+        cep: form.cep,
+        qtdResidentes: form.qtdResidentes,
+        qtdUsuarios: form.qtdUsuarios,
+      };
+      sessionStorage.setItem('rc_emp', JSON.stringify(empData));
+      await saveRascunho('empresa', empData);
+      // Pré-preenche o e-mail do responsável com o e-mail comercial da empresa
+      if (!form.emailAdmin && form.emailComercial) {
+        setForm(f => ({ ...f, emailAdmin: form.emailComercial }));
+      }
+      setStep('admin');
+    } else if (step === 'admin' && validateAdmin()) {
+      // Salva dados do admin no rascunho (sem senha)
+      const admData = {
+        nomeAdmin: form.nomeAdmin,
+        cpfAdmin: form.cpfAdmin,
+        emailAdmin: form.emailAdmin,
+        telefoneAdmin: form.telefoneAdmin,
+        cargo: form.cargo,
+      };
+      sessionStorage.setItem('rc_adm', JSON.stringify(admData));
+      await saveRascunho('admin', admData);
+      setStep('plano');
+    } else if (step === 'plano') {
+      setStep('pagamento');
+    } else if (step === 'pagamento' && validatePagamento()) {
+      finalizar(false);
+    }
   };
 
   const back = () => {
@@ -340,31 +429,43 @@ const CheckoutPage: React.FC = () => {
     else if (step === 'pagamento') setStep('plano');
   };
 
-  // ─── Finalização: chama a Edge Function (cobrança real no Asaas) ───────────
-  const finalizar = async () => {
+  // ── Salva plano e inicia trial ─────────────────────────────────────────────
+  const iniciarTrial = async () => {
+    if (planoSelecionado && !planoSelecionado.selfService) {
+      setErrorMsg('O plano Enterprise é contratado com o nosso time comercial.');
+      return;
+    }
+    const planoData = { planoId: form.planoId, periodicidade: form.periodicidade };
+    await saveRascunho('plano', planoData);
+    finalizar(true);
+  };
+
+  // ─── Finalização ───────────────────────────────────────────────────────────
+  const finalizar = async (payLater: boolean) => {
     setErrorMsg('');
 
     if (planoSelecionado && !planoSelecionado.selfService) {
       setErrorMsg('O plano Enterprise é contratado com o nosso time comercial.');
       return;
     }
-    if (HCAPTCHA_SITE_KEY && !captchaToken) {
+    if (!payLater && HCAPTCHA_SITE_KEY && !captchaToken) {
       setErrorMsg('Complete a verificação de segurança (CAPTCHA) para continuar.');
       return;
     }
 
     setStep('processando');
 
-    // Monta o payload — o frontend NUNCA envia o valor final (calculado no servidor).
     const [mm, aa] = form.validadeCartao.split('/');
     const cepDigits = form.cep.replace(/\D/g, '');
     const enderecoNumero = (form.enderecoCobranca.match(/\d+/)?.[0]) || '';
 
     const body: Record<string, unknown> = {
+      rascunhoToken: rascunhoToken || undefined,
       planoId: form.planoId,
       periodicidade: form.periodicidade,
-      formaPagamento: form.formaPagamento,
       captchaToken,
+      payLater,
+      // Campos diretos como fallback se rascunho não estiver disponível
       empresa: {
         nome: form.nomeInstituicao,
         cnpj: form.cnpj.replace(/\D/g, ''),
@@ -375,40 +476,42 @@ const CheckoutPage: React.FC = () => {
         nome: form.nomeAdmin,
         email: form.emailAdmin,
         telefone: form.telefoneAdmin.replace(/\D/g, ''),
-        senha: form.senha,
       },
-      customer: {
+      senha: form.senha,
+    };
+
+    if (!payLater) {
+      body.formaPagamento = form.formaPagamento;
+      body.customer = {
         name: form.nomeTitular,
         cpfCnpj: form.cpfTitular.replace(/\D/g, ''),
         email: form.emailAdmin,
         phone: form.telefoneAdmin.replace(/\D/g, ''),
-      },
-    };
-
-    if (form.formaPagamento === 'cartao') {
-      body.card = {
-        holderName: form.nomeTitular,
-        number: form.numeroCartao.replace(/\D/g, ''),
-        expiryMonth: mm || '',
-        expiryYear: aa ? `20${aa}` : '',
-        ccv: form.cvv,
-        holderInfo: {
-          name: form.nomeTitular,
-          email: form.emailAdmin,
-          cpfCnpj: form.cpfTitular.replace(/\D/g, ''),
-          postalCode: cepDigits,
-          addressNumber: enderecoNumero,
-          phone: form.telefoneAdmin.replace(/\D/g, ''),
-        },
       };
+      if (form.formaPagamento === 'cartao') {
+        body.card = {
+          holderName: form.nomeTitular,
+          number: form.numeroCartao.replace(/\D/g, ''),
+          expiryMonth: mm || '',
+          expiryYear: aa ? `20${aa}` : '',
+          ccv: form.cvv,
+          holderInfo: {
+            name: form.nomeTitular,
+            email: form.emailAdmin,
+            cpfCnpj: form.cpfTitular.replace(/\D/g, ''),
+            postalCode: cepDigits,
+            addressNumber: enderecoNumero,
+            phone: form.telefoneAdmin.replace(/\D/g, ''),
+          },
+        };
+      }
     }
 
     try {
       const { data, error } = await supabase.functions.invoke('asaas-create-subscription', { body });
 
       if (error) {
-        // supabase-js entrega o corpo de erro (status != 2xx) em error.context
-        let msg = 'Não foi possível concluir o pagamento. Tente novamente.';
+        let msg = 'Não foi possível concluir o cadastro. Tente novamente.';
         try {
           const ctxBody = await (error as any).context?.json?.();
           if (ctxBody?.error) msg = ctxBody.error;
@@ -418,13 +521,18 @@ const CheckoutPage: React.FC = () => {
       if (!data || data.error) throw new Error(data?.error || 'Resposta inválida do servidor.');
 
       setResult(data as CheckoutResult);
-      setStep('resultado');
+      // Limpa rascunho da sessão após sucesso
+      sessionStorage.removeItem(RASCUNHO_KEY);
+      sessionStorage.removeItem('rc_emp');
+      sessionStorage.removeItem('rc_adm');
+      setStep(payLater ? 'resultado_trial' : 'resultado');
     } catch (err: any) {
+      const msg = err.message || 'Erro inesperado ao processar o cadastro.';
       console.error('Erro no checkout:', err);
-      setErrorMsg(err.message || 'Erro inesperado ao processar o pagamento.');
-      setStep('erro');
-      // Reseta o widget de CAPTCHA para nova tentativa
-      if (HCAPTCHA_SITE_KEY && (window as any).hcaptcha && captchaWidgetId.current !== null) {
+      setErrorMsg(msg);
+      const isEmailConflict = msg.toLowerCase().includes('e-mail') && msg.toLowerCase().includes('cadastrado');
+      setStep(isEmailConflict ? 'email_existente' : 'erro');
+      if (!payLater && HCAPTCHA_SITE_KEY && (window as any).hcaptcha && captchaWidgetId.current !== null) {
         try { (window as any).hcaptcha.reset(captchaWidgetId.current); } catch { /* noop */ }
         setCaptchaToken('');
       }
@@ -483,15 +591,33 @@ const CheckoutPage: React.FC = () => {
             <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-6">
               <Loader2 className="h-8 w-8 text-blue-600 animate-spin" />
             </div>
-            <h2 className="text-xl font-bold text-slate-900 mb-2">Processando seu pedido</h2>
-            <p className="text-slate-500 text-sm">Estamos criando sua conta e registrando a cobrança. Isso pode levar alguns segundos...</p>
+            <h2 className="text-xl font-bold text-slate-900 mb-2">Processando seu cadastro</h2>
+            <p className="text-slate-500 text-sm">Estamos criando sua conta. Isso pode levar alguns segundos...</p>
           </div>
         )}
 
-        {/* ── Resultado ── */}
+        {/* ── Resultado trial ── */}
+        {step === 'resultado_trial' && (
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-8 md:p-10 text-center">
+            <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-6">
+              <Sparkles className="h-12 w-12 text-emerald-600" />
+            </div>
+            <h2 className="text-2xl font-bold text-slate-900 mb-2">Conta criada com sucesso!</h2>
+            <p className="text-slate-600 mb-2">
+              Seu período de teste gratuito de <strong>7 dias</strong> começou.
+            </p>
+            <p className="text-slate-500 text-sm mb-8">
+              Explore todos os recursos sem compromisso. Você pode assinar a qualquer momento dentro do sistema.
+            </p>
+            <button onClick={irParaLogin} className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-8 py-3 rounded-xl transition-all">
+              Fazer login agora
+            </button>
+          </div>
+        )}
+
+        {/* ── Resultado pagamento ── */}
         {step === 'resultado' && result && (
           <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-8 md:p-10">
-            {/* Cartão — em processamento */}
             {result.formaPagamento === 'cartao' && (
               <div className="text-center">
                 <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-6">
@@ -512,7 +638,6 @@ const CheckoutPage: React.FC = () => {
               </div>
             )}
 
-            {/* PIX */}
             {result.formaPagamento === 'pix' && (
               <div className="text-center">
                 <div className="inline-flex items-center gap-2 bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-full text-sm font-medium mb-5">
@@ -563,7 +688,6 @@ const CheckoutPage: React.FC = () => {
               </div>
             )}
 
-            {/* Boleto */}
             {result.formaPagamento === 'boleto' && (
               <div className="text-center">
                 <div className="w-20 h-20 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-6">
@@ -627,6 +751,45 @@ const CheckoutPage: React.FC = () => {
           </div>
         )}
 
+        {/* ── E-mail já cadastrado ── */}
+        {step === 'email_existente' && (
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-10 text-center">
+            <div className="w-20 h-20 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-6">
+              <Mail className="h-10 w-10 text-blue-600" />
+            </div>
+            <h2 className="text-2xl font-bold text-slate-900 mb-2">E-mail já cadastrado</h2>
+            <p className="text-slate-500 text-sm mb-1">
+              O endereço
+            </p>
+            <p className="text-blue-700 font-semibold text-base mb-4 break-all">
+              {form.emailAdmin}
+            </p>
+            <p className="text-slate-400 text-sm mb-8">
+              já possui uma conta no RecantoCare. Faça login para acessar ou use um e-mail diferente para criar uma nova conta.
+            </p>
+            <div className="flex flex-col gap-3 max-w-xs mx-auto">
+              <button
+                onClick={irParaLogin}
+                className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-3 rounded-xl transition-all text-sm"
+              >
+                <LogIn className="h-4 w-4" />
+                Entrar com este e-mail
+              </button>
+              <button
+                onClick={() => {
+                  setForm(f => ({ ...f, emailAdmin: '', senha: '', confirmarSenha: '' }));
+                  setErrors({});
+                  setStep('admin');
+                }}
+                className="flex items-center justify-center gap-2 border-2 border-slate-200 hover:border-blue-300 text-slate-700 font-semibold px-6 py-3 rounded-xl transition-all text-sm"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                Usar outro e-mail
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* ── Formulário por etapa ── */}
         {['empresa','admin','plano','pagamento'].includes(step) && (
           <>
@@ -663,8 +826,34 @@ const CheckoutPage: React.FC = () => {
               {step === 'empresa' && (
                 <>
                   <h2 className="text-xl font-bold text-slate-900 mb-1">Dados da empresa / ILPI</h2>
-                  <p className="text-sm text-slate-500 mb-6">Preencha os dados da instituição que será cadastrada.</p>
+                  <p className="text-sm text-slate-500 mb-6">Informe o CNPJ para preenchimento automático dos dados.</p>
                   <div className="space-y-4">
+                    <div>
+                      <label className={labelCls}>CNPJ *</label>
+                      <div className="relative">
+                        <input
+                          className={inputCls('cnpj')}
+                          value={form.cnpj}
+                          onChange={e => handleCNPJChange(e.target.value)}
+                          placeholder="00.000.000/0001-00"
+                          maxLength={18}
+                          autoFocus
+                        />
+                        <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                          {loadingCNPJ && <Loader2 className="h-4 w-4 animate-spin text-slate-400" />}
+                          {cnpjFound && !loadingCNPJ && (
+                            <span className="flex items-center gap-1 text-xs text-emerald-600 font-medium">
+                              <Check className="h-3.5 w-3.5" /> Dados preenchidos
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <FieldError name="cnpj" />
+                      {!loadingCNPJ && !cnpjFound && form.cnpj.replace(/\D/g, '').length === 14 && (
+                        <p className="text-xs text-amber-600 mt-1">CNPJ não encontrado na Receita Federal. Preencha os dados manualmente.</p>
+                      )}
+                    </div>
+
                     <div className="grid md:grid-cols-2 gap-4">
                       <div>
                         <label className={labelCls}>Nome da instituição *</label>
@@ -678,20 +867,11 @@ const CheckoutPage: React.FC = () => {
                           onChange={e => set('nomeFantasia', e.target.value)} placeholder="Igual ao nome da instituição" />
                       </div>
                     </div>
-                    <div className="grid md:grid-cols-2 gap-4">
-                      <div>
-                        <label className={labelCls}>CNPJ *</label>
-                        <input className={inputCls('cnpj')} value={form.cnpj}
-                          onChange={e => set('cnpj', formatCNPJ(e.target.value))}
-                          placeholder="00.000.000/0001-00" maxLength={18} />
-                        <FieldError name="cnpj" />
-                      </div>
-                      <div>
-                        <label className={labelCls}>Razão social *</label>
-                        <input className={inputCls('razaoSocial')} value={form.razaoSocial}
-                          onChange={e => set('razaoSocial', e.target.value)} placeholder="Empresa Ltda." />
-                        <FieldError name="razaoSocial" />
-                      </div>
+                    <div>
+                      <label className={labelCls}>Razão social *</label>
+                      <input className={inputCls('razaoSocial')} value={form.razaoSocial}
+                        onChange={e => set('razaoSocial', e.target.value)} placeholder="Empresa Ltda." />
+                      <FieldError name="razaoSocial" />
                     </div>
                     <div className="grid md:grid-cols-2 gap-4">
                       <div>
@@ -768,7 +948,7 @@ const CheckoutPage: React.FC = () => {
               {step === 'admin' && (
                 <>
                   <h2 className="text-xl font-bold text-slate-900 mb-1">Dados do responsável</h2>
-                  <p className="text-sm text-slate-500 mb-6">Este usuário receberá acesso de Administrador à plataforma após a confirmação do pagamento.</p>
+                  <p className="text-sm text-slate-500 mb-6">Este usuário receberá acesso de Administrador à plataforma.</p>
                   <div className="space-y-4">
                     <div className="grid md:grid-cols-2 gap-4">
                       <div>
@@ -778,16 +958,16 @@ const CheckoutPage: React.FC = () => {
                         <FieldError name="nomeAdmin" />
                       </div>
                       <div>
-                        <label className={labelCls}>CPF *</label>
+                        <label className={labelCls}>CPF</label>
                         <input className={inputCls('cpfAdmin')} value={form.cpfAdmin}
                           onChange={e => set('cpfAdmin', formatCPF(e.target.value))}
-                          placeholder="000.000.000-00" maxLength={14} />
+                          placeholder="000.000.000-00 (opcional)" maxLength={14} />
                         <FieldError name="cpfAdmin" />
                       </div>
                     </div>
                     <div className="grid md:grid-cols-2 gap-4">
                       <div>
-                        <label className={labelCls}>E-mail *</label>
+                        <label className={labelCls}>E-mail * <span className="text-slate-400 font-normal text-xs">(será seu login)</span></label>
                         <input className={inputCls('emailAdmin')} type="email" value={form.emailAdmin}
                           onChange={e => set('emailAdmin', e.target.value)}
                           placeholder="joao@empresa.com.br" />
@@ -850,81 +1030,36 @@ const CheckoutPage: React.FC = () => {
                 <>
                   <h2 className="text-xl font-bold text-slate-900 mb-1">Escolha seu plano</h2>
                   <p className="text-sm text-slate-500 mb-4">Você pode trocar de plano a qualquer momento.</p>
-                  {/* Toggle mensal/anual */}
-                  <div className="flex items-center space-x-3 mb-6">
-                    <span className={`text-sm font-medium ${form.periodicidade === 'mensal' ? 'text-slate-900' : 'text-slate-400'}`}>Mensal</span>
-                    <button
-                      onClick={() => set('periodicidade', form.periodicidade === 'mensal' ? 'anual' : 'mensal')}
-                      className={`relative w-10 h-5 rounded-full transition-colors ${form.periodicidade === 'anual' ? 'bg-blue-600' : 'bg-slate-200'}`}
-                    >
-                      <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${form.periodicidade === 'anual' ? 'translate-x-5' : 'translate-x-0.5'}`} />
-                    </button>
-                    <span className={`text-sm font-medium ${form.periodicidade === 'anual' ? 'text-slate-900' : 'text-slate-400'}`}>
-                      Anual <span className="bg-emerald-100 text-emerald-700 text-xs font-semibold px-1.5 py-0.5 rounded-full">economize</span>
-                    </span>
-                  </div>
-                  <div className="grid gap-4">
-                    {selfServicePlanos.map(plano => {
-                      const precoMes = form.periodicidade === 'mensal' ? plano.precoMensal : plano.precoMensalAnual;
-                      const selected = form.planoId === plano.id;
-                      return (
-                        <button
-                          key={plano.id}
-                          onClick={() => set('planoId', plano.id)}
-                          className={`relative border-2 rounded-xl p-5 text-left transition-all w-full ${
-                            selected ? 'border-blue-600 bg-blue-50' : 'border-slate-200 hover:border-blue-300'
-                          }`}
-                        >
-                          {plano.popular && (
-                            <span className="absolute -top-3 left-4 bg-blue-600 text-white text-xs font-bold px-3 py-0.5 rounded-full">
-                              Mais popular
-                            </span>
-                          )}
-                          <div className="flex items-center justify-between mb-2">
-                            <div>
-                              <p className="font-bold text-slate-900">{plano.nome}</p>
-                              <p className="text-xs text-slate-400">{plano.desc}</p>
-                            </div>
-                            <div className="text-right">
-                              <p className="text-2xl font-extrabold text-slate-900">{money(precoMes)}</p>
-                              <p className="text-xs text-slate-400">/mês</p>
-                              {form.periodicidade === 'anual' && (
-                                <p className="text-[11px] text-emerald-600 font-medium">{money(plano.precoAnualTotal)}/ano</p>
-                              )}
-                            </div>
-                          </div>
-                          <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
-                            {plano.features.slice(0, 4).map(f => (
-                              <span key={f} className="flex items-center space-x-1 text-xs text-slate-500">
-                                <Check className="h-3 w-3 text-blue-600" />
-                                <span>{f}</span>
-                              </span>
-                            ))}
-                            {plano.features.length > 4 && (
-                              <span className="text-xs text-blue-600 font-medium">+{plano.features.length - 4} mais</span>
-                            )}
-                          </div>
-                          {selected && (
-                            <div className="absolute top-4 right-4 w-5 h-5 bg-blue-600 rounded-full flex items-center justify-center">
-                              <Check className="h-3 w-3 text-white" />
-                            </div>
-                          )}
-                        </button>
-                      );
-                    })}
+                  <PlanoCards
+                    planos={planos}
+                    selectedId={form.planoId}
+                    periodicidade={form.periodicidade}
+                    onSelect={id => set('planoId', id as string)}
+                    onPeriodChange={p => set('periodicidade', p)}
+                  />
 
-                    {/* Enterprise — não comprável no self-service */}
-                    <div className="border-2 border-dashed border-slate-200 rounded-xl p-5 flex items-center justify-between bg-slate-50">
-                      <div>
-                        <p className="font-bold text-slate-900">Enterprise</p>
-                        <p className="text-xs text-slate-400">Para redes e grupos com múltiplas unidades</p>
+                  {/* Opção de trial */}
+                  <div className="mt-6 border-t border-slate-100 pt-6">
+                    <div className="bg-gradient-to-r from-emerald-50 to-blue-50 border border-emerald-200 rounded-xl p-5">
+                      <div className="flex items-start gap-3">
+                        <div className="w-10 h-10 bg-emerald-100 rounded-xl flex items-center justify-center shrink-0">
+                          <Sparkles className="h-5 w-5 text-emerald-600" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-semibold text-slate-900 text-sm">Quer testar antes de assinar?</p>
+                          <p className="text-xs text-slate-500 mt-1">
+                            Cadastre-se agora e explore o sistema por <strong>7 dias grátis</strong>, sem precisar informar dados de pagamento. Assine quando quiser dentro do app.
+                          </p>
+                        </div>
                       </div>
-                      <a
-                        href="mailto:comercial@recantocare.com.br?subject=Plano%20Enterprise"
-                        className="text-sm font-semibold text-blue-600 hover:text-blue-700 whitespace-nowrap"
+                      <button
+                        onClick={iniciarTrial}
+                        disabled={savingRascunho}
+                        className="mt-4 w-full border-2 border-emerald-500 text-emerald-700 hover:bg-emerald-50 font-semibold py-2.5 rounded-xl transition-all text-sm flex items-center justify-center gap-2 disabled:opacity-60"
                       >
-                        Falar com vendas
-                      </a>
+                        {savingRascunho ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                        Testar 7 dias grátis (sem cartão)
+                      </button>
                     </div>
                   </div>
                 </>
@@ -939,7 +1074,6 @@ const CheckoutPage: React.FC = () => {
                     {money(valorMensalExibicao)}/mês
                   </p>
 
-                  {/* Forma de pagamento */}
                   <div className="mb-5">
                     <label className={labelCls}>Forma de pagamento</label>
                     <div className="grid grid-cols-3 gap-3">
@@ -959,7 +1093,6 @@ const CheckoutPage: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* PIX / Boleto aviso */}
                   {(form.formaPagamento === 'pix' || form.formaPagamento === 'boleto') && (
                     <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4 flex items-start space-x-3">
                       <Clock className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
@@ -1030,14 +1163,12 @@ const CheckoutPage: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* CAPTCHA */}
                   {HCAPTCHA_SITE_KEY && (
                     <div className="mt-5 flex justify-center">
                       <div ref={captchaRef} />
                     </div>
                   )}
 
-                  {/* Resumo */}
                   <div className="mt-6 bg-slate-50 rounded-xl p-4 border border-slate-200">
                     <p className="text-sm font-semibold text-slate-700 mb-3">Resumo do pedido</p>
                     <div className="space-y-1 text-sm text-slate-600">
@@ -1089,10 +1220,14 @@ const CheckoutPage: React.FC = () => {
                 </button>
                 <button
                   onClick={next}
-                  className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-2.5 rounded-xl transition-all flex items-center space-x-2 text-sm"
+                  disabled={savingRascunho}
+                  className="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-semibold px-6 py-2.5 rounded-xl transition-all flex items-center space-x-2 text-sm"
                 >
-                  <span>{step === 'pagamento' ? 'Finalizar e pagar' : 'Continuar'}</span>
-                  <ArrowRight className="h-4 w-4" />
+                  {savingRascunho ? (
+                    <><Loader2 className="h-4 w-4 animate-spin" /><span>Salvando...</span></>
+                  ) : (
+                    <><span>{step === 'pagamento' ? 'Finalizar e pagar' : 'Continuar'}</span><ArrowRight className="h-4 w-4" /></>
+                  )}
                 </button>
               </div>
             </div>
