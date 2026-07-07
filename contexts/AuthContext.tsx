@@ -599,6 +599,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const subPages = [
       ViewState.RESIDENT_DETAIL_INFO,
       ViewState.RESIDENT_DETAIL_VITALS,
+      ViewState.RESIDENT_DETAIL_GLICEMIA,
       ViewState.RESIDENT_DETAIL_MEDS,
       ViewState.RESIDENT_DETAIL_ROUTINE,
       ViewState.RESIDENT_DETAIL_CARE_PLAN,

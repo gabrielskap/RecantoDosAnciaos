@@ -22,6 +22,7 @@ const MODULE_LABELS: Record<ViewState, string> = {
   // Sub-pages of Prontuário
   [ViewState.RESIDENT_DETAIL_INFO]: 'Cadastro',
   [ViewState.RESIDENT_DETAIL_VITALS]: 'Sinais Vitais',
+  [ViewState.RESIDENT_DETAIL_GLICEMIA]: 'Glicemia',
   [ViewState.RESIDENT_DETAIL_MEDS]: 'Medicamentos',
   [ViewState.RESIDENT_DETAIL_ROUTINE]: 'Rotina Diária',
   [ViewState.RESIDENT_DETAIL_CARE_PLAN]: 'Plano Evolutivo',
@@ -50,6 +51,7 @@ const EDITABLE_MODULES = [
 const SUB_MODULES = [
   ViewState.RESIDENT_DETAIL_INFO,
   ViewState.RESIDENT_DETAIL_VITALS,
+  ViewState.RESIDENT_DETAIL_GLICEMIA,
   ViewState.RESIDENT_DETAIL_MEDS,
   ViewState.RESIDENT_DETAIL_ROUTINE,
   ViewState.RESIDENT_DETAIL_CARE_PLAN,

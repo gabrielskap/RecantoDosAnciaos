@@ -11,6 +11,7 @@ export async function fetchResidents(empresaId: string): Promise<Resident[]> {
       medications:Recanto_Medicacoes(*, logs:Recanto_LogsMedicacao(*)),
       prescriptions:Recanto_Receitas(*),
       vitals:Recanto_SinaisVitais(*),
+      glucoseReadings:Recanto_Glicemia(*),
       carePlan:Recanto_PlanosAssistencia(*),
       dailyChecklists:Recanto_ChecklistDiario(*, carePlanAdherence:Recanto_AcompanhamentoPlano(*)),
       documents:Recanto_Documentos(*),
@@ -105,6 +106,17 @@ export async function fetchResidents(empresaId: string): Promise<Resident[]> {
       spo2: v.spo2 || 0,
       painLevel: v.pain_level || undefined
     })),
+    glucoseReadings: (r.glucoseReadings || [])
+      .map((g: any) => ({
+        id: g.id,
+        timestamp: g.timestamp,
+        value: g.valor_mg_dl,
+        moment: g.momento,
+        insulinApplied: g.insulina_aplicada || false,
+        insulinUnits: g.insulina_unidades != null ? parseFloat(g.insulina_unidades) : undefined,
+        notes: g.observacoes || undefined
+      }))
+      .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()),
     carePlan: (r.carePlan || []).map((cp: any) => ({
       id: cp.id,
       title: cp.title,
@@ -163,7 +175,9 @@ export async function fetchResidents(empresaId: string): Promise<Resident[]> {
         atividadesConsulta: chk.atividades_consulta || undefined,
         intercorrencia: chk.intercorrencia || undefined,
         intercorrenciaDesc: chk.intercorrencia_desc || undefined,
-        photoUrl: chk.photo_url || undefined,
+        photoUrls: (chk.photo_urls && chk.photo_urls.length > 0)
+          ? chk.photo_urls
+          : (chk.photo_url ? [chk.photo_url] : []),
         signedBy: chk.signed_by || undefined,
         signedAt: chk.signed_at || undefined,
         signatureInfo: chk.signature_info || undefined,

@@ -309,7 +309,7 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
         clinicalCondition: formData.clinicalCondition || '',
         functionalCondition: formData.functionalCondition || '',
         socialHistory: formData.socialHistory || '',
-        medications: [], allergies: [], vitals: [], carePlan: [],
+        medications: [], allergies: [], vitals: [], glucoseReadings: [], carePlan: [],
         auditLogs: [], dailyChecklists: [], documents: [], visits: [],
         usoFraldas: formData.usoFraldas || 'nao',
         mobilidadeSet: formData.mobilidadeSet || 'independente',

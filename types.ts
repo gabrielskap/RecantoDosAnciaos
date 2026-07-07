@@ -38,6 +38,18 @@ export interface VitalSign {
   painLevel?: number; // 0-10
 }
 
+export type GlicemiaMomento = 'jejum' | 'pre_prandial' | 'pos_prandial' | 'madrugada' | 'outro';
+
+export interface GlucoseReading {
+  id: string;
+  timestamp: string;
+  value: number; // mg/dL
+  moment: GlicemiaMomento;
+  insulinApplied?: boolean;
+  insulinUnits?: number;
+  notes?: string;
+}
+
 export interface CarePlan {
   id: string;
   title: string;
@@ -95,7 +107,7 @@ export interface DailyChecklist {
   intercorrencia?: 'sim' | 'nao';
   intercorrenciaDesc?: string;
   carePlanAdherence?: CarePlanAdherence[];
-  photoUrl?: string;
+  photoUrls?: string[];
   signedBy?: string;
   signedAt?: string;
   signatureInfo?: string;
@@ -218,6 +230,7 @@ export interface Resident {
   prescriptions?: ResidentPrescriptionRecord[];
   allergies: string[];
   vitals: VitalSign[];
+  glucoseReadings: GlucoseReading[];
   carePlan: CarePlan[];
   dailyChecklists: DailyChecklist[];
   documents: ResidentDocument[];
@@ -391,6 +404,7 @@ export enum ViewState {
   // Sub-pages of RESIDENT_DETAIL (Prontuário)
   RESIDENT_DETAIL_INFO = 'RESIDENT_DETAIL_INFO',
   RESIDENT_DETAIL_VITALS = 'RESIDENT_DETAIL_VITALS',
+  RESIDENT_DETAIL_GLICEMIA = 'RESIDENT_DETAIL_GLICEMIA',
   RESIDENT_DETAIL_MEDS = 'RESIDENT_DETAIL_MEDS',
   RESIDENT_DETAIL_ROUTINE = 'RESIDENT_DETAIL_ROUTINE',
   RESIDENT_DETAIL_CARE_PLAN = 'RESIDENT_DETAIL_CARE_PLAN',

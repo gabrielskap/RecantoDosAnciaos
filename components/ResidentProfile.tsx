@@ -4,9 +4,9 @@ import {
   Thermometer, Heart, CheckCircle, PenTool, ShieldCheck,
   ClipboardList, History, Plus, User, Clock, File, Paperclip, CalendarCheck, AlertOctagon,
   BedDouble, Home, Wrench, PaintRoller, Edit2, X, Phone, FileHeart, Trash2, Users, Camera, Sun, Moon,
-  Key, Printer, Upload, Wind, UserCheck
+  Key, Printer, Upload, Wind, UserCheck, Droplet, Syringe
 } from 'lucide-react';
-import { Resident, CarePlan, AuditLog, DailyChecklist, Medication, ResidentPrescriptionRecord, RoomStatus, Room, ViewState } from '../types';
+import { Resident, CarePlan, AuditLog, DailyChecklist, Medication, ResidentPrescriptionRecord, RoomStatus, Room, ViewState, GlucoseReading, GlicemiaMomento } from '../types';
 import { residentAvatarSrc } from '../lib/avatar';
 import { toast } from '../services/toast';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
@@ -22,6 +22,44 @@ interface ChecklistMedication {
   status: 'tomou' | 'nao_tomou' | 'pendente';
   time?: string;
 }
+
+// ── Glicemia helpers ─────────────────────────────────────────────────────────
+
+export const GLICEMIA_MOMENTO_LABELS: Record<GlicemiaMomento, string> = {
+  jejum: 'Jejum',
+  pre_prandial: 'Pré-prandial',
+  pos_prandial: 'Pós-prandial',
+  madrugada: 'Madrugada',
+  outro: 'Outro'
+};
+
+export const GLICEMIA_MOMENTO_OPTIONS: { value: GlicemiaMomento; label: string }[] = [
+  { value: 'jejum', label: 'Jejum' },
+  { value: 'pre_prandial', label: 'Pré-prandial' },
+  { value: 'pos_prandial', label: 'Pós-prandial' },
+  { value: 'madrugada', label: 'Madrugada' },
+  { value: 'outro', label: 'Outro' }
+];
+
+export const classifyGlicemia = (value: number, moment: GlicemiaMomento): { label: string; badgeClass: string } => {
+  if (value < 70) {
+    return { label: 'Hipoglicemia', badgeClass: 'bg-rose-100 text-rose-800 border-rose-200' };
+  }
+  if (moment === 'jejum' || moment === 'madrugada') {
+    if (value <= 99) return { label: 'Normal', badgeClass: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
+    if (value <= 125) return { label: 'Pré-diabetes', badgeClass: 'bg-amber-100 text-amber-700 border-amber-200' };
+    return { label: 'Hiperglicemia', badgeClass: 'bg-rose-100 text-rose-700 border-rose-200' };
+  }
+  if (moment === 'pos_prandial') {
+    if (value < 140) return { label: 'Normal', badgeClass: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
+    if (value <= 199) return { label: 'Pré-diabetes', badgeClass: 'bg-amber-100 text-amber-700 border-amber-200' };
+    return { label: 'Hiperglicemia', badgeClass: 'bg-rose-100 text-rose-700 border-rose-200' };
+  }
+  // pre_prandial / outro — faixa de referência geral
+  if (value <= 130) return { label: 'Normal', badgeClass: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
+  if (value <= 180) return { label: 'Elevada', badgeClass: 'bg-amber-100 text-amber-700 border-amber-200' };
+  return { label: 'Hiperglicemia', badgeClass: 'bg-rose-100 text-rose-700 border-rose-200' };
+};
 
 // ── Medication schedule helpers ──────────────────────────────────────────────
 
@@ -159,6 +197,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   const TAB_VIEW_STATE_MAP: Record<string, ViewState> = {
     info: ViewState.RESIDENT_DETAIL_INFO,
     vitals: ViewState.RESIDENT_DETAIL_VITALS,
+    glicemia: ViewState.RESIDENT_DETAIL_GLICEMIA,
     meds: ViewState.RESIDENT_DETAIL_MEDS,
     routine: ViewState.RESIDENT_DETAIL_ROUTINE,
     care_plan: ViewState.RESIDENT_DETAIL_CARE_PLAN,
@@ -171,6 +210,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   const rawTabs = [
     { id: 'info', label: 'Cadastro', icon: User },
     { id: 'vitals', label: 'Sinais Vitais', icon: Activity },
+    { id: 'glicemia', label: 'Glicemia', icon: Droplet },
     { id: 'meds', label: 'Medicamentos', icon: Pill },
     { id: 'routine', label: 'Rotina Diária', icon: ClipboardList },
     { id: 'care_plan', label: 'Plano Evolutivo', icon: FileHeart },
@@ -185,7 +225,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     return vs ? hasPermission(vs, 'view') : true;
   });
 
-  const [activeTab, setActiveTab] = useState<'info' | 'meds' | 'vitals' | 'routine' | 'care_plan' | 'visits' | 'docs' | 'evolution' | 'history'>(() => {
+  const [activeTab, setActiveTab] = useState<'info' | 'meds' | 'vitals' | 'glicemia' | 'routine' | 'care_plan' | 'visits' | 'docs' | 'evolution' | 'history'>(() => {
     const saved = localStorage.getItem(`recanto_resident_profile_active_tab_${resident.id}`);
     const initialTab = (saved as any) || 'vitals';
     const isVisible = visibleTabs.some(t => t.id === initialTab);
@@ -221,10 +261,27 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     observations: ''
   });
 
-  const canRegisterVisits = hasPermission(ViewState.RESIDENT_DETAIL_VISITS, 'create') || 
+  const [isGlicemiaModalOpen, setIsGlicemiaModalOpen] = useState(false);
+  const [editingGlicemiaId, setEditingGlicemiaId] = useState<string | null>(null);
+  const [glicemiaFormData, setGlicemiaFormData] = useState({
+    date: new Date().toLocaleString('sv-SE').replace(' ', 'T').slice(0, 16),
+    value: '',
+    moment: 'jejum' as GlicemiaMomento,
+    insulinApplied: false,
+    insulinUnits: '',
+    notes: ''
+  });
+  const [glicemiaToDelete, setGlicemiaToDelete] = useState<string | null>(null);
+
+  const canRegisterVisits = hasPermission(ViewState.RESIDENT_DETAIL_VISITS, 'create') ||
                             hasPermission(ViewState.RESIDENT_DETAIL_VISITS, 'edit');
 
   const canDeleteVisits = hasPermission(ViewState.RESIDENT_DETAIL_VISITS, 'delete');
+
+  const canRegisterGlicemia = hasPermission(ViewState.RESIDENT_DETAIL_GLICEMIA, 'create') ||
+                              hasPermission(ViewState.RESIDENT_DETAIL_GLICEMIA, 'edit');
+
+  const canDeleteGlicemia = hasPermission(ViewState.RESIDENT_DETAIL_GLICEMIA, 'delete');
 
   const canManageCarePlan = hasPermission(ViewState.RESIDENT_DETAIL_CARE_PLAN, 'create') ||
                             hasPermission(ViewState.RESIDENT_DETAIL_CARE_PLAN, 'edit');
@@ -314,6 +371,104 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
       onUpdateResident({
         ...resident,
         visits: updatedVisits,
+        auditLogs: [newLog, ...(resident.auditLogs || [])]
+      });
+    }
+  };
+
+  const handleOpenGlicemiaModal = (reading?: GlucoseReading) => {
+    if (reading) {
+      setEditingGlicemiaId(reading.id);
+      setGlicemiaFormData({
+        date: new Date(reading.timestamp).toLocaleString('sv-SE').replace(' ', 'T').slice(0, 16),
+        value: String(reading.value),
+        moment: reading.moment,
+        insulinApplied: reading.insulinApplied || false,
+        insulinUnits: reading.insulinUnits != null ? String(reading.insulinUnits) : '',
+        notes: reading.notes || ''
+      });
+    } else {
+      setEditingGlicemiaId(null);
+      setGlicemiaFormData({
+        date: new Date().toLocaleString('sv-SE').replace(' ', 'T').slice(0, 16),
+        value: '',
+        moment: 'jejum',
+        insulinApplied: false,
+        insulinUnits: '',
+        notes: ''
+      });
+    }
+    setIsGlicemiaModalOpen(true);
+  };
+
+  const handleSaveGlicemia = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!onUpdateResident) return;
+
+    const value = parseInt(glicemiaFormData.value, 10);
+    if (isNaN(value) || value < 20 || value > 700) {
+      toast.error('Informe um valor de glicemia válido (entre 20 e 700 mg/dL).');
+      return;
+    }
+
+    const isEditing = !!editingGlicemiaId;
+    const reading: GlucoseReading = {
+      id: editingGlicemiaId || Math.random().toString(36).substr(2, 9),
+      timestamp: new Date(glicemiaFormData.date).toISOString(),
+      value,
+      moment: glicemiaFormData.moment,
+      insulinApplied: glicemiaFormData.insulinApplied,
+      insulinUnits: glicemiaFormData.insulinApplied && glicemiaFormData.insulinUnits
+        ? parseFloat(glicemiaFormData.insulinUnits)
+        : undefined,
+      notes: glicemiaFormData.notes || undefined
+    };
+
+    const updatedReadings = isEditing
+      ? (resident.glucoseReadings || []).map(g => g.id === reading.id ? reading : g)
+      : [reading, ...(resident.glucoseReadings || [])];
+
+    const newLog: AuditLog = {
+      id: Math.random().toString(36).substr(2, 9),
+      timestamp: new Date().toISOString(),
+      userId: currentUser?.id || 'current-user',
+      userName: currentUser?.name || 'Usuário Atual',
+      action: isEditing ? 'Edição de Glicemia' : 'Registro de Glicemia',
+      details: `${isEditing ? 'Editou' : 'Registrou'} medição de glicemia de ${reading.value} mg/dL (${GLICEMIA_MOMENTO_LABELS[reading.moment]})`
+    };
+
+    onUpdateResident({
+      ...resident,
+      glucoseReadings: updatedReadings,
+      auditLogs: [newLog, ...(resident.auditLogs || [])]
+    });
+
+    setIsGlicemiaModalOpen(false);
+    setEditingGlicemiaId(null);
+    toast.success(isEditing ? 'Medição atualizada com sucesso!' : 'Medição registrada com sucesso!');
+  };
+
+  const handleDeleteGlicemia = (readingId: string) => {
+    if (!onUpdateResident) return;
+
+    const reading = resident.glucoseReadings?.find(g => g.id === readingId);
+    if (!reading) return;
+
+    if (confirm(`Tem certeza que deseja excluir esta medição de glicemia (${reading.value} mg/dL)?`)) {
+      const updatedReadings = (resident.glucoseReadings || []).filter(g => g.id !== readingId);
+
+      const newLog: AuditLog = {
+        id: Math.random().toString(36).substr(2, 9),
+        timestamp: new Date().toISOString(),
+        userId: currentUser?.id || 'current-user',
+        userName: currentUser?.name || 'Usuário Atual',
+        action: 'Exclusão de Glicemia',
+        details: `Removeu medição de glicemia de ${reading.value} mg/dL (${GLICEMIA_MOMENTO_LABELS[reading.moment]})`
+      };
+
+      onUpdateResident({
+        ...resident,
+        glucoseReadings: updatedReadings,
         auditLogs: [newLog, ...(resident.auditLogs || [])]
       });
     }
@@ -417,19 +572,35 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   };
 
   const handleChecklistPhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const fileList = e.target.files;
+    if (!fileList || fileList.length === 0) return;
+    const files: File[] = [];
+    for (let i = 0; i < fileList.length; i++) {
+      const f = fileList.item(i);
+      if (f) files.push(f);
+    }
+    e.target.value = '';
     setChecklistPhotoUploading(true);
     try {
-      const base64 = await compressImage(file, 800, 800, 0.85);
-      const finalUrl = await uploadResidentPhoto(file, base64);
-      handleChecklistFieldChange('photoUrl', finalUrl);
+      const uploadedUrls: string[] = [];
+      for (const file of files) {
+        const base64 = await compressImage(file, 800, 800, 0.85);
+        const finalUrl = await uploadResidentPhoto(file, base64);
+        uploadedUrls.push(finalUrl);
+      }
+      const existing = checklistDraft?.photoUrls || selectedChecklist?.photoUrls || [];
+      handleChecklistFieldChange('photoUrls', [...existing, ...uploadedUrls]);
     } catch (err) {
       console.error('Erro ao processar imagem do boletim:', err);
       toast.error('Erro ao processar a foto. Tente novamente.');
     } finally {
       setChecklistPhotoUploading(false);
     }
+  };
+
+  const handleRemoveChecklistPhoto = (index: number) => {
+    const existing = checklistDraft?.photoUrls || selectedChecklist?.photoUrls || [];
+    handleChecklistFieldChange('photoUrls', existing.filter((_, i) => i !== index));
   };
 
   const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -509,6 +680,14 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   const [vitalsSelectedDay, setVitalsSelectedDay] = useState<string>(new Date().toISOString().split('T')[0]);
   const [vitalsSelectedWeekDate, setVitalsSelectedWeekDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [vitalsSelectedMonth, setVitalsSelectedMonth] = useState<string>(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
+
+  const [glicemiaPeriodType, setGlicemiaPeriodType] = useState<'day' | 'week' | 'month'>('day');
+  const [glicemiaSelectedDay, setGlicemiaSelectedDay] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [glicemiaSelectedWeekDate, setGlicemiaSelectedWeekDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [glicemiaSelectedMonth, setGlicemiaSelectedMonth] = useState<string>(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   });
@@ -2199,6 +2378,401 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     win.document.close();
   };
 
+  const handlePrintGlicemiaAverages = (periodType: 'day' | 'week' | 'month') => {
+    let watermarkSrc = '';
+    let hasLetterhead = false;
+    let inst = {
+      name: 'Recanto dos Anciãos',
+      cnpj: '',
+      phone: '',
+      email: '',
+      address: '',
+      city: '',
+      state: 'SP',
+      cep: '',
+      directorName: '',
+      technicalDirector: '',
+      anvisa: '',
+    };
+
+    try {
+      const settingsKey = `recanto_system_settings_${currentUser?.empresaId ?? currentUser?.id ?? 'anon'}`;
+      const raw = localStorage.getItem(settingsKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed?.institution) {
+          inst = { ...inst, ...parsed.institution };
+          const src = parsed.institution.watermarkImage;
+          if (src) {
+            hasLetterhead = true;
+            watermarkSrc = src;
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Erro ao carregar dados da instituição ou papel timbrado:', e);
+    }
+
+    const win = window.open('', '_blank', 'width=960,height=720');
+    if (!win) {
+      toast.warning('Permita popups para gerar a impressão.');
+      return;
+    }
+
+    const getWeekMonday = (d: Date) => {
+      const temp = new Date(d);
+      const day = temp.getDay();
+      const diff = temp.getDate() - day + (day === 0 ? -6 : 1);
+      const monday = new Date(temp.setDate(diff));
+      monday.setHours(0, 0, 0, 0);
+      return monday;
+    };
+
+    const glicemiaData = (resident.glucoseReadings || []).map(g => {
+      const date = new Date(g.timestamp);
+      return { ...g, date };
+    });
+
+    const filtered = glicemiaData.filter(g => {
+      const y = g.date.getFullYear();
+      const m = String(g.date.getMonth() + 1).padStart(2, '0');
+      const d = String(g.date.getDate()).padStart(2, '0');
+      const dateStr = `${y}-${m}-${d}`;
+      if (periodType === 'day') {
+        return dateStr === glicemiaSelectedDay;
+      } else if (periodType === 'week') {
+        const selDate = new Date(glicemiaSelectedWeekDate + 'T00:00:00');
+        const monday = getWeekMonday(selDate);
+        const sunday = new Date(monday);
+        sunday.setDate(monday.getDate() + 6);
+        sunday.setHours(23, 59, 59, 999);
+        return g.date >= monday && g.date <= sunday;
+      } else {
+        const monthStr = `${y}-${m}`;
+        return monthStr === glicemiaSelectedMonth;
+      }
+    });
+
+    const momentGroups: Record<string, { sum: number; count: number; insulinUnits: number }> = {};
+    GLICEMIA_MOMENTO_OPTIONS.forEach(opt => { momentGroups[opt.value] = { sum: 0, count: 0, insulinUnits: 0 }; });
+    filtered.forEach(g => {
+      momentGroups[g.moment].sum += g.value;
+      momentGroups[g.moment].count += 1;
+      momentGroups[g.moment].insulinUnits += g.insulinUnits || 0;
+    });
+
+    let reportTypeLabel = '';
+    if (periodType === 'day') {
+      const [year, month, day] = glicemiaSelectedDay.split('-');
+      reportTypeLabel = `Diário (${day}/${month}/${year})`;
+    } else if (periodType === 'week') {
+      const selDate = new Date(glicemiaSelectedWeekDate + 'T00:00:00');
+      const monday = getWeekMonday(selDate);
+      const sunday = new Date(monday);
+      sunday.setDate(monday.getDate() + 6);
+      const fmt = (dt: Date) => `${String(dt.getDate()).padStart(2, '0')}/${String(dt.getMonth() + 1).padStart(2, '0')}/${dt.getFullYear()}`;
+      reportTypeLabel = `Semanal (${fmt(monday)} a ${fmt(sunday)})`;
+    } else {
+      const [year, month] = glicemiaSelectedMonth.split('-');
+      const months = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+      const formattedMonth = `${months[parseInt(month, 10) - 1]} de ${year}`;
+      reportTypeLabel = `Mensal (${formattedMonth})`;
+    }
+    const dateFormatted = new Date().toLocaleDateString('pt-BR');
+
+    let tableRowsHtml = '';
+    GLICEMIA_MOMENTO_OPTIONS.forEach(opt => {
+      const g = momentGroups[opt.value];
+      if (g.count === 0) return;
+      const avg = Math.round(g.sum / g.count);
+      const classification = classifyGlicemia(avg, opt.value);
+      const badgeClass = classification.label === 'Hipoglicemia' || classification.label === 'Hiperglicemia'
+        ? 'bg-red'
+        : classification.label === 'Pré-diabetes' || classification.label === 'Elevada'
+          ? 'bg-yellow'
+          : 'bg-green';
+      tableRowsHtml += `
+        <tr style="border-top: 1px solid #cbd5e1;">
+          <td style="font-size: 9px; font-weight: bold; color: #1e293b;">${GLICEMIA_MOMENTO_LABELS[opt.value]}</td>
+          <td style="font-size: 9px; color: #1e293b;">${avg} mg/dL</td>
+          <td style="font-size: 9px; color: #1e293b;">${g.count}</td>
+          <td style="font-size: 9px;"><span class="badge ${badgeClass}">${classification.label}</span></td>
+          <td style="font-size: 9px; color: #1e293b;">${g.insulinUnits > 0 ? `${g.insulinUnits.toFixed(1)} un.` : '—'}</td>
+        </tr>
+      `;
+    });
+
+    if (!tableRowsHtml) {
+      tableRowsHtml = `
+        <tr>
+          <td colspan="5" style="text-align: center; font-style: italic; color: #64748b; padding: 20px;">
+            Nenhum registro de glicemia encontrado para o período.
+          </td>
+        </tr>
+      `;
+    }
+
+    const docHtml = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Relatório de Glicemia - ${resident.name} - ${reportTypeLabel}</title>
+  <style>
+    @page { size: A4; margin: 0; }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    body { font-family: Arial, Helvetica, sans-serif; color: #1e293b; font-size: 11px; padding: 20px 0; line-height: 1.4; background: #f1f5f9; display: flex; flex-direction: column; align-items: center; }
+    @media print {
+      body { background: transparent; padding: 0; margin: 0; display: block; }
+    }
+
+    #pdf-pages { display: flex; flex-direction: column; align-items: center; width: 100%; }
+    @media print { #pdf-pages { display: block; } }
+
+    .pdf-page {
+      width: 210mm;
+      height: 297mm;
+      position: relative;
+      background: white;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+      margin-bottom: 20px;
+      overflow: hidden;
+      box-sizing: border-box;
+    }
+    @media print {
+      .pdf-page { box-shadow: none; margin-bottom: 0; page-break-after: always; break-after: page; }
+    }
+
+    .letterhead-background {
+      position: absolute;
+      top: 0; left: 0;
+      width: 210mm; height: 297mm;
+      z-index: 1;
+      pointer-events: none;
+      background-repeat: no-repeat;
+      background-position: center top;
+      background-size: 100% 100%;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    .watermark-background {
+      position: absolute;
+      top: 0; left: 0;
+      width: 210mm; height: 297mm;
+      z-index: 2;
+      pointer-events: none;
+      opacity: 0.04;
+      background-repeat: no-repeat;
+      background-position: center;
+      background-size: contain;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    .page-content-safe-area {
+      position: absolute;
+      top: 45mm;
+      left: 20mm;
+      width: 170mm;
+      height: 207mm;
+      z-index: 10;
+      box-sizing: border-box;
+      overflow: hidden;
+      background: transparent;
+    }
+
+    .inst-header { display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #cbd5e1; padding-bottom: 6px; margin-bottom: 12px; }
+    .inst-info { flex: 1; }
+    .inst-title { font-size: 15px; font-weight: bold; color: #0f172a; margin-bottom: 2px; }
+    .inst-details { font-size: 10px; color: #64748b; }
+    .inst-rt { text-align: right; font-size: 10px; color: #64748b; }
+
+    .doc-title { font-size: 13px; font-weight: bold; text-align: center; text-transform: uppercase; color: #1e293b; margin-bottom: 12px; letter-spacing: 0.5px; }
+
+    .section { margin-bottom: 5mm; background: rgba(255, 255, 255, 0.85); border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden; page-break-inside: avoid; break-inside: avoid; }
+    .section-title { background: rgba(248, 250, 252, 0.9); font-size: 10px; font-weight: bold; color: #334155; padding: 5px 10px; border-bottom: 1px solid #e2e8f0; text-transform: uppercase; letter-spacing: 0.5px; }
+    .section-content { padding: 8px 10px; }
+
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .field { margin-bottom: 4px; }
+    .field-label { font-size: 8px; font-weight: bold; color: #64748b; text-transform: uppercase; margin-bottom: 2px; }
+    .field-value { font-size: 10px; color: #1e293b; font-weight: 550; }
+
+    .badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 8px; font-weight: bold; }
+    .bg-green { background: #d1fae5; color: #065f46; border: 1px solid #a7f3d0; }
+    .bg-yellow { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+    .bg-red { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
+
+    table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 9px; background: rgba(255, 255, 255, 0.85); }
+    th { background: rgba(248, 250, 252, 0.9); padding: 6px 8px; text-align: left; font-weight: bold; color: #475569; border-bottom: 1px solid #e2e8f0; }
+    td { padding: 6px 8px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
+
+    .footer { margin-top: 10px; padding-top: 6px; border-top: 1px solid #e2e8f0; font-size: 8px; color: #94a3b8; text-align: center; page-break-inside: avoid; break-inside: avoid; }
+    .section, table, tr, .footer { page-break-inside: avoid; break-inside: avoid; }
+  </style>
+</head>
+<body>
+  <div id="pdf-source" style="position: absolute; left: -9999px; top: 0; width: 170mm; box-sizing: border-box;">
+    ${hasLetterhead ? '' : `
+    <div class="inst-header">
+      <div class="inst-info">
+        <div class="inst-title">${inst.name}</div>
+        <div class="inst-details">
+          CNPJ: ${inst.cnpj || '—'} | Tel: ${inst.phone || '—'} | E-mail: ${inst.email || '—'}<br/>
+          Endereço: ${inst.address || ''} ${inst.city || ''} ${inst.state ? `- ${inst.state}` : ''} CEP: ${inst.cep || ''}
+        </div>
+      </div>
+      <div class="inst-rt">
+        ${inst.directorName ? `Diretoria: ${inst.directorName}<br/>` : ''}
+        ${inst.technicalDirector ? `Resp. Técnico: ${inst.technicalDirector}<br/>` : ''}
+        ${inst.anvisa ? `Alvará ANVISA: ${inst.anvisa}` : ''}
+      </div>
+    </div>
+    `}
+
+    <div class="doc-title">
+      Relatório Clínico - Médias de Glicemia (${reportTypeLabel})
+    </div>
+
+    <div class="section">
+      <div class="section-title">Identificação do Residente</div>
+      <div class="section-content">
+        <div class="grid-2">
+          <div>
+            <div class="field">
+              <div class="field-label">Residente</div>
+              <div class="field-value">${resident.name}</div>
+            </div>
+            <div class="field">
+              <div class="field-label">CPF</div>
+              <div class="field-value">${resident.cpf || '—'}</div>
+            </div>
+            <div class="field">
+              <div class="field-label">Data de Nascimento</div>
+              <div class="field-value">${resident.birthDate || '—'} (${resident.age} anos)</div>
+            </div>
+          </div>
+          <div>
+            <div class="field">
+              <div class="field-label">Data de Emissão</div>
+              <div class="field-value">${dateFormatted}</div>
+            </div>
+            <div class="field">
+              <div class="field-label">Quarto / Acomodação</div>
+              <div class="field-value">${resident.room}</div>
+            </div>
+            <div class="field">
+              <div class="field-label">Grau de Dependência</div>
+              <div class="field-value"><span class="badge ${resident.careLevel === 'I' ? 'bg-green' : resident.careLevel === 'II' ? 'bg-yellow' : 'bg-red'}">Grau ${resident.careLevel}</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Consolidado de Médias de Glicemia por Momento</div>
+      <div class="section-content" style="padding: 0;">
+        <table>
+          <thead>
+            <tr>
+              <th>Momento</th>
+              <th>Média (mg/dL)</th>
+              <th>Nº de Medições</th>
+              <th>Classificação</th>
+              <th>Insulina Aplicada</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRowsHtml}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="section" style="margin-top: 15px;">
+      <div class="section-title">Legenda de Referência Glicêmica</div>
+      <div class="section-content" style="font-size: 8px; color: #475569; line-height: 1.5;">
+        <span style="font-weight: bold; color: #991b1b;">Hipoglicemia:</span> &lt; 70 mg/dL (qualquer momento)<br/>
+        <span style="font-weight: bold; color: #065f46;">Normal (Jejum/Madrugada):</span> 70-99 mg/dL |
+        <span style="font-weight: bold; color: #b45309;">Pré-diabetes:</span> 100-125 mg/dL |
+        <span style="font-weight: bold; color: #991b1b;">Hiperglicemia:</span> &ge; 126 mg/dL<br/>
+        <span style="font-weight: bold; color: #065f46;">Normal (Pós-prandial):</span> &lt; 140 mg/dL |
+        <span style="font-weight: bold; color: #b45309;">Pré-diabetes:</span> 140-199 mg/dL |
+        <span style="font-weight: bold; color: #991b1b;">Hiperglicemia:</span> &ge; 200 mg/dL<br/>
+        <small style="color: #64748b; font-size: 8px;">* Faixas de referência gerais (ADA/SBD) — a avaliação clínica individual deve prevalecer.</small>
+      </div>
+    </div>
+
+  </div>
+  <div id="pdf-pages"></div>
+  <script>
+    const hasLetterhead = ${hasLetterhead};
+    const letterheadSrc = '${watermarkSrc}';
+
+    window.onload = () => {
+      const pxPerMm = 96 / 25.4;
+      const maxHeight = 207 * pxPerMm;
+      const pagesContainer = document.getElementById('pdf-pages');
+      const sourceContainer = document.getElementById('pdf-source');
+
+      let currentPage = null;
+      let currentSafeContent = null;
+
+      function createPage() {
+        currentPage = document.createElement('div');
+        currentPage.className = 'pdf-page';
+
+        if (hasLetterhead && letterheadSrc) {
+          const bg = document.createElement('div');
+          bg.className = 'letterhead-background';
+          bg.style.backgroundImage = 'url("' + letterheadSrc + '")';
+          currentPage.appendChild(bg);
+
+          const wm = document.createElement('div');
+          wm.className = 'watermark-background';
+          wm.style.backgroundImage = 'url("' + letterheadSrc + '")';
+          currentPage.appendChild(wm);
+        }
+
+        currentSafeContent = document.createElement('div');
+        currentSafeContent.className = 'page-content-safe-area';
+        currentPage.appendChild(currentSafeContent);
+
+        pagesContainer.appendChild(currentPage);
+      }
+
+      createPage();
+
+      const elements = Array.from(sourceContainer.children);
+      for (let i = 0; i < elements.length; i++) {
+        const el = elements[i];
+        currentSafeContent.appendChild(el);
+        if (currentSafeContent.scrollHeight > maxHeight) {
+          if (el.classList.contains('footer')) {
+            continue;
+          }
+          if (currentSafeContent.children.length > 1) {
+            currentSafeContent.removeChild(el);
+            createPage();
+            currentSafeContent.appendChild(el);
+          }
+        }
+      }
+
+      sourceContainer.style.display = 'none';
+
+      setTimeout(() => {
+        window.print();
+      }, 150);
+    };
+  </script>
+</body>
+</html>`;
+
+    win.document.write(docHtml);
+    win.document.close();
+  };
+
   const handleStartEditChecklist = () => {
     if (selectedChecklist.signedBy) return;
     const draft = { ...selectedChecklist, shift: selectedShift };
@@ -3217,6 +3791,393 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
             );
           })()}
 
+          {activeTab === 'glicemia' && (() => {
+            const sortedReadings = [...(resident.glucoseReadings || [])].sort(
+              (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+            );
+            const latestReading = sortedReadings[0] || null;
+            const latestClassification = latestReading ? classifyGlicemia(latestReading.value, latestReading.moment) : null;
+
+            const now = new Date();
+            const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+            const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+            const last7 = sortedReadings.filter(r => new Date(r.timestamp) >= sevenDaysAgo);
+            const avg7 = last7.length > 0 ? Math.round(last7.reduce((sum, r) => sum + r.value, 0) / last7.length) : null;
+
+            const last30 = sortedReadings.filter(r => new Date(r.timestamp) >= thirtyDaysAgo);
+            const hipoCount30 = last30.filter(r => r.value < 70).length;
+            const hiperCount30 = last30.filter(r => classifyGlicemia(r.value, r.moment).label === 'Hiperglicemia').length;
+
+            const chartData = [...(resident.glucoseReadings || [])]
+              .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+              .slice(-20)
+              .map(r => {
+                const d = new Date(r.timestamp);
+                return {
+                  ...r,
+                  formattedDate: d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) + ' ' + GLICEMIA_MOMENTO_LABELS[r.moment].slice(0, 3)
+                };
+              });
+
+            const getWeekMonday = (dt: Date) => {
+              const temp = new Date(dt);
+              const dow = temp.getDay();
+              const diff = temp.getDate() - dow + (dow === 0 ? -6 : 1);
+              const monday = new Date(temp.setDate(diff));
+              monday.setHours(0, 0, 0, 0);
+              return monday;
+            };
+
+            const filteredForAverages = sortedReadings.filter(r => {
+              const d = new Date(r.timestamp);
+              const y = d.getFullYear();
+              const m = String(d.getMonth() + 1).padStart(2, '0');
+              const day = String(d.getDate()).padStart(2, '0');
+              const dateStr = `${y}-${m}-${day}`;
+              if (glicemiaPeriodType === 'day') {
+                return dateStr === glicemiaSelectedDay;
+              } else if (glicemiaPeriodType === 'week') {
+                const selDate = new Date(glicemiaSelectedWeekDate + 'T00:00:00');
+                const monday = getWeekMonday(selDate);
+                const sunday = new Date(monday);
+                sunday.setDate(monday.getDate() + 6);
+                sunday.setHours(23, 59, 59, 999);
+                return d >= monday && d <= sunday;
+              } else {
+                const monthStr = `${y}-${m}`;
+                return monthStr === glicemiaSelectedMonth;
+              }
+            });
+
+            const momentGroups: Record<string, { sum: number; count: number; insulinUnits: number }> = {};
+            GLICEMIA_MOMENTO_OPTIONS.forEach(opt => { momentGroups[opt.value] = { sum: 0, count: 0, insulinUnits: 0 }; });
+            filteredForAverages.forEach(r => {
+              momentGroups[r.moment].sum += r.value;
+              momentGroups[r.moment].count += 1;
+              momentGroups[r.moment].insulinUnits += r.insulinUnits || 0;
+            });
+
+            return (
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="bg-slate-50 p-4 rounded-lg border border-slate-100 shadow-sm">
+                    <div className="flex items-center text-slate-500 mb-2">
+                      <Droplet className="h-4 w-4 mr-2 text-rose-500" /> Última Medição
+                    </div>
+                    <p className="text-2xl font-bold text-slate-800">
+                      {latestReading ? `${latestReading.value}` : '—'}{' '}
+                      <span className="text-sm font-normal text-slate-500">mg/dL</span>
+                    </p>
+                    {latestReading && latestClassification && (
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${latestClassification.badgeClass}`}>
+                          {latestClassification.label}
+                        </span>
+                        <span className="text-[10px] text-slate-400">{GLICEMIA_MOMENTO_LABELS[latestReading.moment]}</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="bg-slate-50 p-4 rounded-lg border border-slate-100 shadow-sm">
+                    <div className="flex items-center text-slate-500 mb-2">
+                      <Activity className="h-4 w-4 mr-2 text-blue-500" /> Média (7 dias)
+                    </div>
+                    <p className="text-2xl font-bold text-slate-800">
+                      {avg7 !== null ? `${avg7}` : '—'}{' '}
+                      <span className="text-sm font-normal text-slate-500">mg/dL</span>
+                    </p>
+                  </div>
+                  <div className="bg-slate-50 p-4 rounded-lg border border-slate-100 shadow-sm">
+                    <div className="flex items-center text-slate-500 mb-2">
+                      <AlertOctagon className="h-4 w-4 mr-2 text-rose-500" /> Hipoglicemias (30 dias)
+                    </div>
+                    <p className="text-2xl font-bold text-slate-800">{hipoCount30}</p>
+                  </div>
+                  <div className="bg-slate-50 p-4 rounded-lg border border-slate-100 shadow-sm">
+                    <div className="flex items-center text-slate-500 mb-2">
+                      <AlertOctagon className="h-4 w-4 mr-2 text-amber-500" /> Hiperglicemias (30 dias)
+                    </div>
+                    <p className="text-2xl font-bold text-slate-800">{hiperCount30}</p>
+                  </div>
+                </div>
+
+                <div className="h-64 w-full bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                  <h4 className="text-sm font-semibold text-slate-700 mb-4">Histórico de Glicemia (últimas medições)</h4>
+                  {chartData.length > 0 ? (
+                    <ResponsiveContainer width="100%" height="90%">
+                      <LineChart data={chartData}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                        <XAxis dataKey="formattedDate" stroke="#94a3b8" fontSize={11} />
+                        <YAxis stroke="#94a3b8" fontSize={11} domain={[40, 300]} />
+                        <Tooltip
+                          contentStyle={{ backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #e2e8f0' }}
+                          formatter={(value: any, _name: any, props: any) => [`${value} mg/dL`, GLICEMIA_MOMENTO_LABELS[props.payload.moment as GlicemiaMomento]]}
+                        />
+                        <Line type="monotone" dataKey="value" stroke="#e11d48" strokeWidth={2.5} dot={{ r: 4 }} activeDot={{ r: 6 }} name="Glicemia (mg/dL)" />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="h-4/5 flex items-center justify-center border border-dashed border-slate-200 rounded-lg p-6 text-slate-400 text-xs italic">
+                      Nenhum registro de glicemia encontrado para este residente.
+                    </div>
+                  )}
+                </div>
+
+                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <h4 className="text-sm font-semibold text-slate-700">Médias por Período e Momento</h4>
+                    <div className="flex items-center gap-2">
+                      {canRegisterGlicemia && (
+                        <button
+                          onClick={() => handleOpenGlicemiaModal()}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-primary-600 text-white text-xs font-semibold rounded-lg hover:bg-primary-700 transition-colors"
+                        >
+                          <Plus className="h-3.5 w-3.5" /> Registrar Medição
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handlePrintGlicemiaAverages(glicemiaPeriodType)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 text-slate-600 text-xs font-semibold rounded-lg hover:bg-slate-200 transition-colors"
+                      >
+                        <Printer className="h-3.5 w-3.5" /> Imprimir Relatório
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex rounded-lg border border-slate-200 overflow-hidden">
+                      {(['day', 'week', 'month'] as const).map(type => (
+                        <button
+                          key={type}
+                          onClick={() => setGlicemiaPeriodType(type)}
+                          className={`px-3 py-1.5 text-xs font-semibold transition-colors ${
+                            glicemiaPeriodType === type ? 'bg-primary-600 text-white' : 'bg-white text-slate-500 hover:bg-slate-50'
+                          }`}
+                        >
+                          {type === 'day' ? 'Dia' : type === 'week' ? 'Semana' : 'Mês'}
+                        </button>
+                      ))}
+                    </div>
+                    {glicemiaPeriodType === 'day' && (
+                      <input type="date" value={glicemiaSelectedDay} onChange={e => setGlicemiaSelectedDay(e.target.value)} className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs" />
+                    )}
+                    {glicemiaPeriodType === 'week' && (
+                      <input type="date" value={glicemiaSelectedWeekDate} onChange={e => setGlicemiaSelectedWeekDate(e.target.value)} className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs" />
+                    )}
+                    {glicemiaPeriodType === 'month' && (
+                      <input type="month" value={glicemiaSelectedMonth} onChange={e => setGlicemiaSelectedMonth(e.target.value)} className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs" />
+                    )}
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead>
+                        <tr className="border-b border-slate-100">
+                          <th className="px-4 py-2 text-[11px] font-semibold text-slate-500 uppercase">Momento</th>
+                          <th className="px-4 py-2 text-[11px] font-semibold text-slate-500 uppercase">Média (mg/dL)</th>
+                          <th className="px-4 py-2 text-[11px] font-semibold text-slate-500 uppercase">Nº Medições</th>
+                          <th className="px-4 py-2 text-[11px] font-semibold text-slate-500 uppercase">Classificação</th>
+                          <th className="px-4 py-2 text-[11px] font-semibold text-slate-500 uppercase">Insulina (un.)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {GLICEMIA_MOMENTO_OPTIONS.some(opt => momentGroups[opt.value].count > 0) ? (
+                          GLICEMIA_MOMENTO_OPTIONS.filter(opt => momentGroups[opt.value].count > 0).map(opt => {
+                            const g = momentGroups[opt.value];
+                            const avg = Math.round(g.sum / g.count);
+                            const classification = classifyGlicemia(avg, opt.value);
+                            return (
+                              <tr key={opt.value} className="border-t border-slate-100 hover:bg-slate-50/30 transition-colors">
+                                <td className="px-4 py-3 text-xs font-semibold text-slate-700">{opt.label}</td>
+                                <td className="px-4 py-3 text-xs text-slate-700">{avg}</td>
+                                <td className="px-4 py-3 text-xs text-slate-500">{g.count}</td>
+                                <td className="px-4 py-3">
+                                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${classification.badgeClass}`}>
+                                    {classification.label}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 text-xs text-slate-500">{g.insulinUnits > 0 ? g.insulinUnits.toFixed(1) : '—'}</td>
+                              </tr>
+                            );
+                          })
+                        ) : (
+                          <tr>
+                            <td colSpan={5} className="px-4 py-8 text-center text-slate-400 text-xs italic">
+                              Nenhum registro de glicemia encontrado para o período selecionado.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                  <div className="px-4 py-3 border-b border-slate-100">
+                    <h4 className="text-sm font-semibold text-slate-700">Histórico Completo</h4>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead>
+                        <tr className="border-b border-slate-100 bg-slate-50/50">
+                          <th className="px-4 py-2 text-[11px] font-semibold text-slate-500 uppercase">Data/Hora</th>
+                          <th className="px-4 py-2 text-[11px] font-semibold text-slate-500 uppercase">Valor</th>
+                          <th className="px-4 py-2 text-[11px] font-semibold text-slate-500 uppercase">Momento</th>
+                          <th className="px-4 py-2 text-[11px] font-semibold text-slate-500 uppercase">Insulina</th>
+                          <th className="px-4 py-2 text-[11px] font-semibold text-slate-500 uppercase">Observações</th>
+                          {(canRegisterGlicemia || canDeleteGlicemia) && (
+                            <th className="px-4 py-2 text-[11px] font-semibold text-slate-500 uppercase text-right">Ações</th>
+                          )}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sortedReadings.length > 0 ? (
+                          sortedReadings.map(reading => {
+                            const classification = classifyGlicemia(reading.value, reading.moment);
+                            return (
+                              <tr key={reading.id} className="border-t border-slate-100 hover:bg-slate-50/30 transition-colors">
+                                <td className="px-4 py-3 text-xs text-slate-600 whitespace-nowrap">
+                                  {new Date(reading.timestamp).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                </td>
+                                <td className="px-4 py-3">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-sm font-bold text-slate-800">{reading.value} mg/dL</span>
+                                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${classification.badgeClass}`}>
+                                      {classification.label}
+                                    </span>
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3 text-xs text-slate-600">{GLICEMIA_MOMENTO_LABELS[reading.moment]}</td>
+                                <td className="px-4 py-3 text-xs text-slate-600">
+                                  {reading.insulinApplied ? (
+                                    <span className="inline-flex items-center gap-1">
+                                      <Syringe className="h-3 w-3 text-sky-500" />
+                                      {reading.insulinUnits ? `${reading.insulinUnits} un.` : 'Sim'}
+                                    </span>
+                                  ) : '—'}
+                                </td>
+                                <td className="px-4 py-3 text-xs text-slate-500 max-w-xs truncate">{reading.notes || '—'}</td>
+                                {(canRegisterGlicemia || canDeleteGlicemia) && (
+                                  <td className="px-4 py-3">
+                                    <div className="flex items-center justify-end gap-1.5">
+                                      {canRegisterGlicemia && (
+                                        <button onClick={() => handleOpenGlicemiaModal(reading)} className="p-1.5 text-slate-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors" title="Editar">
+                                          <Edit2 className="h-3.5 w-3.5" />
+                                        </button>
+                                      )}
+                                      {canDeleteGlicemia && (
+                                        <button onClick={() => handleDeleteGlicemia(reading.id)} className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors" title="Excluir">
+                                          <Trash2 className="h-3.5 w-3.5" />
+                                        </button>
+                                      )}
+                                    </div>
+                                  </td>
+                                )}
+                              </tr>
+                            );
+                          })
+                        ) : (
+                          <tr>
+                            <td colSpan={6} className="px-4 py-8 text-center text-slate-400 text-xs italic">
+                              Nenhuma medição de glicemia registrada para este residente.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {isGlicemiaModalOpen && (
+                  <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+                      <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-lg font-bold text-slate-800">
+                          {editingGlicemiaId ? 'Editar Medição de Glicemia' : 'Registrar Medição de Glicemia'}
+                        </h3>
+                        <button onClick={() => setIsGlicemiaModalOpen(false)} className="text-slate-400 hover:text-slate-600">
+                          <X className="h-5 w-5" />
+                        </button>
+                      </div>
+                      <form onSubmit={handleSaveGlicemia} className="space-y-4">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Data e Hora</label>
+                          <input
+                            type="datetime-local"
+                            value={glicemiaFormData.date}
+                            onChange={e => setGlicemiaFormData({ ...glicemiaFormData, date: e.target.value })}
+                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+                            required
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Valor (mg/dL)</label>
+                          <input
+                            type="number"
+                            min={20}
+                            max={700}
+                            value={glicemiaFormData.value}
+                            onChange={e => setGlicemiaFormData({ ...glicemiaFormData, value: e.target.value })}
+                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+                            required
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Momento da Medição</label>
+                          <CustomSelect
+                            value={glicemiaFormData.moment}
+                            onChange={(v: string) => setGlicemiaFormData({ ...glicemiaFormData, moment: v as GlicemiaMomento })}
+                            options={GLICEMIA_MOMENTO_OPTIONS.map(opt => ({ value: opt.value, label: opt.label }))}
+                          />
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            id="glicemia-insulin"
+                            checked={glicemiaFormData.insulinApplied}
+                            onChange={e => setGlicemiaFormData({ ...glicemiaFormData, insulinApplied: e.target.checked })}
+                            className="h-4 w-4 rounded border-slate-300"
+                          />
+                          <label htmlFor="glicemia-insulin" className="text-xs font-semibold text-slate-600">Insulina aplicada</label>
+                        </div>
+                        {glicemiaFormData.insulinApplied && (
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-600 mb-1">Unidades de Insulina</label>
+                            <input
+                              type="number"
+                              step="0.5"
+                              min={0}
+                              value={glicemiaFormData.insulinUnits}
+                              onChange={e => setGlicemiaFormData({ ...glicemiaFormData, insulinUnits: e.target.value })}
+                              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+                            />
+                          </div>
+                        )}
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Observações</label>
+                          <textarea
+                            value={glicemiaFormData.notes}
+                            onChange={e => setGlicemiaFormData({ ...glicemiaFormData, notes: e.target.value })}
+                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+                            rows={3}
+                          />
+                        </div>
+                        <div className="flex items-center justify-end gap-2 pt-2">
+                          <button type="button" onClick={() => setIsGlicemiaModalOpen(false)} className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
+                            Cancelar
+                          </button>
+                          <button type="submit" className="px-4 py-2 bg-primary-600 text-white text-xs font-semibold rounded-lg hover:bg-primary-700 transition-colors">
+                            {editingGlicemiaId ? 'Salvar Alterações' : 'Registrar'}
+                          </button>
+                        </div>
+                      </form>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
           {activeTab === 'meds' && (() => {
             const today = new Date().toISOString().split('T')[0];
             const permanentMeds = resident.medications.filter(m => !m.endDate);
@@ -4142,22 +5103,25 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                         )}
 
                         {/* SECTION 6: REGISTRO FOTOGRÁFICO — VIEW MODE */}
-                        {selectedChecklist.photoUrl && (
+                        {selectedChecklist.photoUrls && selectedChecklist.photoUrls.length > 0 && (
                           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3 mt-6">
                             <h4 className="font-semibold text-slate-800 border-b border-slate-100 pb-2 text-sm uppercase tracking-wider text-primary-700 flex items-center gap-2">
                               <Camera className="h-4 w-4" />
                               6. Registro Fotográfico do Residente
                             </h4>
-                            <div className="flex flex-col items-start gap-2">
-                              <img
-                                src={selectedChecklist.photoUrl}
-                                alt="Foto do boletim diário"
-                                className="w-full max-w-sm rounded-xl border border-slate-200 shadow-sm object-cover"
-                              />
-                              <p className="text-xs text-slate-500 italic">
-                                Acompanhamento visual registrado neste boletim diário.
-                              </p>
+                            <div className="flex flex-wrap items-start gap-3">
+                              {selectedChecklist.photoUrls.map((url, idx) => (
+                                <img
+                                  key={idx}
+                                  src={url}
+                                  alt={`Foto do boletim diário ${idx + 1}`}
+                                  className="w-full max-w-[220px] rounded-xl border border-slate-200 shadow-sm object-cover"
+                                />
+                              ))}
                             </div>
+                            <p className="text-xs text-slate-500 italic">
+                              Acompanhamento visual registrado neste boletim diário.
+                            </p>
                           </div>
                         )}
 
@@ -4989,39 +5953,47 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                           <Camera className="h-4 w-4" />
                           6. Registro Fotográfico do Residente (Opcional)
                         </h4>
-                        {checklistDraft.photoUrl ? (
-                          <div className="relative inline-block">
-                            <img
-                              src={checklistDraft.photoUrl}
-                              alt="Foto do boletim"
-                              className="w-full max-w-sm rounded-xl border border-slate-200 shadow-sm object-cover"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => handleChecklistFieldChange('photoUrl', '')}
-                              className="absolute top-2 right-2 p-1.5 bg-rose-600 text-white rounded-full hover:bg-rose-700 shadow-md transition-colors"
-                              title="Remover foto"
-                            >
-                              <X className="w-3.5 h-3.5" />
-                            </button>
+                        {checklistDraft.photoUrls && checklistDraft.photoUrls.length > 0 && (
+                          <div className="flex flex-wrap gap-3">
+                            {checklistDraft.photoUrls.map((url, idx) => (
+                              <div key={idx} className="relative inline-block">
+                                <img
+                                  src={url}
+                                  alt={`Foto do boletim ${idx + 1}`}
+                                  className="w-40 h-40 rounded-xl border border-slate-200 shadow-sm object-cover"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveChecklistPhoto(idx)}
+                                  className="absolute top-2 right-2 p-1.5 bg-rose-600 text-white rounded-full hover:bg-rose-700 shadow-md transition-colors"
+                                  title="Remover foto"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ))}
                           </div>
-                        ) : (
-                          <label className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed border-slate-300 rounded-xl p-8 cursor-pointer hover:border-primary-400 hover:bg-primary-50 transition-all ${checklistPhotoUploading ? 'opacity-60 pointer-events-none' : ''}`}>
-                            <Camera className="h-8 w-8 text-slate-400" />
-                            <span className="text-sm font-semibold text-slate-600">
-                              {checklistPhotoUploading ? 'Enviando foto...' : 'Carregar Foto do Residente'}
-                            </span>
-                            <span className="text-xs text-slate-400">Clique para selecionar ou tire uma foto</span>
-                            <input
-                              type="file"
-                              accept="image/*"
-                              capture="environment"
-                              onChange={handleChecklistPhotoChange}
-                              className="hidden"
-                              disabled={checklistPhotoUploading}
-                            />
-                          </label>
                         )}
+                        <label className={`flex flex-col items-center justify-center gap-2 border-2 border-dashed border-slate-300 rounded-xl p-8 cursor-pointer hover:border-primary-400 hover:bg-primary-50 transition-all ${checklistPhotoUploading ? 'opacity-60 pointer-events-none' : ''}`}>
+                          <Camera className="h-8 w-8 text-slate-400" />
+                          <span className="text-sm font-semibold text-slate-600">
+                            {checklistPhotoUploading
+                              ? 'Enviando foto...'
+                              : checklistDraft.photoUrls && checklistDraft.photoUrls.length > 0
+                                ? 'Adicionar Mais Fotos'
+                                : 'Carregar Foto do Residente'}
+                          </span>
+                          <span className="text-xs text-slate-400">Clique para selecionar (pode escolher várias) ou tire uma foto</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            capture="environment"
+                            multiple
+                            onChange={handleChecklistPhotoChange}
+                            className="hidden"
+                            disabled={checklistPhotoUploading}
+                          />
+                        </label>
                       </div>
 
                       {/* Bottom Sticky Action Bar in Edit Mode */}

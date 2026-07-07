@@ -863,7 +863,8 @@ function AppInner() {
               atividades_consulta: chk.atividadesConsulta || null,
               intercorrencia: chk.intercorrencia || null,
               intercorrencia_desc: chk.intercorrenciaDesc || null,
-              photo_url: chk.photoUrl || null,
+              photo_url: chk.photoUrls?.[0] || null,
+              photo_urls: chk.photoUrls && chk.photoUrls.length > 0 ? chk.photoUrls : null,
               signed_by: chk.signedBy || null,
               signed_at: chk.signedAt || null,
               signature_info: chk.signatureInfo || null
@@ -992,7 +993,40 @@ function AppInner() {
         }
       }
 
-      // 12. Logs de Auditoria / Evoluções
+      // 12. Glicemia
+      if (updated.glucoseReadings) {
+        const originalResident = residents.find(r => r.id === updated.id);
+        if (originalResident && originalResident.glucoseReadings) {
+          const updatedGlicemiaIds = updated.glucoseReadings.map(g => g.id);
+          const deletedGlicemia = originalResident.glucoseReadings.filter(g => !updatedGlicemiaIds.includes(g.id));
+          for (const dG of deletedGlicemia) {
+            if (dG.id.length >= 15) {
+              await supabase
+                .from('Recanto_Glicemia')
+                .delete()
+                .eq('id', dG.id);
+            }
+          }
+        }
+
+        for (const g of updated.glucoseReadings) {
+          const isGlicemiaMock = g.id.length < 15;
+          await supabase
+            .from('Recanto_Glicemia')
+            .upsert({
+              id: isGlicemiaMock ? undefined : g.id,
+              resident_id: updated.id,
+              timestamp: g.timestamp,
+              valor_mg_dl: g.value,
+              momento: g.moment,
+              insulina_aplicada: g.insulinApplied || false,
+              insulina_unidades: g.insulinUnits ?? null,
+              observacoes: g.notes || null
+            });
+        }
+      }
+
+      // 13. Logs de Auditoria / Evoluções
       if (updated.auditLogs) {
         for (const log of updated.auditLogs) {
           const isLogMock = log.id.length < 15;
