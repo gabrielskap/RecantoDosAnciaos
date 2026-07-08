@@ -70,7 +70,7 @@ export interface CarePlanAdherence {
 
 export interface DailyChecklist {
   date: string;
-  shift?: 'diurno' | 'noturno';
+  shift?: 'diurno' | 'noturno' | 'diario';
   hygiene: boolean; // Banho/Higiene
   oralCare: boolean; // Higiene Oral
   feeding: boolean; // Aceitação alimentar (legacy boolean, keeping for compatibility)
@@ -629,4 +629,14 @@ export type DocumentSignatureType = 'simples' | 'certificado_a1';
 
 export interface DocumentSettings {
   tipoAssinatura: DocumentSignatureType;
+}
+
+// --- MODELO DE BOLETIM DIÁRIO ---
+// Controla se a instituição preenche dois boletins por dia (diurno/noturno)
+// ou um único boletim diário unificado.
+
+export type BoletimModelType = 'diurno_noturno' | 'diario';
+
+export interface BoletimSettings {
+  modelo: BoletimModelType;
 }

@@ -49,6 +49,8 @@ export const DemoAuthProvider: React.FC<DemoAuthProviderProps> = ({ onLogout, ch
     trialInfo: null,
     refreshAccessStatus: noop,
     deleteProfile: noop,
+    modeloBoletim: 'diurno_noturno',
+    refreshModeloBoletim: noop,
   };
 
   return (

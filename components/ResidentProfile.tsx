@@ -94,6 +94,17 @@ export const getShiftForTime = (time: string): 'diurno' | 'noturno' => {
   return (h >= 6 && h < 18) ? 'diurno' : 'noturno';
 };
 
+const SHIFT_LABELS: Record<'diurno' | 'noturno' | 'diario', string> = {
+  diurno: 'Diurno',
+  noturno: 'Noturno',
+  diario: 'Diário',
+};
+
+export const getShiftLabel = (shift: 'diurno' | 'noturno' | 'diario', lower = false): string => {
+  const label = SHIFT_LABELS[shift] ?? SHIFT_LABELS.diurno;
+  return lower ? label.toLowerCase() : label;
+};
+
 export const computeDailySchedule = (
   firstDose: string,
   frequencyHours: number
@@ -192,7 +203,7 @@ interface ResidentProfileProps {
 }
 
 const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBack, onUpdateResident }) => {
-  const { currentUser, hasPermission } = useAuth();
+  const { currentUser, hasPermission, modeloBoletim } = useAuth();
 
   const TAB_VIEW_STATE_MAP: Record<string, ViewState> = {
     info: ViewState.RESIDENT_DETAIL_INFO,
@@ -695,7 +706,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   // Daily Checklist State
   const today = new Date().toISOString().split('T')[0];
   const [selectedChecklistDate, setSelectedChecklistDate] = useState(today);
-  const [selectedShift, setSelectedShift] = useState<'diurno' | 'noturno'>('diurno');
+  const [selectedShift, setSelectedShift] = useState<'diurno' | 'noturno' | 'diario'>('diurno');
   const [isAllChecklistsModalOpen, setIsAllChecklistsModalOpen] = useState(false);
   const [isSignConfirmModalOpen, setIsSignConfirmModalOpen] = useState(false);
   const [isNoSignatureModalOpen, setIsNoSignatureModalOpen] = useState(false);
@@ -703,6 +714,21 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   const [signConfirmContext, setSignConfirmContext] = useState<'read' | 'edit'>('read');
   const [signatureMode, setSignatureMode] = useState<'simples' | 'certificado_a1'>('simples');
 
+  const [checklistDraft, setChecklistDraft] = useState<DailyChecklist | null>(null);
+
+  // Quando a instituição usa o modelo de boletim único, força o turno para 'diario'
+  // (exceto se já houver um rascunho em edição, para não perder o que está sendo digitado).
+  React.useEffect(() => {
+    if (modeloBoletim === 'diario' && selectedShift !== 'diario' && checklistDraft === null) {
+      setSelectedShift('diario');
+    } else if (modeloBoletim !== 'diario' && selectedShift === 'diario' && checklistDraft === null) {
+      setSelectedShift('diurno');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modeloBoletim]);
+
+  // Registro do dia/turno selecionado. Boletins de modelos anteriores (diurno/noturno)
+  // continuam acessíveis via "Ver Todos Preenchidos", que lista todos os turnos.
   const selectedChecklist = resident.dailyChecklists?.find(
     c => c.date === selectedChecklistDate && (c.shift || 'diurno') === selectedShift
   ) || {
@@ -716,8 +742,6 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     dressings: false,
     leisure: false
   };
-
-  const [checklistDraft, setChecklistDraft] = useState<DailyChecklist | null>(null);
 
   // Keep track of the current key we have loaded/saved to prevent race conditions on mount/change
   const lastLoadedChecklistKeyRef = React.useRef<string | null>(null);
@@ -1186,7 +1210,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     }
 
     const parsedMeds = parseMedications(selectedChecklist.medicacoesAdministradas);
-    const shiftLabel = selectedShift === 'diurno' ? 'Diurno' : 'Noturno';
+    const shiftLabel = getShiftLabel(selectedShift);
     const dateFormatted = new Date(selectedChecklistDate + 'T00:00:00').toLocaleDateString('pt-BR');
 
     const docHtml = `<!DOCTYPE html>
@@ -1586,7 +1610,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
               : 'Pele íntegra / Sem alterações observadas'}
           </div>
         </div>
-        ${selectedShift === 'noturno' ? `
+        ${selectedShift !== 'diurno' ? `
         <div class="field" style="margin-bottom: 12px;">
           <div class="field-label">Qualidade do Sono</div>
           <div class="field-value">
@@ -4642,40 +4666,49 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
               {/* Daily Checklist */}
               <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 shadow-inner">
                 {/* Shift Selector Toggle */}
-                <div className="flex justify-center mb-6">
-                  <div className="bg-slate-200/80 p-1 rounded-xl flex gap-1 border border-slate-300/50 shadow-inner">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (checklistDraft === null) setSelectedShift('diurno');
-                      }}
-                      disabled={checklistDraft !== null}
-                      className={`flex items-center gap-2 px-5 py-2 rounded-lg text-xs font-bold transition-all ${
-                        selectedShift === 'diurno'
-                          ? 'bg-white text-amber-600 shadow-sm border border-slate-200'
-                          : 'text-slate-500 hover:text-slate-800'
-                      } ${checklistDraft !== null ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-                    >
-                      <Sun className="h-3.5 w-3.5" />
-                      Boletim Diurno
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (checklistDraft === null) setSelectedShift('noturno');
-                      }}
-                      disabled={checklistDraft !== null}
-                      className={`flex items-center gap-2 px-5 py-2 rounded-lg text-xs font-bold transition-all ${
-                        selectedShift === 'noturno'
-                          ? 'bg-white text-indigo-650 shadow-sm border border-slate-200'
-                          : 'text-slate-500 hover:text-slate-800'
-                      } ${checklistDraft !== null ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-                    >
-                      <Moon className="h-3.5 w-3.5" />
-                      Boletim Noturno
-                    </button>
+                {modeloBoletim !== 'diario' ? (
+                  <div className="flex justify-center mb-6">
+                    <div className="bg-slate-200/80 p-1 rounded-xl flex gap-1 border border-slate-300/50 shadow-inner">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (checklistDraft === null) setSelectedShift('diurno');
+                        }}
+                        disabled={checklistDraft !== null}
+                        className={`flex items-center gap-2 px-5 py-2 rounded-lg text-xs font-bold transition-all ${
+                          selectedShift === 'diurno'
+                            ? 'bg-white text-amber-600 shadow-sm border border-slate-200'
+                            : 'text-slate-500 hover:text-slate-800'
+                        } ${checklistDraft !== null ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                      >
+                        <Sun className="h-3.5 w-3.5" />
+                        Boletim Diurno
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (checklistDraft === null) setSelectedShift('noturno');
+                        }}
+                        disabled={checklistDraft !== null}
+                        className={`flex items-center gap-2 px-5 py-2 rounded-lg text-xs font-bold transition-all ${
+                          selectedShift === 'noturno'
+                            ? 'bg-white text-indigo-650 shadow-sm border border-slate-200'
+                            : 'text-slate-500 hover:text-slate-800'
+                        } ${checklistDraft !== null ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                      >
+                        <Moon className="h-3.5 w-3.5" />
+                        Boletim Noturno
+                      </button>
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="flex justify-center mb-6">
+                    <div className="bg-white px-5 py-2 rounded-xl border border-slate-200 shadow-sm flex items-center gap-2 text-xs font-bold text-primary-700">
+                      <CalendarCheck className="h-3.5 w-3.5" />
+                      Boletim Diário
+                    </div>
+                  </div>
+                )}
 
                 {checklistDraft === null ? (
                   /* READ-ONLY & COMPLETED VIEW OR UNFILLED PLACEHOLDER */
@@ -4699,10 +4732,10 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                         <CalendarCheck className="h-10 w-10" />
                       </div>
                       <h3 className="text-lg font-bold text-slate-800 mb-1">
-                        Rotina {selectedShift === 'diurno' ? 'Diurna' : 'Noturna'} Pendente ({new Date(selectedChecklistDate + 'T00:00:00').toLocaleDateString('pt-BR')})
+                        {selectedShift === 'diario' ? 'Boletim Diário Pendente' : `Rotina ${selectedShift === 'diurno' ? 'Diurna' : 'Noturna'} Pendente`} ({new Date(selectedChecklistDate + 'T00:00:00').toLocaleDateString('pt-BR')})
                       </h3>
                       <p className="text-sm text-slate-500 max-w-sm mb-6">
-                        O prontuário {selectedShift === 'diurno' ? 'diurno' : 'noturno'} para este dia ainda não foi iniciado para este residente. Crie o boletim para registrar a evolução de rotina.
+                        O prontuário {getShiftLabel(selectedShift, true)} para este dia ainda não foi iniciado para este residente. Crie o boletim para registrar a evolução de rotina.
                       </p>
                       {hasPermission(ViewState.RESIDENT_DETAIL_ROUTINE, 'create') && (
                         <button
@@ -4710,7 +4743,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                           className="flex items-center px-6 py-3 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 transition-all shadow-md hover:shadow-lg cursor-pointer"
                         >
                           <Plus className="h-5 w-5 mr-2" />
-                          Preencher Boletim {selectedShift === 'diurno' ? 'Diurno' : 'Noturno'}
+                          Preencher Boletim {getShiftLabel(selectedShift)}
                         </button>
                       )}
                     </div>
@@ -4721,10 +4754,10 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                         <div>
                           <h3 className="font-bold text-lg text-slate-800 flex items-center">
                             <CalendarCheck className="h-6 w-6 mr-2 text-primary-600" />
-                            Boletim {selectedShift === 'diurno' ? 'Diurno' : 'Noturno'} de Acompanhamento ({new Date(selectedChecklistDate + 'T00:00:00').toLocaleDateString('pt-BR')})
+                            Boletim {getShiftLabel(selectedShift)} de Acompanhamento ({new Date(selectedChecklistDate + 'T00:00:00').toLocaleDateString('pt-BR')})
                           </h3>
                           <p className="text-xs text-slate-500 mt-1">
-                            Acompanhamento clínico e de rotina {selectedShift === 'diurno' ? 'diurno' : 'noturno'} do residente para este dia de plantão.
+                            Acompanhamento clínico e de rotina {getShiftLabel(selectedShift, true)} do residente para este dia{selectedShift !== 'diario' ? ' de plantão' : ''}.
                           </p>
                         </div>
                         <div className="flex items-center gap-2 w-full sm:w-auto justify-end flex-wrap">
@@ -4975,7 +5008,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                               )}
                             </div>
 
-                            {selectedShift === 'noturno' && (
+                            {selectedShift !== 'diurno' && (
                             <div className="flex justify-between items-center py-1 border-b border-slate-50 border-dotted">
                               <span className="text-slate-505 font-medium text-xs sm:text-sm">Qualidade do Sono:</span>
                               <span className={`font-semibold px-2 py-0.5 rounded text-xs ${selectedChecklist.sono === 'insatisfatorio' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-55 text-emerald-800'}`}>
@@ -5226,7 +5259,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                       <div>
                         <h3 className="font-bold text-lg text-slate-800 flex items-center">
                           <CalendarCheck className="h-6 w-6 mr-2 text-primary-600" />
-                          Preenchimento de Boletim {selectedShift === 'diurno' ? 'Diurno' : 'Noturno'}
+                          Preenchimento de Boletim {getShiftLabel(selectedShift)}
                         </h3>
                         <div className="flex items-center gap-2 mt-2">
                           <span className="text-xs font-semibold text-slate-600">Data do Boletim:</span>
@@ -5606,8 +5639,8 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                             )}
                           </div>
 
-                          {/* Sono - apenas no boletim noturno */}
-                          {selectedShift === 'noturno' && (
+                          {/* Sono - boletim noturno ou boletim diário único */}
+                          {selectedShift !== 'diurno' && (
                           <div className="space-y-2">
                             <label className="block text-xs font-bold text-slate-700">Qualidade de Sono</label>
                             <div className="flex gap-2">
@@ -6011,7 +6044,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                           className="flex items-center px-6 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition-all shadow-md hover:shadow-lg"
                         >
                           <PenTool className="h-4 w-4 mr-2" />
-                          Assinar e Salvar Boletim {selectedShift === 'diurno' ? 'Diurno' : 'Noturno'}
+                          Assinar e Salvar Boletim {getShiftLabel(selectedShift)}
                         </button>
                       </div>
                     </div>
@@ -7186,10 +7219,12 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                               <span className={`flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${
                                 shiftVal === 'noturno'
                                   ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                                  : shiftVal === 'diario'
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                                   : 'bg-amber-50 text-amber-700 border-amber-200'
                               }`}>
-                                {shiftVal === 'noturno' ? <Moon className="h-3 w-3" /> : <Sun className="h-3 w-3" />}
-                                {shiftVal === 'noturno' ? 'Noturno' : 'Diurno'}
+                                {shiftVal === 'noturno' ? <Moon className="h-3 w-3" /> : shiftVal === 'diario' ? <CalendarCheck className="h-3 w-3" /> : <Sun className="h-3 w-3" />}
+                                {getShiftLabel(shiftVal)}
                               </span>
                             </div>
 

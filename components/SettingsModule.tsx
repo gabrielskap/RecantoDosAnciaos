@@ -6,12 +6,13 @@ import {
   FileText, Wifi, Database, Download, Upload, Users,
   PenTool, Trash2, CheckSquare,
   CreditCard, X, Star, RefreshCw, Zap, XCircle, ArrowLeft,
-  FileSignature, BadgeCheck, UserCheck
+  FileSignature, BadgeCheck, UserCheck, CalendarCheck, Sun, Moon
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../services/supabaseClient';
 import { toast } from '../services/toast';
 import SubscriptionModal from './SubscriptionModal';
+import { BoletimModelType, BoletimSettings } from '../types';
 
 interface InstitutionSettings {
   name: string;
@@ -63,6 +64,7 @@ interface SystemSettings {
   notifications: NotificationSettings;
   security: SecuritySettings;
   documents: DocumentSettings;
+  boletim: BoletimSettings;
 }
 
 function getStorageKey(id: string | undefined): string {
@@ -105,15 +107,19 @@ const defaultSettings: SystemSettings = {
   documents: {
     tipoAssinatura: 'simples' as DocumentSignatureType,
   },
+  boletim: {
+    modelo: 'diurno_noturno' as BoletimModelType,
+  },
 };
 
-type TabId = 'institution' | 'notifications' | 'security' | 'documents' | 'about' | 'subscription';
+type TabId = 'institution' | 'notifications' | 'security' | 'documents' | 'boletim' | 'about' | 'subscription';
 
 const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'institution', label: 'Instituição', icon: Building2 },
   { id: 'notifications', label: 'Notificações', icon: Bell },
   { id: 'security', label: 'Segurança', icon: Shield },
   { id: 'documents', label: 'Documentos', icon: FileSignature },
+  { id: 'boletim', label: 'Boletim Diário', icon: CalendarCheck },
   { id: 'about', label: 'Sobre', icon: Info },
   { id: 'subscription', label: 'Assinatura', icon: CreditCard },
 ];
@@ -132,11 +138,14 @@ function loadSettings(key: string): SystemSettings {
     const rawTipo = parsed.documents?.tipoAssinatura;
     const tipoAssinatura: DocumentSignatureType =
       rawTipo === 'certificado_a1' ? 'certificado_a1' : 'simples';
+    const rawModelo = parsed.boletim?.modelo;
+    const modelo: BoletimModelType = rawModelo === 'diario' ? 'diario' : 'diurno_noturno';
     return {
       institution: { ...defaultSettings.institution, ...parsed.institution },
       notifications: { ...defaultSettings.notifications, ...parsed.notifications },
       security: { ...defaultSettings.security, ...parsed.security },
       documents: { tipoAssinatura },
+      boletim: { modelo },
     };
   } catch {
     return defaultSettings;
@@ -150,7 +159,7 @@ function saveSettings(key: string, settings: SystemSettings) {
 // ── Main Settings Component ───────────────────────────────────────────────────
 
 const SettingsModule: React.FC = () => {
-  const { currentUser } = useAuth();
+  const { currentUser, refreshModeloBoletim } = useAuth();
   const storageKey = getStorageKey(currentUser?.empresaId ?? currentUser?.id);
   const [activeTab, setActiveTab] = useState<TabId>('institution');
   const [settings, setSettings] = useState<SystemSettings>(() => loadSettings(storageKey));
@@ -180,6 +189,8 @@ const SettingsModule: React.FC = () => {
           const rawTipo = data.tipo_assinatura_documentos;
           const tipoAssinatura: DocumentSignatureType =
             rawTipo === 'certificado_a1' ? 'certificado_a1' : 'simples';
+          const modelo: BoletimModelType =
+            data.modelo_boletim === 'diario' ? 'diario' : 'diurno_noturno';
           const loaded: SystemSettings = {
             institution: {
               name: data.nome_instituicao || '',
@@ -199,6 +210,7 @@ const SettingsModule: React.FC = () => {
             notifications: data.config_notificacoes ? { ...defaultSettings.notifications, ...data.config_notificacoes } : defaultSettings.notifications,
             security: data.config_seguranca ? { ...defaultSettings.security, ...data.config_seguranca } : defaultSettings.security,
             documents: { tipoAssinatura },
+            boletim: { modelo },
           };
           setSettings(loaded);
           localStorage.setItem(storageKey, JSON.stringify(loaded));
@@ -244,6 +256,7 @@ const SettingsModule: React.FC = () => {
           config_notificacoes: settings.notifications,
           config_seguranca: settings.security,
           tipo_assinatura_documentos: settings.documents.tipoAssinatura,
+          modelo_boletim: settings.boletim.modelo,
         })
         .eq('empresa_id', currentUser.empresaId);
 
@@ -253,6 +266,7 @@ const SettingsModule: React.FC = () => {
       setDirty(false);
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
+      await refreshModeloBoletim();
     } catch (err: any) {
       console.error('Erro ao salvar configurações:', err);
       toast.error('Erro ao salvar configurações: ' + (err.message || err));
@@ -285,6 +299,7 @@ const SettingsModule: React.FC = () => {
             config_notificacoes: defaultSettings.notifications,
             config_seguranca: defaultSettings.security,
             tipo_assinatura_documentos: defaultSettings.documents.tipoAssinatura,
+            modelo_boletim: defaultSettings.boletim.modelo,
           })
           .eq('empresa_id', currentUser.empresaId);
 
@@ -293,6 +308,7 @@ const SettingsModule: React.FC = () => {
         setSettings(defaultSettings);
         saveSettings(storageKey, defaultSettings);
         setDirty(false);
+        await refreshModeloBoletim();
       } catch (err: any) {
         console.error('Erro ao redefinir configurações:', err);
         toast.error('Erro ao redefinir: ' + (err.message || err));
@@ -411,6 +427,13 @@ const SettingsModule: React.FC = () => {
                 <DocumentsTab
                   data={settings.documents}
                   onChange={(patch) => update('documents', patch)}
+                  readOnly={!isAdmin || loading}
+                />
+              )}
+              {activeTab === 'boletim' && (
+                <BoletimTab
+                  data={settings.boletim}
+                  onChange={(patch) => update('boletim', patch)}
                   readOnly={!isAdmin || loading}
                 />
               )}
@@ -970,6 +993,156 @@ const DocumentsTab: React.FC<{
           Esta configuração define o modelo que será utilizado quando o fluxo de assinatura eletrônica
           for aplicado aos documentos. O fluxo completo de assinatura será disponibilizado em
           atualização futura.
+        </p>
+      </div>
+    </div>
+  );
+};
+
+/* ─── Boletim Tab ─── */
+
+const BoletimTab: React.FC<{
+  data: BoletimSettings;
+  onChange: (p: Partial<BoletimSettings>) => void;
+  readOnly: boolean;
+}> = ({ data, onChange, readOnly }) => {
+  const isDiurnoNoturno = data.modelo === 'diurno_noturno';
+  const isDiario = data.modelo === 'diario';
+
+  return (
+    <div className="space-y-4">
+      <SectionCard title="Modelo de Boletim Diário" icon={CalendarCheck}>
+        <div className="space-y-4">
+          <p className="text-sm text-slate-500">
+            Define como a rotina diária dos residentes será registrada nesta instituição.
+            Todos os residentes utilizarão o modelo selecionado abaixo.
+          </p>
+
+          {/* Card selector */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
+            {/* Opção 1: Diurno / Noturno */}
+            <button
+              type="button"
+              disabled={readOnly}
+              onClick={() => !readOnly && onChange({ modelo: 'diurno_noturno' })}
+              className={`group relative flex flex-col gap-3 text-left p-4 rounded-xl border-2 transition-all ${
+                readOnly ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'
+              } ${
+                isDiurnoNoturno
+                  ? 'border-blue-500 bg-blue-50 shadow-sm'
+                  : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/60'
+              }`}
+            >
+              {/* Radio indicator */}
+              <div className="flex items-center justify-between">
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                  isDiurnoNoturno ? 'bg-blue-100' : 'bg-slate-100'
+                }`}>
+                  <Sun className={`h-4 w-4 ${isDiurnoNoturno ? 'text-blue-600' : 'text-slate-400'}`} />
+                </div>
+                <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                  isDiurnoNoturno ? 'border-blue-500' : 'border-slate-300'
+                }`}>
+                  {isDiurnoNoturno && <span className="w-2 h-2 rounded-full bg-blue-500 block" />}
+                </span>
+              </div>
+
+              <div>
+                <p className={`text-sm font-semibold ${isDiurnoNoturno ? 'text-blue-900' : 'text-slate-700'}`}>
+                  Diurno / Noturno
+                </p>
+                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                  Dois boletins por dia, preenchidos separadamente pelas equipes do turno
+                  diurno e do turno noturno.
+                </p>
+              </div>
+            </button>
+
+            {/* Opção 2: Boletim Diário Único */}
+            <button
+              type="button"
+              disabled={readOnly}
+              onClick={() => !readOnly && onChange({ modelo: 'diario' })}
+              className={`group relative flex flex-col gap-3 text-left p-4 rounded-xl border-2 transition-all ${
+                readOnly ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'
+              } ${
+                isDiario
+                  ? 'border-blue-500 bg-blue-50 shadow-sm'
+                  : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/60'
+              }`}
+            >
+              {/* Radio indicator */}
+              <div className="flex items-center justify-between">
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                  isDiario ? 'bg-blue-100' : 'bg-slate-100'
+                }`}>
+                  <CalendarCheck className={`h-4 w-4 ${isDiario ? 'text-blue-600' : 'text-slate-400'}`} />
+                </div>
+                <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                  isDiario ? 'border-blue-500' : 'border-slate-300'
+                }`}>
+                  {isDiario && <span className="w-2 h-2 rounded-full bg-blue-500 block" />}
+                </span>
+              </div>
+
+              <div>
+                <p className={`text-sm font-semibold ${isDiario ? 'text-blue-900' : 'text-slate-700'}`}>
+                  Boletim Diário Único
+                </p>
+                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                  Um único boletim por dia, unificando os campos de diurno e noturno em um
+                  só preenchimento.
+                </p>
+              </div>
+            </button>
+          </div>
+
+          {/* Info box contextual */}
+          <div className={`rounded-xl border px-4 py-3 text-xs leading-relaxed transition-all ${
+            isDiurnoNoturno
+              ? 'bg-sky-50 border-sky-200 text-sky-800'
+              : 'bg-emerald-50 border-emerald-200 text-emerald-800'
+          }`}>
+            {isDiurnoNoturno ? (
+              <div className="flex items-start gap-2.5">
+                <Moon className="h-4 w-4 mt-0.5 shrink-0 text-sky-600" />
+                <div>
+                  <p className="font-semibold mb-0.5">Como funciona:</p>
+                  <ul className="space-y-0.5 list-disc list-inside text-sky-700">
+                    <li>A equipe diurna preenche o Boletim Diurno</li>
+                    <li>A equipe noturna preenche o Boletim Noturno, incluindo a avaliação do sono</li>
+                    <li>Os dois registros ficam disponíveis separadamente no histórico</li>
+                  </ul>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-start gap-2.5">
+                <CalendarCheck className="h-4 w-4 mt-0.5 shrink-0 text-emerald-600" />
+                <div>
+                  <p className="font-semibold mb-0.5">Como funciona:</p>
+                  <ul className="space-y-0.5 list-disc list-inside text-emerald-700">
+                    <li>Um único boletim é preenchido por dia, por qualquer equipe</li>
+                    <li>Os campos de diurno e noturno (incluindo o sono) ficam reunidos no mesmo registro</li>
+                  </ul>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {readOnly && (
+            <p className="text-xs text-slate-400 italic">
+              Somente administradores podem alterar o modelo de boletim.
+            </p>
+          )}
+        </div>
+      </SectionCard>
+
+      {/* Nota sobre histórico */}
+      <div className="flex items-start gap-2.5 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-800">
+        <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-amber-500" />
+        <p>
+          Trocar o modelo não apaga boletins já preenchidos: os registros anteriores continuam
+          disponíveis para consulta no histórico do residente, mesmo após a mudança.
         </p>
       </div>
     </div>

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { AuthUser, Profile, Permission, PermissionAction, ViewState, ProfileType, DigitalCertificate } from '../types';
+import { AuthUser, Profile, Permission, PermissionAction, ViewState, ProfileType, DigitalCertificate, BoletimModelType } from '../types';
 import { supabase } from '../services/supabaseClient';
 import { toast } from '../services/toast';
 
@@ -34,6 +34,10 @@ export interface AuthContextValue {
   trialInfo: TrialInfo | null;
   /** Reconsulta o status da assinatura (usado pela tela de pagamento pendente). */
   refreshAccessStatus: () => Promise<void>;
+  /** Modelo de boletim diário configurado pela instituição (Configurações > Boletim Diário). */
+  modeloBoletim: BoletimModelType;
+  /** Reconsulta o modelo de boletim (usado após salvar em Configurações). */
+  refreshModeloBoletim: () => Promise<void>;
 }
 
 export const AuthContext = createContext<AuthContextValue | null>(null);
@@ -160,6 +164,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
   const [accessBlocked, setAccessBlocked] = useState(false);
   const [trialInfo, setTrialInfo] = useState<TrialInfo | null>(null);
+  const [modeloBoletim, setModeloBoletim] = useState<BoletimModelType>('diurno_noturno');
 
   // --- Gate de ativação (assinatura Asaas) ---
   // Bloqueia o acesso apenas quando a última assinatura da empresa for Asaas,
@@ -217,6 +222,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const refreshAccessStatus = async () => {
     await computeAccessStatus(currentUser);
+  };
+
+  // --- Modelo de boletim diário (Configurações > Boletim Diário) ---
+
+  const refreshModeloBoletim = async () => {
+    if (!currentUser?.empresaId) return;
+    try {
+      const { data, error } = await supabase
+        .from('Recanto_Empresas')
+        .select('modelo_boletim')
+        .eq('empresa_id', currentUser.empresaId)
+        .maybeSingle();
+
+      if (error) {
+        console.warn('Erro ao buscar modelo de boletim:', error);
+        return;
+      }
+
+      setModeloBoletim(data?.modelo_boletim === 'diario' ? 'diario' : 'diurno_noturno');
+    } catch (err) {
+      console.warn('Erro ao buscar modelo de boletim:', err);
+    }
   };
 
   // --- Fetch profiles and users from database ---
@@ -423,20 +450,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [currentUser]);  // Sincroniza as configurações da empresa com o localStorage para compatibilidade retroativa e migra do local se necessário
   useEffect(() => {
     const syncCompanySettings = async () => {
-      if (!currentUser?.empresaId) return;
+      if (!currentUser?.empresaId) { setModeloBoletim('diurno_noturno'); return; }
       try {
         const { data, error } = await supabase
           .from('Recanto_Empresas')
           .select('*')
           .eq('empresa_id', currentUser.empresaId)
           .single();
-        
+
         if (error) {
           console.warn('Erro ao buscar configurações da empresa:', error);
           return;
         }
 
         if (data) {
+          setModeloBoletim(data.modelo_boletim === 'diario' ? 'diario' : 'diurno_noturno');
+
           const migrationDone = localStorage.getItem('recanto_settings_migrated_to_db') === 'true';
           const localKey = `recanto_system_settings_${currentUser.empresaId}`;
           const localRaw = localStorage.getItem(localKey) || localStorage.getItem('recanto_system_settings');
@@ -905,7 +934,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ currentUser, users, profiles, loading, login, logout, resetPassword, hasPermission, updateProfile, addProfile, deleteProfile, addUser, deleteUser, updateUser, updateUserCertificate, accessBlocked, trialInfo, refreshAccessStatus }}>
+    <AuthContext.Provider value={{ currentUser, users, profiles, loading, login, logout, resetPassword, hasPermission, updateProfile, addProfile, deleteProfile, addUser, deleteUser, updateUser, updateUserCertificate, accessBlocked, trialInfo, refreshAccessStatus, modeloBoletim, refreshModeloBoletim }}>
       {children}
     </AuthContext.Provider>
   );
