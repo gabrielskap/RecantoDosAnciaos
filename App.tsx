@@ -599,6 +599,15 @@ function AppInner() {
         if (guardianError) throw guardianError;
       }
 
+      if (newResident.allergies && newResident.allergies.length > 0) {
+        const { error: allergiesError } = await supabase
+          .from('Recanto_Alergias')
+          .insert(
+            newResident.allergies.map(a => ({ resident_id: resData.id, description: a }))
+          );
+        if (allergiesError) throw allergiesError;
+      }
+
       await fetchResidents();
     } catch (err: any) {
       console.error('Error adding resident:', err);
@@ -1105,6 +1114,7 @@ function AppInner() {
       await fetchInvoices(); // Trigger creates the invoice automatically
     } catch (err) {
       console.error('Error adding contract:', err);
+      toast.error('Erro ao criar contrato.');
     }
   };
 

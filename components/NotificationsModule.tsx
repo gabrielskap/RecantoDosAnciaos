@@ -257,7 +257,7 @@ const TemplatesTab: React.FC<{ empresaId: string; templates: NotificationTemplat
                   {t.active ? 'Ativo' : 'Inativo'}
                 </button>
               </div>
-              <p className="text-sm text-slate-500 mt-2 line-clamp-3 whitespace-pre-wrap">{t.messageText}</p>
+              <p className="text-sm text-slate-500 mt-2 line-clamp-3 whitespace-pre-wrap break-words">{t.messageText}</p>
               <div className="flex gap-2 mt-3">
                 <button onClick={() => setEditing({ ...t })} className="flex items-center gap-1 text-xs text-blue-600 hover:bg-blue-50 px-2 py-1 rounded-lg">
                   <Pencil className="h-3.5 w-3.5" /> Editar
@@ -362,7 +362,7 @@ const TemplatesTab: React.FC<{ empresaId: string; templates: NotificationTemplat
                 )}
                 <label className="text-xs font-medium text-slate-600">Pré-visualização</label>
                 <div className="rounded-2xl bg-[#e5ddd5] p-4 min-h-[180px]">
-                  <div className="bg-white rounded-xl rounded-tl-none shadow-sm p-3 text-sm text-slate-700 whitespace-pre-wrap max-w-[90%]">
+                  <div className="bg-white rounded-xl rounded-tl-none shadow-sm p-3 text-sm text-slate-700 whitespace-pre-wrap break-words max-w-[90%]">
                     {renderTemplate(editing.messageText || 'Sua mensagem aparecerá aqui…', SAMPLE_VARS)}
                     {editing.footerText && <div className="text-[11px] text-slate-400 mt-2">{editing.footerText}</div>}
                     {(editing.messageType === 'button' || editing.messageType === 'menu') && (editing.choices || []).length > 0 && (
@@ -507,7 +507,7 @@ const SendTab: React.FC<{ templates: NotificationTemplate[]; responsibles: Respo
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
           <label className="text-xs font-medium text-slate-600">Pré-visualização</label>
           <div className="rounded-2xl bg-[#e5ddd5] p-4 min-h-[120px] mt-1">
-            <div className="bg-white rounded-xl rounded-tl-none shadow-sm p-3 text-sm text-slate-700 whitespace-pre-wrap max-w-[90%]">
+            <div className="bg-white rounded-xl rounded-tl-none shadow-sm p-3 text-sm text-slate-700 whitespace-pre-wrap break-words max-w-[90%]">
               {renderTemplate(effectiveText || 'Mensagem…', SAMPLE_VARS)}
             </div>
           </div>
@@ -617,7 +617,7 @@ const HistoryTab: React.FC<{ queue: NotificationQueueItem[]; onReload: () => voi
             <div className="text-sm text-slate-600 space-y-2">
               <p><span className="text-slate-400">Destinatário:</span> {detail.recipientName || '—'} ({maskPhone(detail.recipientPhone)})</p>
               <p><span className="text-slate-400">Mensagem:</span></p>
-              <div className="bg-slate-50 rounded-xl p-3 whitespace-pre-wrap text-slate-700">{detail.messageText}</div>
+              <div className="bg-slate-50 rounded-xl p-3 whitespace-pre-wrap break-words text-slate-700">{detail.messageText}</div>
               {detail.lastError && (
                 <div className="bg-rose-50 text-rose-700 rounded-xl p-3 text-xs">
                   <strong>Erro:</strong> {detail.lastError}

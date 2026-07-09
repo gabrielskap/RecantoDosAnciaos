@@ -39,6 +39,48 @@ const calculateAge = (birthDateString: string): number => {
   return age >= 0 ? age : 0;
 };
 
+const validateCPF = (cpf: string): boolean => {
+  const cleanCPF = cpf.replace(/\D/g, '');
+  if (cleanCPF.length !== 11) return false;
+  if (/^(\d)\1{10}$/.test(cleanCPF)) return false;
+
+  let sum = 0;
+  for (let i = 0; i < 9; i++) {
+    sum += parseInt(cleanCPF.charAt(i)) * (10 - i);
+  }
+  let rev = 11 - (sum % 11);
+  if (rev === 10 || rev === 11) rev = 0;
+  if (rev !== parseInt(cleanCPF.charAt(9))) return false;
+
+  sum = 0;
+  for (let i = 0; i < 10; i++) {
+    sum += parseInt(cleanCPF.charAt(i)) * (11 - i);
+  }
+  rev = 11 - (sum % 11);
+  if (rev === 10 || rev === 11) rev = 0;
+  if (rev !== parseInt(cleanCPF.charAt(10))) return false;
+
+  return true;
+};
+
+const formatCPF = (v: string): string => {
+  v = v.replace(/\D/g, '');
+  if (v.length > 11) v = v.slice(0, 11);
+  if (v.length <= 3) return v;
+  if (v.length <= 6) return `${v.slice(0, 3)}.${v.slice(3)}`;
+  if (v.length <= 9) return `${v.slice(0, 3)}.${v.slice(3, 6)}.${v.slice(6)}`;
+  return `${v.slice(0, 3)}.${v.slice(3, 6)}.${v.slice(6, 9)}-${v.slice(9)}`;
+};
+
+const formatRG = (v: string): string => {
+  const clean = v.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+  if (clean.length > 9) return clean.slice(0, 14);
+  if (clean.length <= 2) return clean;
+  if (clean.length <= 5) return `${clean.slice(0, 2)}.${clean.slice(2)}`;
+  if (clean.length <= 8) return `${clean.slice(0, 2)}.${clean.slice(2, 5)}.${clean.slice(5)}`;
+  return `${clean.slice(0, 2)}.${clean.slice(2, 5)}.${clean.slice(5, 8)}-${clean.slice(8)}`;
+};
+
 const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelectResident, onAddResident, onUpdateResident }) => {
   const { hasPermission } = useAuth();
   const canCreate = hasPermission(ViewState.RESIDENTS, 'create');
@@ -100,6 +142,9 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
   });
   const [loadingCep, setLoadingCep] = useState(false);
   const [cepError, setCepError] = useState('');
+  const [allergiesText, setAllergiesText] = useState(() => {
+    return localStorage.getItem('modal_residents_allergies_text') || '';
+  });
 
   const handleCepChange = async (value: string) => {
     const raw = value.replace(/\D/g, '');
@@ -148,6 +193,7 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
       localStorage.setItem('modal_residents_active_tab', activeTab);
       localStorage.setItem('modal_residents_form_data', JSON.stringify(formData));
       localStorage.setItem('modal_residents_contact_temp', JSON.stringify(contactTemp));
+      localStorage.setItem('modal_residents_allergies_text', allergiesText);
       if (editingResidentId) {
         localStorage.setItem('modal_residents_editing_id', editingResidentId);
       } else {
@@ -158,9 +204,10 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
       localStorage.removeItem('modal_residents_active_tab');
       localStorage.removeItem('modal_residents_form_data');
       localStorage.removeItem('modal_residents_contact_temp');
+      localStorage.removeItem('modal_residents_allergies_text');
       localStorage.removeItem('modal_residents_editing_id');
     }
-  }, [isModalOpen, activeTab, formData, contactTemp, editingResidentId]);
+  }, [isModalOpen, activeTab, formData, contactTemp, allergiesText, editingResidentId]);
 
   const careLevelOrder = { I: 1, II: 2, III: 3 };
 
@@ -222,6 +269,7 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
       reqDressings: resident.reqDressings ?? null,
       reqLeisure: resident.reqLeisure ?? null,
     });
+    setAllergiesText(resident.allergies ? resident.allergies.join(', ') : '');
     setActiveTab('personal');
     setIsModalOpen(true);
   };
@@ -246,6 +294,28 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name || !formData.room) return;
+
+    if (formData.cpf) {
+      if (!validateCPF(formData.cpf)) {
+        toast.error('O CPF informado é inválido.');
+        return;
+      }
+    }
+
+    if (formData.rg) {
+      const cleanRG = formData.rg.replace(/[^a-zA-Z0-9]/g, '');
+      if (cleanRG.length < 5 || cleanRG.length > 14) {
+        toast.error('O RG informado deve conter entre 5 e 14 caracteres.');
+        return;
+      }
+    }
+
+    if (formData.legalGuardian?.cpf) {
+      if (!validateCPF(formData.legalGuardian.cpf)) {
+        toast.error('O CPF do Responsável Legal informado é inválido.');
+        return;
+      }
+    }
 
     if (editingResidentId) {
       if (onUpdateResident) {
@@ -274,6 +344,7 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
             clinicalCondition: formData.clinicalCondition || '',
             functionalCondition: formData.functionalCondition || '',
             socialHistory: formData.socialHistory || '',
+            allergies: allergiesText ? allergiesText.split(',').map(a => a.trim()).filter(Boolean) : [],
             usoFraldas: formData.usoFraldas || 'nao',
             mobilidadeSet: formData.mobilidadeSet || 'independente',
             higieneCorporal: formData.higieneCorporal || 'independente',
@@ -309,7 +380,7 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
         clinicalCondition: formData.clinicalCondition || '',
         functionalCondition: formData.functionalCondition || '',
         socialHistory: formData.socialHistory || '',
-        medications: [], allergies: [], vitals: [], glucoseReadings: [], carePlan: [],
+        medications: [], allergies: allergiesText ? allergiesText.split(',').map(a => a.trim()).filter(Boolean) : [], vitals: [], glucoseReadings: [], carePlan: [],
         auditLogs: [], dailyChecklists: [], documents: [], visits: [],
         usoFraldas: formData.usoFraldas || 'nao',
         mobilidadeSet: formData.mobilidadeSet || 'independente',
@@ -345,6 +416,7 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
       reqDressings: null,
       reqLeisure: null,
     });
+    setAllergiesText('');
     setActiveTab('personal');
   };
 
@@ -413,6 +485,7 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
                 reqDressings: null,
                 reqLeisure: null,
               });
+              setAllergiesText('');
               setActiveTab('personal');
               setIsModalOpen(true);
             }}
@@ -712,11 +785,23 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-semibold text-slate-600 mb-1.5">CPF</label>
-                      <input type="text" value={formData.cpf} onChange={e => setFormData({ ...formData, cpf: e.target.value })} className={inputClass} />
+                      <input
+                        type="text"
+                        placeholder="000.000.000-00"
+                        value={formData.cpf || ''}
+                        onChange={e => setFormData({ ...formData, cpf: formatCPF(e.target.value) })}
+                        className={inputClass}
+                      />
                     </div>
                     <div>
                       <label className="block text-xs font-semibold text-slate-600 mb-1.5">RG</label>
-                      <input type="text" value={formData.rg} onChange={e => setFormData({ ...formData, rg: e.target.value })} className={inputClass} />
+                      <input
+                        type="text"
+                        placeholder="Ex: 12.345.678-9"
+                        value={formData.rg || ''}
+                        onChange={e => setFormData({ ...formData, rg: formatRG(e.target.value) })}
+                        className={inputClass}
+                      />
                     </div>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -902,7 +987,13 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
                           key={f.key}
                           placeholder={f.placeholder}
                           value={(formData.legalGuardian as any)?.[f.key] || ''}
-                          onChange={e => setFormData({ ...formData, legalGuardian: { ...formData.legalGuardian!, [f.key]: e.target.value } })}
+                          onChange={e => {
+                            const val = f.key === 'cpf' ? formatCPF(e.target.value) : e.target.value;
+                            setFormData({
+                              ...formData,
+                              legalGuardian: { ...formData.legalGuardian!, [f.key]: val }
+                            });
+                          }}
                           className={inputClass}
                         />
                       ))}
@@ -940,6 +1031,10 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
                       <textarea rows={3} placeholder={f.placeholder} value={(formData as any)[f.key] || ''} onChange={e => setFormData({ ...formData, [f.key]: e.target.value })} className={inputClass + ' resize-none'} />
                     </div>
                   ))}
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-650 mb-1.5">Alergias (separadas por vírgula)</label>
+                    <textarea rows={2} placeholder="Ex: Dipirona, Penicilina, Glúten..." value={allergiesText} onChange={e => setAllergiesText(e.target.value)} className={inputClass + ' resize-none'} />
+                  </div>
                 </div>
               )}
 

@@ -100,6 +100,49 @@ const SHIFT_LABELS: Record<'diurno' | 'noturno' | 'diario', string> = {
   diario: 'Diário',
 };
 
+const validateCPF = (cpf: string): boolean => {
+  const cleanCPF = cpf.replace(/\D/g, '');
+  if (cleanCPF.length !== 11) return false;
+  if (/^(\d)\1{10}$/.test(cleanCPF)) return false;
+
+  let sum = 0;
+  for (let i = 0; i < 9; i++) {
+    sum += parseInt(cleanCPF.charAt(i)) * (10 - i);
+  }
+  let rev = 11 - (sum % 11);
+  if (rev === 10 || rev === 11) rev = 0;
+  if (rev !== parseInt(cleanCPF.charAt(9))) return false;
+
+  sum = 0;
+  for (let i = 0; i < 10; i++) {
+    sum += parseInt(cleanCPF.charAt(i)) * (11 - i);
+  }
+  rev = 11 - (sum % 11);
+  if (rev === 10 || rev === 11) rev = 0;
+  if (rev !== parseInt(cleanCPF.charAt(10))) return false;
+
+  return true;
+};
+
+const formatCPF = (v: string): string => {
+  v = v.replace(/\D/g, '');
+  if (v.length > 11) v = v.slice(0, 11);
+  if (v.length <= 3) return v;
+  if (v.length <= 6) return `${v.slice(0, 3)}.${v.slice(3)}`;
+  if (v.length <= 9) return `${v.slice(0, 3)}.${v.slice(3, 6)}.${v.slice(6)}`;
+  return `${v.slice(0, 3)}.${v.slice(3, 6)}.${v.slice(6, 9)}-${v.slice(9)}`;
+};
+
+const formatPhone = (v: string): string => {
+  v = v.replace(/\D/g, '');
+  if (v.length > 11) v = v.slice(0, 11);
+  if (v.length <= 2) return v;
+  if (v.length <= 6) return `(${v.slice(0, 2)}) ${v.slice(2)}`;
+  if (v.length <= 10) return `(${v.slice(0, 2)}) ${v.slice(2, 6)}-${v.slice(6)}`;
+  return `(${v.slice(0, 2)}) ${v.slice(2, 7)}-${v.slice(7)}`;
+};
+
+
 export const getShiftLabel = (shift: 'diurno' | 'noturno' | 'diario', lower = false): string => {
   const label = SHIFT_LABELS[shift] ?? SHIFT_LABELS.diurno;
   return lower ? label.toLowerCase() : label;
@@ -128,6 +171,40 @@ export const computeDailySchedule = (
     cur = (cur + intervalMins) % (24 * 60);
   }
   return results;
+};
+
+// Monta a lista de medicações a perguntar num boletim, restrita às doses cujo
+// horário cai dentro do turno selecionado (diurno: 06h–18h / noturno: 18h–06h).
+// Medicamentos com múltiplas doses/dia geram uma linha por horário de dose.
+// No modelo de boletim único ("diario") nenhum filtro de turno é aplicado.
+export const getMedicationChecklistItems = (
+  medications: Medication[] | undefined,
+  bulletinDate: string,
+  shift: 'diurno' | 'noturno' | 'diario'
+): ChecklistMedication[] => {
+  if (!medications || medications.length === 0) return [];
+  const activeMeds = medications.filter(med => {
+    if (!med.endDate) return true;
+    const start = med.startDate || '2000-01-01';
+    return start <= bulletinDate && med.endDate >= bulletinDate;
+  });
+  const items: ChecklistMedication[] = [];
+  activeMeds.forEach(med => {
+    const freqH = parseFrequencyHours(med.frequency);
+    const schedule = computeDailySchedule(med.nextDose || '08:00', freqH);
+    const doses = shift === 'diario' ? schedule : schedule.filter(s => s.shift === shift);
+    doses.forEach(dose => {
+      items.push({
+        id: `${med.id}__${dose.time}`,
+        name: med.name,
+        dosage: med.dosage,
+        route: med.route,
+        status: 'pendente',
+        time: dose.time
+      });
+    });
+  });
+  return items.sort((a, b) => (a.time || '').localeCompare(b.time || ''));
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -321,16 +398,90 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     e.preventDefault();
     if (!onUpdateResident || !visitData.visitorName || !visitData.relation) return;
 
+    const cleanVisitorName = visitData.visitorName.trim();
+    const cleanRelation = visitData.relation.trim();
+
+    // 1. Validação de Nome do Visitante
+    if (cleanVisitorName.length < 3) {
+      toast.error('O nome do visitante deve conter pelo menos 3 caracteres.');
+      return;
+    }
+    const nameRegex = /^[a-zA-ZÀ-ÿ\s'-]+$/;
+    if (!nameRegex.test(cleanVisitorName)) {
+      toast.error('O nome do visitante deve conter apenas letras e espaços.');
+      return;
+    }
+    if (/(.)\1{3,}/.test(cleanVisitorName)) {
+      toast.error('O nome do visitante não deve conter muitos caracteres repetidos sequencialmente.');
+      return;
+    }
+
+    // 2. Validação do Grau de Parentesco / Relação
+    if (cleanRelation.length < 2) {
+      toast.error('O grau de parentesco deve conter pelo menos 2 caracteres.');
+      return;
+    }
+    const relationRegex = /^[a-zA-ZÀ-ÿ\s'\-\(\)\/]+$/;
+    if (!relationRegex.test(cleanRelation)) {
+      toast.error('O grau de parentesco deve conter apenas letras.');
+      return;
+    }
+    if (/(.)\1{3,}/.test(cleanRelation)) {
+      toast.error('O grau de parentesco não deve conter caracteres repetidos sequencialmente.');
+      return;
+    }
+
+    // 3. Validação do CPF
+    if (visitData.cpf) {
+      if (!validateCPF(visitData.cpf)) {
+        toast.error('O CPF informado é inválido.');
+        return;
+      }
+    }
+
+    // 4. Validação de Telefone
+    if (visitData.phone) {
+      const cleanPhoneNum = visitData.phone.replace(/\D/g, '');
+      if (cleanPhoneNum.length !== 10 && cleanPhoneNum.length !== 11) {
+        toast.error('O telefone informado deve conter 10 ou 11 dígitos.');
+        return;
+      }
+    }
+
+    // 5. Validação de Temperatura
+    if (visitData.temperature) {
+      const tempVal = parseFloat(visitData.temperature);
+      if (isNaN(tempVal) || tempVal < 30.0 || tempVal > 45.0) {
+        toast.error('A temperatura corporal deve estar entre 30ºC e 45ºC.');
+        return;
+      }
+    }
+
+    // 6. Validação de Data e Hora
+    if (!visitData.date) {
+      toast.error('A data e hora da visita são obrigatórias.');
+      return;
+    }
+    const visitDate = new Date(visitData.date);
+    if (visitDate.getTime() > Date.now() + 10 * 60 * 1000) {
+      toast.error('A data e hora da visita não podem estar no futuro.');
+      return;
+    }
+    if (visitDate.getFullYear() < 2000) {
+      toast.error('A data informada é inválida.');
+      return;
+    }
+
     const newVisit = {
       id: Math.random().toString(36).substr(2, 9),
       residentId: resident.id,
-      visitorName: visitData.visitorName,
-      relation: visitData.relation,
+      visitorName: cleanVisitorName,
+      relation: cleanRelation,
       cpf: visitData.cpf || undefined,
       phone: visitData.phone || undefined,
       date: new Date(visitData.date).toISOString(),
       temperature: visitData.temperature ? parseFloat(visitData.temperature) : undefined,
-      observations: visitData.observations || undefined,
+      observations: visitData.observations ? visitData.observations.trim() : undefined,
       createdBy: currentUser?.name || 'Usuário Atual'
     };
 
@@ -494,6 +645,9 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   const [contactTemp, setContactTemp] = useState({ name: '', relation: '', phone: '' });
   const [loadingCep, setLoadingCep] = useState(false);
   const [cepError, setCepError] = useState('');
+  const [allergiesText, setAllergiesText] = useState(() => {
+    return '';
+  });
 
   const calculateAge = (birthDateString: string): number => {
     if (!birthDateString) return 0;
@@ -545,6 +699,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
       reqDressings: resident.reqDressings ?? null,
       reqLeisure: resident.reqLeisure ?? null,
     });
+    setAllergiesText(resident.allergies ? resident.allergies.join(', ') : '');
     setModalActiveTab('personal');
     setIsEditModalOpen(true);
   };
@@ -657,6 +812,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
       clinicalCondition: formData.clinicalCondition || '',
       functionalCondition: formData.functionalCondition || '',
       socialHistory: formData.socialHistory || '',
+      allergies: allergiesText ? allergiesText.split(',').map(a => a.trim()).filter(Boolean) : [],
       usoFraldas: formData.usoFraldas || 'nao',
       mobilidadeSet: formData.mobilidadeSet || 'independente',
       higieneCorporal: formData.higieneCorporal || 'independente',
@@ -671,6 +827,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     };
 
     onUpdateResident(updated);
+    setAllergiesText('');
     setIsEditModalOpen(false);
   };
 
@@ -783,6 +940,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     const tabKey = `${keyPrefix}_tab`;
     const formKey = `${keyPrefix}_form`;
     const contactKey = `${keyPrefix}_contact`;
+    const allergiesKey = `${keyPrefix}_allergies`;
 
     if (lastLoadedEditResidentKeyRef.current !== resident.id) {
       lastLoadedEditResidentKeyRef.current = resident.id;
@@ -798,6 +956,9 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
 
       const savedContact = localStorage.getItem(contactKey);
       setContactTemp(savedContact ? JSON.parse(savedContact) : { name: '', relation: '', phone: '' });
+
+      const savedAllergies = localStorage.getItem(allergiesKey) || '';
+      setAllergiesText(savedAllergies);
       return;
     }
 
@@ -806,13 +967,15 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
       localStorage.setItem(tabKey, modalActiveTab);
       localStorage.setItem(formKey, JSON.stringify(formData));
       localStorage.setItem(contactKey, JSON.stringify(contactTemp));
+      localStorage.setItem(allergiesKey, allergiesText);
     } else {
       localStorage.removeItem(openKey);
       localStorage.removeItem(tabKey);
       localStorage.removeItem(formKey);
       localStorage.removeItem(contactKey);
+      localStorage.removeItem(allergiesKey);
     }
-  }, [isEditModalOpen, modalActiveTab, formData, contactTemp, resident.id]);
+  }, [isEditModalOpen, modalActiveTab, formData, contactTemp, allergiesText, resident.id]);
 
   // Keep track of the loaded visit key to prevent race conditions
   const lastLoadedVisitKeyRef = React.useRef<string | null>(null);
@@ -1314,10 +1477,10 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     .grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px; }
     .field { margin-bottom: 4px; }
     .field-label { font-size: 9px; font-weight: bold; color: #64748b; text-transform: uppercase; margin-bottom: 2px; }
-    .field-value { font-size: 11px; color: #1e293b; font-weight: 500; }
+    .field-value { font-size: 11px; color: #1e293b; font-weight: 500; word-break: break-word; overflow-wrap: break-word; white-space: pre-wrap; }
     
     /* Badge styles */
-    .badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: bold; }
+    .badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: bold; word-break: break-word; overflow-wrap: break-word; white-space: pre-wrap; }
     .bg-gray { background: #f1f5f9; color: #475569; }
     .bg-green { background: #d1fae5; color: #065f46; }
     .bg-yellow { background: #fef3c7; color: #92400e; }
@@ -2222,9 +2385,9 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     .field { margin-bottom: 4px; }
     .field-label { font-size: 8px; font-weight: bold; color: #64748b; text-transform: uppercase; margin-bottom: 2px; }
-    .field-value { font-size: 10px; color: #1e293b; font-weight: 550; }
+    .field-value { font-size: 10px; color: #1e293b; font-weight: 550; word-break: break-word; overflow-wrap: break-word; white-space: pre-wrap; }
     
-    .badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 8px; font-weight: bold; }
+    .badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 8px; font-weight: bold; word-break: break-word; overflow-wrap: break-word; white-space: pre-wrap; }
     .bg-green { background: #d1fae5; color: #065f46; border: 1px solid #a7f3d0; }
     .bg-yellow { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
     .bg-red { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
@@ -2619,9 +2782,9 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     .field { margin-bottom: 4px; }
     .field-label { font-size: 8px; font-weight: bold; color: #64748b; text-transform: uppercase; margin-bottom: 2px; }
-    .field-value { font-size: 10px; color: #1e293b; font-weight: 550; }
+    .field-value { font-size: 10px; color: #1e293b; font-weight: 550; word-break: break-word; overflow-wrap: break-word; white-space: pre-wrap; }
 
-    .badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 8px; font-weight: bold; }
+    .badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 8px; font-weight: bold; word-break: break-word; overflow-wrap: break-word; white-space: pre-wrap; }
     .bg-green { background: #d1fae5; color: #065f46; border: 1px solid #a7f3d0; }
     .bg-yellow { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
     .bg-red { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
@@ -2807,20 +2970,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     if (!draft.higieneOralVestir) draft.higieneOralVestir = (resident.higieneOralVestir as any) || 'independente';
     const parsed = parseMedications(draft.medicacoesAdministradas);
     if (!parsed && resident.medications && resident.medications.length > 0) {
-      const bulletinDate = draft.date;
-      const activeMeds = resident.medications.filter(med => {
-        if (!med.endDate) return true;
-        const start = med.startDate || '2000-01-01';
-        return start <= bulletinDate && med.endDate >= bulletinDate;
-      });
-      const initialMeds: ChecklistMedication[] = activeMeds.map(med => ({
-        id: med.id,
-        name: med.name,
-        dosage: med.dosage,
-        route: med.route,
-        status: 'pendente' as const,
-        time: med.nextDose || '08:00'
-      }));
+      const initialMeds = getMedicationChecklistItems(resident.medications, draft.date, selectedShift);
       draft.medicacoesAdministradas = JSON.stringify(initialMeds);
     }
 
@@ -5004,7 +5154,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                                 </span>
                               </div>
                               {selectedChecklist.alteracoesPele === 'sim' && selectedChecklist.alteracoesPeleDesc && (
-                                <p className="text-xs text-rose-700 bg-rose-50 p-2 rounded mt-1 font-medium bg-rose-100/50">{selectedChecklist.alteracoesPeleDesc}</p>
+                                <p className="text-xs text-rose-700 bg-rose-50 p-2 rounded mt-1 font-medium bg-rose-100/50 whitespace-pre-wrap break-words">{selectedChecklist.alteracoesPeleDesc}</p>
                               )}
                             </div>
 
@@ -5053,7 +5203,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                                     );
                                   } else {
                                     return (
-                                      <p className="text-xs bg-slate-50 p-2 rounded text-slate-700 whitespace-pre-wrap">
+                                      <p className="text-xs bg-slate-50 p-2 rounded text-slate-700 whitespace-pre-wrap break-words">
                                         {selectedChecklist.medicacoesAdministradas}
                                       </p>
                                     );
@@ -5065,7 +5215,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                             {selectedChecklist.atividadesConsulta && (
                               <div className="flex flex-col gap-1 py-1 border-b border-slate-50 border-dotted">
                                 <span className="text-slate-505 font-medium text-xs">Atividades & Consultas:</span>
-                                <p className="text-xs bg-slate-50 p-2 rounded text-slate-800 whitespace-pre-wrap">{selectedChecklist.atividadesConsulta}</p>
+                                <p className="text-xs bg-slate-50 p-2 rounded text-slate-800 whitespace-pre-wrap break-words">{selectedChecklist.atividadesConsulta}</p>
                               </div>
                             )}
 
@@ -5077,7 +5227,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                                 </span>
                               </div>
                               {selectedChecklist.intercorrencia === 'sim' && selectedChecklist.intercorrenciaDesc && (
-                                <p className="text-xs text-rose-800 bg-rose-50 p-3 rounded border border-rose-205 mt-1.5 font-medium whitespace-pre-wrap leading-relaxed animate-pulse">
+                                <p className="text-xs text-rose-800 bg-rose-50 p-3 rounded border border-rose-205 mt-1.5 font-medium whitespace-pre-wrap break-words leading-relaxed animate-pulse">
                                   {selectedChecklist.intercorrenciaDesc}
                                 </p>
                               )}
@@ -5119,7 +5269,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                                           </span>
                                         </div>
                                         {adh.comment && (
-                                          <div className="text-xs text-slate-600 bg-white p-2 rounded border border-slate-100 mt-2">
+                                          <div className="text-xs text-slate-600 bg-white p-2 rounded border border-slate-100 mt-2 whitespace-pre-wrap break-words">
                                             <span className="font-semibold text-slate-400 block mb-0.5 text-[9px] uppercase tracking-wider">Comentário</span>
                                             {adh.comment}
                                           </div>
@@ -5771,18 +5921,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                                       type="button"
                                       onClick={() => {
                                         const bulletinDate = checklistDraft?.date || new Date().toISOString().split('T')[0];
-                                        const activeMeds = resident.medications.filter(med => {
-                                          if (!med.endDate) return true;
-                                          const start = med.startDate || '2000-01-01';
-                                          return start <= bulletinDate && med.endDate >= bulletinDate;
-                                        });
-                                        const initialMeds = activeMeds.map(med => ({
-                                          id: med.id,
-                                          name: med.name,
-                                          dosage: med.dosage,
-                                          status: 'pendente' as const,
-                                          time: med.nextDose || '08:00'
-                                        }));
+                                        const initialMeds = getMedicationChecklistItems(resident.medications, bulletinDate, selectedShift);
                                         handleChecklistFieldChange('medicacoesAdministradas', JSON.stringify(initialMeds));
                                       }}
                                       className="text-xs text-blue-600 hover:text-blue-900 font-bold flex items-center gap-1"
@@ -6298,7 +6437,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                                       {new Date(log.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
                                     </time>
                                 </div>
-                                <div className="text-slate-600 text-sm whitespace-pre-wrap">{log.details}</div>
+                                <div className="text-slate-600 text-sm whitespace-pre-wrap break-words">{log.details}</div>
                             </div>
                         </div>
                       ))}
@@ -6757,6 +6896,10 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                       <textarea rows={3} placeholder={f.placeholder} value={(formData as any)[f.key] || ''} onChange={e => setFormData({ ...formData, [f.key]: e.target.value })} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white resize-none" />
                     </div>
                   ))}
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-650 mb-1.5">Alergias (separadas por vírgula)</label>
+                    <textarea rows={2} placeholder="Ex: Dipirona, Penicilina, Glúten..." value={allergiesText} onChange={e => setAllergiesText(e.target.value)} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white resize-none" />
+                  </div>
                 </div>
               )}
 
@@ -7356,7 +7499,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                   <input 
                     type="text" 
                     value={visitData.cpf} 
-                    onChange={e => setVisitData(prev => ({ ...prev, cpf: e.target.value }))} 
+                    onChange={e => setVisitData(prev => ({ ...prev, cpf: formatCPF(e.target.value) }))} 
                     className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" 
                     placeholder="000.000.000-00"
                   />
@@ -7366,7 +7509,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                   <input 
                     type="text" 
                     value={visitData.phone} 
-                    onChange={e => setVisitData(prev => ({ ...prev, phone: e.target.value }))} 
+                    onChange={e => setVisitData(prev => ({ ...prev, phone: formatPhone(e.target.value) }))} 
                     className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" 
                     placeholder="(00) 00000-0000"
                   />
@@ -7389,6 +7532,8 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                   <input 
                     type="number" 
                     step="0.1" 
+                    min="30"
+                    max="45"
                     value={visitData.temperature} 
                     onChange={e => setVisitData(prev => ({ ...prev, temperature: e.target.value }))} 
                     className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" 

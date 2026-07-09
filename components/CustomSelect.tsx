@@ -1,4 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronDown, Check } from 'lucide-react';
 
 export interface CustomSelectOption {
@@ -31,19 +32,48 @@ const CustomSelect: React.FC<CustomSelectProps> = ({
   required = false,
 }) => {
   const [open, setOpen] = useState(false);
+  const [coords, setCoords] = useState({ top: 0, left: 0, width: 0, openUp: false });
   const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   const selected = options.find(o => o.value === value);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (ref.current && !ref.current.contains(target) && !dropdownRef.current?.contains(target)) {
         setOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  useLayoutEffect(() => {
+    if (!open || !triggerRef.current) return;
+
+    const updatePosition = () => {
+      const rect = triggerRef.current!.getBoundingClientRect();
+      const estimatedHeight = Math.min(options.length * 44 + 8, 240);
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const openUp = spaceBelow < estimatedHeight && rect.top > spaceBelow;
+      setCoords({
+        top: openUp ? rect.top : rect.bottom,
+        left: rect.left,
+        width: rect.width,
+        openUp,
+      });
+    };
+
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [open, options.length]);
 
   return (
     <div ref={ref} className={`relative ${className}`}>
@@ -59,6 +89,7 @@ const CustomSelect: React.FC<CustomSelectProps> = ({
 
       {/* Trigger button */}
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen(o => !o)}
         className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 flex items-center justify-between gap-2 text-left"
@@ -81,9 +112,18 @@ const CustomSelect: React.FC<CustomSelectProps> = ({
         <ChevronDown className={`h-4 w-4 text-slate-400 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
-      {/* Dropdown */}
-      {open && (
-        <div className="absolute z-50 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-lg shadow-slate-200/60 overflow-hidden">
+      {/* Dropdown (portaled to body so it can't be clipped by modal/overflow containers) */}
+      {open && createPortal(
+        <div
+          ref={dropdownRef}
+          className="fixed z-[100] bg-white border border-slate-200 rounded-xl shadow-lg shadow-slate-200/60 overflow-hidden"
+          style={{
+            top: coords.openUp ? undefined : coords.top + 4,
+            bottom: coords.openUp ? window.innerHeight - coords.top + 4 : undefined,
+            left: coords.left,
+            width: coords.width,
+          }}
+        >
           <div className="max-h-60 overflow-y-auto py-1">
             {options.map(opt => {
               const isSelected = opt.value === value;
@@ -114,7 +154,8 @@ const CustomSelect: React.FC<CustomSelectProps> = ({
               );
             })}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

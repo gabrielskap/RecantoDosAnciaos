@@ -207,7 +207,7 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
                 {contracts.map(c => (
                   <tr key={c.id} className="hover:bg-slate-50/60 transition-colors">
                     <td className="px-6 py-4 font-semibold text-slate-800">{c.residentName}</td>
-                    <td className="px-6 py-4 text-slate-500">{new Date(c.startDate).toLocaleDateString('pt-BR')}</td>
+                    <td className="px-6 py-4 text-slate-500">{new Date(c.startDate + 'T00:00:00').toLocaleDateString('pt-BR')}</td>
                     <td className="px-6 py-4 font-semibold text-emerald-700">R$ {c.monthlyValue.toLocaleString('pt-BR')}</td>
                     <td className="px-6 py-4 text-slate-500">Dia {c.dueDay}</td>
                     <td className="px-6 py-4">
@@ -255,7 +255,7 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
                   {invoices.map(inv => (
                     <tr key={inv.id} className="hover:bg-slate-50/60 transition-colors">
                       <td className="px-6 py-4 font-semibold text-slate-800">{inv.residentName}</td>
-                      <td className="px-6 py-4 text-slate-500">{new Date(inv.dueDate).toLocaleDateString('pt-BR')}</td>
+                      <td className="px-6 py-4 text-slate-500">{new Date(inv.dueDate + 'T00:00:00').toLocaleDateString('pt-BR')}</td>
                       <td className="px-6 py-4 font-semibold">R$ {inv.amount.toLocaleString('pt-BR')}</td>
                       <td className="px-6 py-4">
                         {inv.status === 'Pago' && <span className="inline-flex items-center gap-1 text-xs font-semibold bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full"><CheckCircle2 className="h-3 w-3" /> Pago</span>}
@@ -293,7 +293,7 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
                   <tr key={rec.id} className="hover:bg-slate-50/60 transition-colors">
                     <td className="px-6 py-4 font-semibold text-slate-800">{rec.description}</td>
                     <td className="px-6 py-4"><span className="text-xs font-semibold bg-slate-100 text-slate-600 px-2.5 py-1 rounded-full">{rec.category}</span></td>
-                    <td className="px-6 py-4 text-slate-500">{new Date(rec.date).toLocaleDateString('pt-BR')}</td>
+                    <td className="px-6 py-4 text-slate-500">{new Date(rec.date + 'T00:00:00').toLocaleDateString('pt-BR')}</td>
                     <td className="px-6 py-4 font-semibold text-rose-600">- R$ {rec.amount.toLocaleString('pt-BR')}</td>
                     <td className="px-6 py-4"><span className="text-xs font-semibold bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full capitalize">{rec.status}</span></td>
                     <td className="px-6 py-4">
@@ -322,14 +322,14 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
           onMouseUp={(e) => { if (!modalMouseDown.current && e.target === e.currentTarget) setIsRecordModalOpen(false); }}
         >
           <div
-            className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden"
+            className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] flex flex-col"
             onMouseDown={(e) => { modalMouseDown.current = true; e.stopPropagation(); }}
           >
-            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-white">
+            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-white rounded-t-2xl shrink-0">
               <h3 className="font-bold text-slate-900">Nova Despesa Operacional</h3>
               <button onClick={() => setIsRecordModalOpen(false)} className="w-9 h-9 rounded-xl hover:bg-slate-100 flex items-center justify-center transition-colors"><X className="h-5 w-5 text-slate-400" /></button>
             </div>
-            <form onSubmit={handleRecordSubmit} className="p-5 space-y-4">
+            <form onSubmit={handleRecordSubmit} className="p-5 space-y-4 overflow-y-auto">
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1.5">Descrição</label>
                 <input required placeholder="Ex: Conta de Luz" value={newRecord.description} onChange={e => setNewRecord({ ...newRecord, description: e.target.value })} className={inputClass} />
@@ -376,14 +376,14 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
           onMouseUp={(e) => { if (!modalMouseDown.current && e.target === e.currentTarget) setIsContractModalOpen(false); }}
         >
           <div
-            className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden"
+            className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] flex flex-col"
             onMouseDown={(e) => { modalMouseDown.current = true; e.stopPropagation(); }}
           >
-            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-white">
+            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-white rounded-t-2xl shrink-0">
               <h3 className="font-bold text-slate-900">Novo Contrato</h3>
               <button onClick={() => setIsContractModalOpen(false)} className="w-9 h-9 rounded-xl hover:bg-slate-100 flex items-center justify-center transition-colors"><X className="h-5 w-5 text-slate-400" /></button>
             </div>
-            <form onSubmit={handleContractSubmit} className="p-5 space-y-4">
+            <form onSubmit={handleContractSubmit} className="p-5 space-y-4 overflow-y-auto">
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1.5">Residente</label>
                 <CustomSelect

@@ -10,6 +10,7 @@ export async function fetchResidents(empresaId: string): Promise<Resident[]> {
       legalGuardian:Recanto_ResponsaveisLegais(*),
       medications:Recanto_Medicacoes(*, logs:Recanto_LogsMedicacao(*)),
       prescriptions:Recanto_Receitas(*),
+      allergies:Recanto_Alergias(*),
       vitals:Recanto_SinaisVitais(*),
       glucoseReadings:Recanto_Glicemia(*),
       carePlan:Recanto_PlanosAssistencia(*),

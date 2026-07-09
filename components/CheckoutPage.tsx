@@ -339,7 +339,7 @@ const CheckoutPage: React.FC = () => {
         update.dados_plano = data;
       }
 
-      await supabase.from('Recanto_Checkout_Rascunhos').upsert(update, { onConflict: 'rascunho_token', returning: 'minimal' });
+      await supabase.from('Recanto_Checkout_Rascunhos').upsert(update, { onConflict: 'rascunho_token' });
     } catch { /* falha silenciosa — sessionStorage já tem os dados */ } finally {
       setSavingRascunho(false);
     }

@@ -45,7 +45,7 @@ const checklist = (residentId: string): DailyChecklist[] => [
     date: today, shift: 'diurno',
     hygiene: true, oralCare: true, feeding: true, hydration: true,
     mobility: true, dressings: false, leisure: true,
-    queixaDor: 'nao', estadoNeurologico: 'Alerta e orientado',
+    queixaDor: 'nao', estadoNeurologico: 'lucido',
     alimentacao: 'boa', sono: 'preservado', diurese: 'aumentada',
     eliminacaoEvacuacao: 'presente',
   },
