@@ -6,6 +6,7 @@ import {
   X, Mail, CheckCircle, Ban, UserCheck, TrendingUp, Clock,
   Save, ArrowLeftRight, Calendar, CreditCard, XCircle, RotateCcw,
   Globe, Image as ImageIcon, Upload, Trash2, Layers, Star,
+  KeyRound, EyeOff, Copy,
 } from 'lucide-react';
 import { supabase } from '../services/supabaseClient';
 import {
@@ -21,6 +22,9 @@ import {
   superadminListPlanos,
   superadminUpsertPlano,
   superadminCheckPlanoExcedentes,
+  getSuperAdminIntegracaoSecrets,
+  upsertIntegracaoSecret,
+  deleteIntegracaoSecret,
 } from '../services/superAdminService';
 import type {
   DashboardKPIs,
@@ -29,6 +33,7 @@ import type {
   BillingOverview,
   AccessLog,
   PlanoAdmin,
+  IntegracaoSecret,
 } from '../services/superAdminService';
 import { excedeLimite, formatLimite } from '../utils/planLimits';
 import {
@@ -133,15 +138,16 @@ const planBadge = (planoNome: string | null) => {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 type AssinaturaAcao = 'change_plan' | 'extend_trial' | 'cancel' | 'reactivate' | 'manual_payment';
-type Section = 'dashboard' | 'tenants' | 'billing' | 'system' | 'site';
+type Section = 'dashboard' | 'tenants' | 'billing' | 'system' | 'site' | 'integracoes';
 type SiteSubTab = 'planos' | 'conteudo' | 'imagens';
 
 const navItems: { key: Section; label: string; Icon: React.ElementType }[] = [
-  { key: 'dashboard', label: 'Dashboard',      Icon: BarChart3  },
-  { key: 'tenants',   label: 'Clientes',       Icon: Building2  },
-  { key: 'billing',   label: 'Faturamento',    Icon: DollarSign },
-  { key: 'site',      label: 'Site & Planos',  Icon: Globe      },
-  { key: 'system',    label: 'Sistema',        Icon: Server     },
+  { key: 'dashboard',    label: 'Dashboard',      Icon: BarChart3  },
+  { key: 'tenants',      label: 'Clientes',       Icon: Building2  },
+  { key: 'billing',      label: 'Faturamento',    Icon: DollarSign },
+  { key: 'site',         label: 'Site & Planos',  Icon: Globe      },
+  { key: 'integracoes',  label: 'Integrações',    Icon: KeyRound   },
+  { key: 'system',       label: 'Sistema',        Icon: Server     },
 ];
 
 const CONTEUDO_SECTION_LABELS: Record<string, string> = {
@@ -365,6 +371,7 @@ const SuperAdminPanel: React.FC = () => {
   const [planosLoading,    setPlanosLoading]    = useState(false);
   const [editingPlano,     setEditingPlano]     = useState<PlanoAdmin | null>(null);
   const [planoForm,        setPlanoForm]        = useState<PlanoAdmin | null>(null);
+  const [isNewPlano,       setIsNewPlano]       = useState(false);
   const [planoSaving,      setPlanoSaving]      = useState(false);
   const [conteudoSite,     setConteudoSite]     = useState<Record<string, any>>({});
   const [conteudoDrafts,   setConteudoDrafts]   = useState<Record<string, any>>({});
@@ -373,6 +380,15 @@ const SuperAdminPanel: React.FC = () => {
   const [imagensSite,      setImagensSite]      = useState<Record<string, ImagemSite>>({});
   const [imagensLoading,   setImagensLoading]   = useState(false);
   const [uploadingChave,   setUploadingChave]   = useState<string | null>(null);
+
+  // ── Integrações (chaves de API) ───────────────────────────────────────────
+  const [integracoes,        setIntegracoes]        = useState<IntegracaoSecret[]>([]);
+  const [integracoesLoading, setIntegracoesLoading] = useState(false);
+  const [revealedKeys,       setRevealedKeys]       = useState<Set<string>>(new Set());
+  const [secretModal,        setSecretModal]        = useState<{ mode: 'edit' | 'new'; original?: IntegracaoSecret } | null>(null);
+  const [secretForm,         setSecretForm]         = useState({ chave: '', valor: '', descricao: '' });
+  const [secretValueVisible, setSecretValueVisible] = useState(false);
+  const [secretSaving,       setSecretSaving]       = useState(false);
 
   // ── Session restore ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -402,6 +418,7 @@ const SuperAdminPanel: React.FC = () => {
       if (Object.keys(conteudoSite).length === 0) loadConteudoSite();
       if (Object.keys(imagensSite).length === 0) loadImagensSite();
     }
+    if (activeSection === 'integracoes' && integracoes.length === 0) loadIntegracoes();
   }, [authenticated, activeSection]);
 
   // ── Loaders ───────────────────────────────────────────────────────────────
@@ -441,6 +458,10 @@ const SuperAdminPanel: React.FC = () => {
     setImagensLoading(true);
     try { setImagensSite(await superadminGetImagensSite()); } catch (err) { console.error('[superadmin] loadImagensSite:', err); } finally { setImagensLoading(false); }
   };
+  const loadIntegracoes = async () => {
+    setIntegracoesLoading(true);
+    try { setIntegracoes(await getSuperAdminIntegracaoSecrets()); } catch (err) { console.error('[superadmin] loadIntegracoes:', err); } finally { setIntegracoesLoading(false); }
+  };
 
   const refreshSection = () => {
     if (activeSection === 'dashboard') { loadKpis(); loadActivity(); }
@@ -448,6 +469,7 @@ const SuperAdminPanel: React.FC = () => {
     if (activeSection === 'billing')   loadBilling();
     if (activeSection === 'system')    loadAccessLogs();
     if (activeSection === 'site')      { loadPlanos(); loadConteudoSite(); loadImagensSite(); }
+    if (activeSection === 'integracoes') loadIntegracoes();
   };
 
   // ── Auth handlers ─────────────────────────────────────────────────────────
@@ -620,12 +642,53 @@ const SuperAdminPanel: React.FC = () => {
 
   // ── Planos handlers ───────────────────────────────────────────────────────
   const openEditPlano = (plano: PlanoAdmin) => {
+    setIsNewPlano(false);
     setEditingPlano(plano);
     setPlanoForm({ ...plano, features: [...plano.features] });
   };
 
+  const openNewPlano = () => {
+    const blank: PlanoAdmin = {
+      plano_id: '',
+      plano_nome: '',
+      preco_mensal: 0,
+      preco_anual_total: 0,
+      preco_mensal_equivalente_anual: null,
+      ativo: true,
+      self_service: true,
+      descricao: '',
+      features: [],
+      popular: false,
+      badge_label: null,
+      cta_label: 'Assinar agora',
+      max_residentes: null,
+      max_usuarios: null,
+      updated_at: '',
+    };
+    setIsNewPlano(true);
+    setEditingPlano(blank);
+    setPlanoForm(blank);
+  };
+
   const handleSavePlano = async () => {
     if (!planoForm) return;
+
+    let planoIdFinal = planoForm.plano_id;
+    if (isNewPlano) {
+      planoIdFinal = planoForm.plano_id.trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
+      if (!planoIdFinal) {
+        alert('Informe um identificador para o plano (ex: essencial-plus).');
+        return;
+      }
+      if (planos.some(p => p.plano_id === planoIdFinal)) {
+        alert('Já existe um plano com esse identificador. Escolha outro.');
+        return;
+      }
+      if (!planoForm.plano_nome.trim()) {
+        alert('Informe o nome do plano.');
+        return;
+      }
+    }
 
     if (planoForm.max_residentes != null && (!Number.isInteger(planoForm.max_residentes) || planoForm.max_residentes < 1)) {
       alert('Limite de residentes deve ser um número inteiro maior ou igual a 1 (ou vazio para ilimitado).');
@@ -640,9 +703,9 @@ const SuperAdminPanel: React.FC = () => {
       (planoForm.max_residentes != null && (editingPlano?.max_residentes == null || planoForm.max_residentes < editingPlano.max_residentes)) ||
       (planoForm.max_usuarios   != null && (editingPlano?.max_usuarios   == null || planoForm.max_usuarios   < editingPlano.max_usuarios));
 
-    if (ficouMaisRestritivo) {
+    if (ficouMaisRestritivo && !isNewPlano) {
       try {
-        const excedentes = await superadminCheckPlanoExcedentes(planoForm.plano_id, planoForm.max_residentes, planoForm.max_usuarios);
+        const excedentes = await superadminCheckPlanoExcedentes(planoIdFinal, planoForm.max_residentes, planoForm.max_usuarios);
         if (excedentes.length > 0) {
           const lista = excedentes
             .slice(0, 5)
@@ -663,7 +726,7 @@ const SuperAdminPanel: React.FC = () => {
     setPlanoSaving(true);
     try {
       await superadminUpsertPlano({
-        plano_id:                       planoForm.plano_id,
+        plano_id:                       planoIdFinal,
         plano_nome:                     planoForm.plano_nome,
         preco_mensal:                   Number(planoForm.preco_mensal),
         preco_anual_total:              Number(planoForm.preco_anual_total),
@@ -678,9 +741,15 @@ const SuperAdminPanel: React.FC = () => {
         max_residentes:                 planoForm.max_residentes,
         max_usuarios:                   planoForm.max_usuarios,
       });
-      setPlanos(prev => prev.map(p => p.plano_id === planoForm.plano_id ? { ...planoForm } : p));
+      const planoSalvo: PlanoAdmin = { ...planoForm, plano_id: planoIdFinal };
+      setPlanos(prev =>
+        isNewPlano
+          ? [...prev, planoSalvo]
+          : prev.map(p => p.plano_id === planoIdFinal ? planoSalvo : p)
+      );
       setEditingPlano(null);
       setPlanoForm(null);
+      setIsNewPlano(false);
     } catch (err: unknown) {
       alert('Erro ao salvar plano: ' + (err instanceof Error ? err.message : 'Erro desconhecido'));
     } finally {
@@ -725,6 +794,61 @@ const SuperAdminPanel: React.FC = () => {
     } finally {
       setUploadingChave(null);
     }
+  };
+
+  // ── Integrações handlers ──────────────────────────────────────────────────
+  const openEditSecret = (s: IntegracaoSecret) => {
+    setSecretForm({ chave: s.chave, valor: s.valor, descricao: s.descricao ?? '' });
+    setSecretValueVisible(false);
+    setSecretModal({ mode: 'edit', original: s });
+  };
+
+  const openNewSecret = () => {
+    setSecretForm({ chave: '', valor: '', descricao: '' });
+    setSecretValueVisible(false);
+    setSecretModal({ mode: 'new' });
+  };
+
+  const handleSaveSecret = async () => {
+    if (!secretForm.chave.trim() || !secretForm.valor.trim()) return;
+    setSecretSaving(true);
+    try {
+      await upsertIntegracaoSecret(secretForm.chave.trim().toUpperCase(), secretForm.valor, secretForm.descricao || null);
+      await loadIntegracoes();
+      setSecretModal(null);
+    } catch (err: unknown) {
+      alert('Erro ao salvar chave: ' + (err instanceof Error ? err.message : 'Erro desconhecido'));
+    } finally {
+      setSecretSaving(false);
+    }
+  };
+
+  const handleDeleteSecret = async (chave: string) => {
+    if (!window.confirm(`Remover a chave "${chave}"? Integrações que dependem dela deixarão de funcionar.`)) return;
+    try {
+      await deleteIntegracaoSecret(chave);
+      setIntegracoes(prev => prev.filter(s => s.chave !== chave));
+    } catch (err: unknown) {
+      alert('Erro ao remover chave: ' + (err instanceof Error ? err.message : 'Erro desconhecido'));
+    }
+  };
+
+  const toggleReveal = (chave: string) => {
+    setRevealedKeys(prev => {
+      const next = new Set(prev);
+      if (next.has(chave)) next.delete(chave); else next.add(chave);
+      return next;
+    });
+  };
+
+  const maskValue = (valor: string): string => {
+    if (!valor) return '—';
+    if (valor.length <= 4) return '••••';
+    return '•'.repeat(Math.min(valor.length - 4, 16)) + valor.slice(-4);
+  };
+
+  const handleCopySecret = async (valor: string) => {
+    try { await navigator.clipboard.writeText(valor); } catch { /* clipboard indisponível */ }
   };
 
   // ── Derived ───────────────────────────────────────────────────────────────
@@ -869,6 +993,7 @@ const SuperAdminPanel: React.FC = () => {
               {activeSection === 'tenants'   && 'Gestão de Clientes'}
               {activeSection === 'billing'   && 'Faturamento & Assinaturas'}
               {activeSection === 'site'      && 'Site & Planos'}
+              {activeSection === 'integracoes' && 'Integrações & Chaves de API'}
               {activeSection === 'system'    && 'Logs do Sistema'}
             </h1>
             <p className="text-slate-400 text-xs mt-0.5">
@@ -1273,25 +1398,37 @@ const SuperAdminPanel: React.FC = () => {
           {/* ─────────── SITE & PLANOS ─────────── */}
           {activeSection === 'site' && (
             <>
-              <div className="flex gap-2">
-                {[
-                  { key: 'planos' as const,    label: 'Planos',    Icon: Layers },
-                  { key: 'conteudo' as const,  label: 'Conteúdo',  Icon: Edit },
-                  { key: 'imagens' as const,   label: 'Imagens',   Icon: ImageIcon },
-                ].map(tab => (
+              <div className="flex items-center justify-between">
+                <div className="flex gap-2">
+                  {[
+                    { key: 'planos' as const,    label: 'Planos',    Icon: Layers },
+                    { key: 'conteudo' as const,  label: 'Conteúdo',  Icon: Edit },
+                    { key: 'imagens' as const,   label: 'Imagens',   Icon: ImageIcon },
+                  ].map(tab => (
+                    <button
+                      key={tab.key}
+                      onClick={() => setSiteSubTab(tab.key)}
+                      className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                        siteSubTab === tab.key
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-white border border-slate-200 text-slate-500 hover:text-slate-900 hover:border-slate-300'
+                      }`}
+                    >
+                      <tab.Icon className="h-4 w-4" />
+                      <span>{tab.label}</span>
+                    </button>
+                  ))}
+                </div>
+
+                {siteSubTab === 'planos' && (
                   <button
-                    key={tab.key}
-                    onClick={() => setSiteSubTab(tab.key)}
-                    className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
-                      siteSubTab === tab.key
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-white border border-slate-200 text-slate-500 hover:text-slate-900 hover:border-slate-300'
-                    }`}
+                    onClick={openNewPlano}
+                    className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl text-sm font-medium transition-all"
                   >
-                    <tab.Icon className="h-4 w-4" />
-                    <span>{tab.label}</span>
+                    <Plus className="h-4 w-4" />
+                    <span>Novo plano</span>
                   </button>
-                ))}
+                )}
               </div>
 
               {/* ── PLANOS ── */}
@@ -1441,6 +1578,117 @@ const SuperAdminPanel: React.FC = () => {
           )}
 
           {/* ─────────── SYSTEM ─────────── */}
+          {/* ─────────── INTEGRAÇÕES ─────────── */}
+          {activeSection === 'integracoes' && (
+            <>
+              <div className="bg-blue-50 border border-blue-100 rounded-2xl px-6 py-4 flex items-start space-x-3">
+                <KeyRound className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-semibold text-blue-800">Chaves de integração</p>
+                  <p className="text-xs text-blue-600 mt-0.5">
+                    Segredos usados pelas Edge Functions (Asaas — cobrança de assinaturas, UAZAPI/WhatsApp — notificações). Valores sensíveis: evite compartilhar a tela ao revelá-los.
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-white border border-slate-100 rounded-2xl overflow-hidden shadow-sm">
+                <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+                  <div>
+                    <h3 className="text-slate-900 font-semibold text-sm">Chaves cadastradas</h3>
+                    <span className="text-xs text-slate-400">{integracoesLoading ? '...' : `${integracoes.length} chave${integracoes.length !== 1 ? 's' : ''}`}</span>
+                  </div>
+                  <button
+                    onClick={openNewSecret}
+                    className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl text-sm font-medium transition-all flex-shrink-0"
+                  >
+                    <Plus className="h-4 w-4" />
+                    <span>Nova chave</span>
+                  </button>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-slate-100">
+                        {['Chave', 'Descrição', 'Valor', 'Atualizado em', 'Ações'].map(h => (
+                          <th key={h} className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wider px-5 py-3.5">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {integracoesLoading
+                        ? Array.from({ length: 4 }).map((_, i) => (
+                            <tr key={i} className="border-b border-slate-50">
+                              {[28, 40, 32, 24, 20].map((w, j) => (
+                                <td key={j} className="px-5 py-3.5"><Skeleton className={`h-3.5 w-${w}`} /></td>
+                              ))}
+                            </tr>
+                          ))
+                        : integracoes.length === 0 ? (
+                            <tr>
+                              <td colSpan={5} className="px-5 py-12 text-center text-slate-400 text-sm">
+                                Nenhuma chave cadastrada
+                              </td>
+                            </tr>
+                          )
+                        : integracoes.map(s => {
+                            const revealed = revealedKeys.has(s.chave);
+                            return (
+                              <tr key={s.chave} className="border-b border-slate-50 hover:bg-slate-50 transition-all">
+                                <td className="px-5 py-3.5 text-sm font-mono font-semibold text-slate-900 whitespace-nowrap">{s.chave}</td>
+                                <td className="px-5 py-3.5 text-sm text-slate-500 max-w-xs">{s.descricao ?? '—'}</td>
+                                <td className="px-5 py-3.5">
+                                  <div className="flex items-center space-x-2">
+                                    <span className="text-xs font-mono text-slate-600 whitespace-nowrap">
+                                      {revealed ? s.valor : maskValue(s.valor)}
+                                    </span>
+                                    <button
+                                      onClick={() => toggleReveal(s.chave)}
+                                      className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all flex-shrink-0"
+                                      title={revealed ? 'Ocultar valor' : 'Mostrar valor'}
+                                    >
+                                      {revealed ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                                    </button>
+                                    <button
+                                      onClick={() => handleCopySecret(s.valor)}
+                                      className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all flex-shrink-0"
+                                      title="Copiar valor"
+                                    >
+                                      <Copy className="h-3.5 w-3.5" />
+                                    </button>
+                                  </div>
+                                </td>
+                                <td className="px-5 py-3.5 text-xs text-slate-400 whitespace-nowrap font-mono">
+                                  {new Date(s.updated_at).toLocaleString('pt-BR')}
+                                </td>
+                                <td className="px-5 py-3.5">
+                                  <div className="flex items-center space-x-1">
+                                    <button
+                                      onClick={() => openEditSecret(s)}
+                                      className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-all"
+                                      title="Editar"
+                                    >
+                                      <Edit className="h-4 w-4" />
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteSecret(s.chave)}
+                                      className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-all"
+                                      title="Remover"
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
+          )}
+
           {activeSection === 'system' && (
             <>
               {/* Connection status banner */}
@@ -2285,7 +2533,7 @@ const SuperAdminPanel: React.FC = () => {
         <div
           className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4"
           onMouseDown={() => { modalMouseDown.current = false; }}
-          onMouseUp={(e) => { if (!modalMouseDown.current && e.target === e.currentTarget && !planoSaving) { setEditingPlano(null); setPlanoForm(null); } }}
+          onMouseUp={(e) => { if (!modalMouseDown.current && e.target === e.currentTarget && !planoSaving) { setEditingPlano(null); setPlanoForm(null); setIsNewPlano(false); } }}
         >
           <div
             className="bg-white border border-slate-200 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto"
@@ -2293,11 +2541,11 @@ const SuperAdminPanel: React.FC = () => {
           >
             <div className="flex items-center justify-between p-8 pb-5">
               <div>
-                <h2 className="text-lg font-bold text-slate-900">Editar plano</h2>
-                <p className="text-sm text-slate-400 mt-0.5">{editingPlano.plano_nome}</p>
+                <h2 className="text-lg font-bold text-slate-900">{isNewPlano ? 'Novo plano' : 'Editar plano'}</h2>
+                <p className="text-sm text-slate-400 mt-0.5">{isNewPlano ? 'Criar um novo plano de assinatura' : editingPlano.plano_nome}</p>
               </div>
               <button
-                onClick={() => { if (!planoSaving) { setEditingPlano(null); setPlanoForm(null); } }}
+                onClick={() => { if (!planoSaving) { setEditingPlano(null); setPlanoForm(null); setIsNewPlano(false); } }}
                 className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all"
               >
                 <X className="h-5 w-5" />
@@ -2305,6 +2553,20 @@ const SuperAdminPanel: React.FC = () => {
             </div>
 
             <div className="px-8 pb-8 space-y-4">
+              {isNewPlano && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">Identificador do plano</label>
+                  <input
+                    type="text"
+                    value={planoForm.plano_id}
+                    placeholder="Ex: essencial-plus"
+                    onChange={e => setPlanoForm(f => f && { ...f, plano_id: e.target.value })}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <p className="text-xs text-slate-400 mt-1">Usado internamente para identificar o plano. Não pode ser alterado depois.</p>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">Nome do plano</label>
@@ -2459,16 +2721,116 @@ const SuperAdminPanel: React.FC = () => {
                   className="flex-1 flex items-center justify-center space-x-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-semibold py-3 rounded-xl transition-all text-sm"
                 >
                   <Save className="h-4 w-4" />
-                  <span>{planoSaving ? 'Salvando...' : 'Salvar plano'}</span>
+                  <span>{planoSaving ? 'Salvando...' : isNewPlano ? 'Criar plano' : 'Salvar plano'}</span>
                 </button>
                 <button
-                  onClick={() => { if (!planoSaving) { setEditingPlano(null); setPlanoForm(null); } }}
+                  onClick={() => { if (!planoSaving) { setEditingPlano(null); setPlanoForm(null); setIsNewPlano(false); } }}
                   disabled={planoSaving}
                   className="px-5 py-3 bg-slate-100 hover:bg-slate-200 disabled:opacity-60 text-slate-700 rounded-xl text-sm font-medium transition-all"
                 >
                   Cancelar
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Nova/Editar Chave de Integração Modal ───────────────────────────── */}
+      {secretModal && (
+        <div
+          className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+          onMouseDown={() => { modalMouseDown.current = false; }}
+          onMouseUp={(e) => { if (!modalMouseDown.current && e.target === e.currentTarget && !secretSaving) setSecretModal(null); }}
+        >
+          <div
+            className="bg-white border border-slate-200 rounded-2xl shadow-2xl w-full max-w-md p-8"
+            onMouseDown={(e) => { modalMouseDown.current = true; e.stopPropagation(); }}
+          >
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">{secretModal.mode === 'new' ? 'Nova chave' : 'Editar chave'}</h2>
+                <p className="text-sm text-slate-400 mt-0.5">{secretModal.mode === 'new' ? 'Adicionar credencial de integração' : secretModal.original?.chave}</p>
+              </div>
+              <button
+                onClick={() => !secretSaving && setSecretModal(null)}
+                className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Chave</label>
+                <input
+                  value={secretForm.chave}
+                  onChange={e => setSecretForm(f => ({ ...f, chave: e.target.value }))}
+                  disabled={secretModal.mode === 'edit'}
+                  placeholder="EX: ASAAS_API_KEY"
+                  type="text"
+                  name="integracao-secret-chave"
+                  autoComplete="off"
+                  data-lpignore="true"
+                  data-1p-ignore="true"
+                  data-form-type="other"
+                  className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm text-slate-900 placeholder-slate-400 font-mono disabled:bg-slate-50 disabled:text-slate-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Valor</label>
+                <div className="relative">
+                  <input
+                    type={secretValueVisible ? 'text' : 'password'}
+                    value={secretForm.valor}
+                    onChange={e => setSecretForm(f => ({ ...f, valor: e.target.value }))}
+                    placeholder="Cole aqui o valor da chave/token"
+                    name="integracao-secret-valor"
+                    autoComplete="new-password"
+                    data-lpignore="true"
+                    data-1p-ignore="true"
+                    data-form-type="other"
+                    className="w-full pl-4 pr-10 py-3 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm text-slate-900 placeholder-slate-400 font-mono"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setSecretValueVisible(v => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 transition-colors"
+                  >
+                    {secretValueVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Descrição (opcional)</label>
+                <textarea
+                  value={secretForm.descricao}
+                  onChange={e => setSecretForm(f => ({ ...f, descricao: e.target.value }))}
+                  placeholder="Ex: API key do Asaas (produção)"
+                  rows={2}
+                  className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm text-slate-900 placeholder-slate-400 resize-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={handleSaveSecret}
+                disabled={secretSaving || !secretForm.chave.trim() || !secretForm.valor.trim()}
+                className="flex-1 flex items-center justify-center space-x-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-semibold py-3 rounded-xl transition-all text-sm"
+              >
+                <Save className="h-4 w-4" />
+                <span>{secretSaving ? 'Salvando...' : 'Salvar chave'}</span>
+              </button>
+              <button
+                onClick={() => !secretSaving && setSecretModal(null)}
+                disabled={secretSaving}
+                className="px-5 py-3 bg-slate-100 hover:bg-slate-200 disabled:opacity-60 text-slate-700 rounded-xl text-sm font-medium transition-all"
+              >
+                Cancelar
+              </button>
             </div>
           </div>
         </div>

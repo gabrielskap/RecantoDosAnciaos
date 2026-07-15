@@ -264,6 +264,41 @@ export async function superadminCheckPlanoExcedentes(
   return (data ?? []) as PlanoExcedente[];
 }
 
+export interface IntegracaoSecret {
+  chave: string;
+  valor: string;
+  descricao: string | null;
+  updated_at: string;
+}
+
+export async function getSuperAdminIntegracaoSecrets(): Promise<IntegracaoSecret[]> {
+  const { data, error } = await supabase.rpc('superadmin_list_integracao_secrets');
+  if (error) throw error;
+  return (data ?? []) as IntegracaoSecret[];
+}
+
+export async function upsertIntegracaoSecret(
+  chave: string,
+  valor: string,
+  descricao?: string | null
+): Promise<boolean> {
+  const { data, error } = await supabase.rpc('superadmin_upsert_integracao_secret', {
+    p_chave:     chave,
+    p_valor:     valor,
+    p_descricao: descricao ?? null,
+  });
+  if (error) throw error;
+  return data as boolean;
+}
+
+export async function deleteIntegracaoSecret(chave: string): Promise<boolean> {
+  const { data, error } = await supabase.rpc('superadmin_delete_integracao_secret', {
+    p_chave: chave,
+  });
+  if (error) throw error;
+  return data as boolean;
+}
+
 export async function updateAssinatura(
   empresaId: string,
   acao: string,
