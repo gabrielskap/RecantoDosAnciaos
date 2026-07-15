@@ -540,6 +540,10 @@ export interface PlanoView {
   desc: string;
   features: string[];
   popular?: boolean;
+  badgeLabel?: string | null;
+  ctaLabel?: string;
+  maxResidentes: number | null;
+  maxUsuarios: number | null;
 }
 
 export interface Empresa {

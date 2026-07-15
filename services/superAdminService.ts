@@ -181,6 +181,89 @@ export async function createEmpresa(params: CreateEmpresaParams): Promise<string
   return data as string;
 }
 
+export interface PlanoAdmin {
+  plano_id: string;
+  plano_nome: string;
+  preco_mensal: number;
+  preco_anual_total: number;
+  preco_mensal_equivalente_anual: number | null;
+  ativo: boolean;
+  self_service: boolean;
+  descricao: string;
+  features: string[];
+  popular: boolean;
+  badge_label: string | null;
+  cta_label: string;
+  max_residentes: number | null;
+  max_usuarios: number | null;
+  updated_at: string;
+}
+
+export async function superadminListPlanos(): Promise<PlanoAdmin[]> {
+  const { data, error } = await supabase.rpc('superadmin_list_planos');
+  if (error) throw error;
+  return (data ?? []) as PlanoAdmin[];
+}
+
+export interface UpsertPlanoParams {
+  plano_id: string;
+  plano_nome: string;
+  preco_mensal: number;
+  preco_anual_total: number;
+  preco_mensal_equivalente_anual?: number | null;
+  ativo: boolean;
+  self_service: boolean;
+  descricao: string;
+  features: string[];
+  popular: boolean;
+  badge_label?: string | null;
+  cta_label: string;
+  max_residentes?: number | null;
+  max_usuarios?: number | null;
+}
+
+export async function superadminUpsertPlano(params: UpsertPlanoParams): Promise<boolean> {
+  const { data, error } = await supabase.rpc('superadmin_upsert_plano', {
+    p_plano_id:                       params.plano_id,
+    p_plano_nome:                     params.plano_nome,
+    p_preco_mensal:                   params.preco_mensal,
+    p_preco_anual_total:              params.preco_anual_total,
+    p_preco_mensal_equivalente_anual: params.preco_mensal_equivalente_anual ?? null,
+    p_ativo:                          params.ativo,
+    p_self_service:                   params.self_service,
+    p_descricao:                      params.descricao,
+    p_features:                       params.features,
+    p_popular:                        params.popular,
+    p_badge_label:                    params.badge_label ?? null,
+    p_cta_label:                      params.cta_label,
+    p_max_residentes:                 params.max_residentes ?? null,
+    p_max_usuarios:                   params.max_usuarios ?? null,
+  });
+  if (error) throw error;
+  return data as boolean;
+}
+
+export interface PlanoExcedente {
+  empresa_id: string;
+  nome_instituicao: string;
+  qtd_residentes: number;
+  qtd_usuarios: number;
+}
+
+export async function superadminCheckPlanoExcedentes(
+  planoId: string,
+  maxResidentes: number | null,
+  maxUsuarios: number | null
+): Promise<PlanoExcedente[]> {
+  const { data, error } = await supabase.rpc('superadmin_planos_excedentes', {
+    p_plano_id:       planoId,
+    p_max_residentes: maxResidentes,
+    p_max_usuarios:   maxUsuarios,
+  });
+  if (error) throw error;
+  return (data ?? []) as PlanoExcedente[];
+}
+
 export async function updateAssinatura(
   empresaId: string,
   acao: string,

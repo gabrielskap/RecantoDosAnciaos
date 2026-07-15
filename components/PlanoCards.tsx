@@ -1,6 +1,7 @@
 import React from 'react';
-import { Check } from 'lucide-react';
+import { Check, AlertTriangle } from 'lucide-react';
 import type { PlanoView, Periodicidade } from '../types';
+import { excedeLimite, formatLimite } from '../utils/planLimits';
 
 const money = (v: number) =>
   v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 });
@@ -11,6 +12,8 @@ interface PlanoCardsProps {
   periodicidade: Periodicidade;
   onSelect: (planoId: string) => void;
   onPeriodChange: (p: Periodicidade) => void;
+  qtdResidentes?: number;
+  qtdUsuarios?: number;
 }
 
 const PlanoCards: React.FC<PlanoCardsProps> = ({
@@ -19,6 +22,8 @@ const PlanoCards: React.FC<PlanoCardsProps> = ({
   periodicidade,
   onSelect,
   onPeriodChange,
+  qtdResidentes,
+  qtdUsuarios,
 }) => {
   const selfServicePlanos = planos.filter(p => p.selfService);
 
@@ -47,6 +52,8 @@ const PlanoCards: React.FC<PlanoCardsProps> = ({
         {selfServicePlanos.map(plano => {
           const precoMes = periodicidade === 'mensal' ? plano.precoMensal : plano.precoMensalAnual;
           const selected = selectedId === plano.id;
+          const residentesExcede = qtdResidentes != null && excedeLimite(qtdResidentes, plano.maxResidentes);
+          const usuariosExcede = qtdUsuarios != null && excedeLimite(qtdUsuarios, plano.maxUsuarios);
           return (
             <button
               key={plano.id}
@@ -86,6 +93,16 @@ const PlanoCards: React.FC<PlanoCardsProps> = ({
                   </span>
                 )}
               </div>
+              {(residentesExcede || usuariosExcede) && (
+                <p className="flex items-center gap-1 text-xs text-red-600 font-medium mt-2">
+                  <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" />
+                  {residentesExcede && usuariosExcede
+                    ? `Não comporta ${qtdResidentes} residentes / ${qtdUsuarios} usuários (máx. ${formatLimite(plano.maxResidentes)} / ${formatLimite(plano.maxUsuarios)})`
+                    : residentesExcede
+                    ? `Não comporta ${qtdResidentes} residentes (máx. ${formatLimite(plano.maxResidentes)})`
+                    : `Não comporta ${qtdUsuarios} usuários (máx. ${formatLimite(plano.maxUsuarios)})`}
+                </p>
+              )}
               {selected && (
                 <div className="absolute top-4 right-4 w-5 h-5 bg-blue-600 rounded-full flex items-center justify-center">
                   <Check className="h-3 w-3 text-white" />

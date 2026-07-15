@@ -5,6 +5,7 @@ import {
   BarChart3, Server, RefreshCw, LogOut, ArrowUpRight,
   X, Mail, CheckCircle, Ban, UserCheck, TrendingUp, Clock,
   Save, ArrowLeftRight, Calendar, CreditCard, XCircle, RotateCcw,
+  Globe, Image as ImageIcon, Upload, Trash2, Layers, Star,
 } from 'lucide-react';
 import { supabase } from '../services/supabaseClient';
 import {
@@ -17,6 +18,9 @@ import {
   updateEmpresaDetails,
   updateAssinatura,
   createEmpresa,
+  superadminListPlanos,
+  superadminUpsertPlano,
+  superadminCheckPlanoExcedentes,
 } from '../services/superAdminService';
 import type {
   DashboardKPIs,
@@ -24,7 +28,18 @@ import type {
   ActivityItem,
   BillingOverview,
   AccessLog,
+  PlanoAdmin,
 } from '../services/superAdminService';
+import { excedeLimite, formatLimite } from '../utils/planLimits';
+import {
+  superadminGetConteudoSite,
+  superadminUpsertConteudoSite,
+  superadminGetImagensSite,
+  superadminUpsertImagemSite,
+  uploadSiteImage,
+  removeSiteImage,
+} from '../services/siteContentService';
+import type { ImagemSite } from '../services/siteContentService';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -115,25 +130,174 @@ const planBadge = (planoNome: string | null) => {
   );
 };
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-
-const PLANOS = [
-  { id: 'essencial',    nome: 'Essencial',    valor: 399 },
-  { id: 'profissional', nome: 'Profissional',  valor: 799 },
-  { id: 'enterprise',   nome: 'Enterprise',    valor: 0   },
-];
-
 // ─── Component ────────────────────────────────────────────────────────────────
 
 type AssinaturaAcao = 'change_plan' | 'extend_trial' | 'cancel' | 'reactivate' | 'manual_payment';
-type Section = 'dashboard' | 'tenants' | 'billing' | 'system';
+type Section = 'dashboard' | 'tenants' | 'billing' | 'system' | 'site';
+type SiteSubTab = 'planos' | 'conteudo' | 'imagens';
 
 const navItems: { key: Section; label: string; Icon: React.ElementType }[] = [
-  { key: 'dashboard', label: 'Dashboard',    Icon: BarChart3  },
-  { key: 'tenants',   label: 'Clientes',     Icon: Building2  },
-  { key: 'billing',   label: 'Faturamento',  Icon: DollarSign },
-  { key: 'system',    label: 'Sistema',      Icon: Server     },
+  { key: 'dashboard', label: 'Dashboard',      Icon: BarChart3  },
+  { key: 'tenants',   label: 'Clientes',       Icon: Building2  },
+  { key: 'billing',   label: 'Faturamento',    Icon: DollarSign },
+  { key: 'site',      label: 'Site & Planos',  Icon: Globe      },
+  { key: 'system',    label: 'Sistema',        Icon: Server     },
 ];
+
+const CONTEUDO_SECTION_LABELS: Record<string, string> = {
+  nav: 'Navegação (marca)',
+  hero: 'Hero (topo da página)',
+  demo_bar: 'Barra "Veja em ação"',
+  sobre: 'Seção "O que é o RecantoCare"',
+  features_tabs: 'Funcionalidades — abas e listas',
+  features_cards: 'Funcionalidades — cards',
+  pricing_header: 'Preços — título',
+  testimonials: 'Depoimentos',
+  cta_final: 'Chamada final',
+  footer: 'Rodapé',
+};
+
+const CONTEUDO_SECTION_ORDER = [
+  'nav', 'hero', 'demo_bar', 'sobre', 'features_tabs', 'features_cards',
+  'pricing_header', 'testimonials', 'cta_final', 'footer',
+];
+
+const IMAGEM_LABELS: Record<string, { label: string; hint: string }> = {
+  logo:        { label: 'Logo',              hint: 'Exibida na navegação e no rodapé do site.' },
+  hero_imagem: { label: 'Imagem do Hero',    hint: 'Substitui a ilustração do dashboard na página inicial.' },
+  og_image:    { label: 'Imagem para redes sociais (OG)', hint: 'Usada como preview ao compartilhar o link do site.' },
+};
+
+const humanizeKey = (key: string) =>
+  key.replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase());
+
+// ─── Editor genérico de conteúdo (JSON) ────────────────────────────────────────
+const SectionForm: React.FC<{
+  value: Record<string, any>;
+  onChange: (next: Record<string, any>) => void;
+}> = ({ value, onChange }) => {
+  const setField = (key: string, v: any) => onChange({ ...value, [key]: v });
+
+  return (
+    <div className="space-y-5">
+      {Object.entries(value).map(([key, val]) => {
+        if (Array.isArray(val)) {
+          const isObjectList = val.length > 0 && typeof val[0] === 'object' && val[0] !== null;
+
+          if (isObjectList) {
+            return (
+              <div key={key}>
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">{humanizeKey(key)}</p>
+                <div className="space-y-3">
+                  {val.map((item: Record<string, any>, i: number) => (
+                    <div key={i} className="border border-slate-200 rounded-xl p-3 space-y-2">
+                      <div className="grid sm:grid-cols-2 gap-2">
+                        {Object.entries(item).map(([k, v]) => (
+                          <div key={k} className={typeof v === 'string' && v.length > 60 ? 'sm:col-span-2' : ''}>
+                            <label className="block text-xs text-slate-500 mb-1">{humanizeKey(k)}</label>
+                            {typeof v === 'string' && v.length > 60 ? (
+                              <textarea
+                                value={v}
+                                rows={2}
+                                onChange={e => {
+                                  const next = [...val];
+                                  next[i] = { ...item, [k]: e.target.value };
+                                  setField(key, next);
+                                }}
+                                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              />
+                            ) : (
+                              <input
+                                value={v ?? ''}
+                                onChange={e => {
+                                  const next = [...val];
+                                  next[i] = { ...item, [k]: e.target.value };
+                                  setField(key, next);
+                                }}
+                                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              />
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                      <button
+                        onClick={() => setField(key, val.filter((_: any, idx: number) => idx !== i))}
+                        className="text-xs text-rose-600 font-medium hover:text-rose-700"
+                      >
+                        Remover item
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    onClick={() => setField(key, [...val, { ...val[val.length - 1] }])}
+                    className="text-xs text-blue-600 font-medium hover:text-blue-700"
+                  >
+                    + Adicionar item
+                  </button>
+                </div>
+              </div>
+            );
+          }
+
+          // lista de strings
+          return (
+            <div key={key}>
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">{humanizeKey(key)}</p>
+              <div className="space-y-2">
+                {val.map((item: string, i: number) => (
+                  <div key={i} className="flex gap-2">
+                    <input
+                      value={item}
+                      onChange={e => {
+                        const next = [...val];
+                        next[i] = e.target.value;
+                        setField(key, next);
+                      }}
+                      className="flex-1 px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <button
+                      onClick={() => setField(key, val.filter((_: any, idx: number) => idx !== i))}
+                      className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-all flex-shrink-0"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+                <button
+                  onClick={() => setField(key, [...val, ''])}
+                  className="text-xs text-blue-600 font-medium hover:text-blue-700"
+                >
+                  + Adicionar
+                </button>
+              </div>
+            </div>
+          );
+        }
+
+        const isLong = typeof val === 'string' && val.length > 80;
+        return (
+          <div key={key}>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">{humanizeKey(key)}</label>
+            {isLong ? (
+              <textarea
+                value={val ?? ''}
+                rows={3}
+                onChange={e => setField(key, e.target.value)}
+                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            ) : (
+              <input
+                value={val ?? ''}
+                onChange={e => setField(key, e.target.value)}
+                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
 
 const SuperAdminPanel: React.FC = () => {
   // ── Auth ──────────────────────────────────────────────────────────────────
@@ -171,6 +335,7 @@ const SuperAdminPanel: React.FC = () => {
     nome_instituicao: '', email_comercial: '', cidade: '', estado: '',
     cnpj: '', telefone: '', plano_id: 'essencial', plano_nome: 'Essencial',
     valor_mensal: 399, status_inicial: 'ativa' as 'ativa' | 'em_trial' | 'pendente',
+    qtd_residentes: '', qtd_usuarios: '',
   });
   const [novaIlpiLoading, setNovaIlpiLoading] = useState(false);
   const [novaIlpiError,   setNovaIlpiError]   = useState('');
@@ -194,6 +359,21 @@ const SuperAdminPanel: React.FC = () => {
   const [accessLogs,     setAccessLogs]     = useState<AccessLog[]>([]);
   const [logsLoading,    setLogsLoading]    = useState(false);
 
+  // ── Site & Planos ─────────────────────────────────────────────────────────
+  const [siteSubTab,       setSiteSubTab]       = useState<SiteSubTab>('planos');
+  const [planos,           setPlanos]           = useState<PlanoAdmin[]>([]);
+  const [planosLoading,    setPlanosLoading]    = useState(false);
+  const [editingPlano,     setEditingPlano]     = useState<PlanoAdmin | null>(null);
+  const [planoForm,        setPlanoForm]        = useState<PlanoAdmin | null>(null);
+  const [planoSaving,      setPlanoSaving]      = useState(false);
+  const [conteudoSite,     setConteudoSite]     = useState<Record<string, any>>({});
+  const [conteudoDrafts,   setConteudoDrafts]   = useState<Record<string, any>>({});
+  const [conteudoLoading,  setConteudoLoading]  = useState(false);
+  const [conteudoSaving,   setConteudoSaving]   = useState<string | null>(null);
+  const [imagensSite,      setImagensSite]      = useState<Record<string, ImagemSite>>({});
+  const [imagensLoading,   setImagensLoading]   = useState(false);
+  const [uploadingChave,   setUploadingChave]   = useState<string | null>(null);
+
   // ── Session restore ───────────────────────────────────────────────────────
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -208,6 +388,7 @@ const SuperAdminPanel: React.FC = () => {
     if (!authenticated) return;
     loadKpis();
     loadActivity();
+    loadPlanos();
   }, [authenticated]);
 
   // ── Load section data on navigation ──────────────────────────────────────
@@ -216,6 +397,11 @@ const SuperAdminPanel: React.FC = () => {
     if (activeSection === 'tenants' && empresas.length === 0) loadEmpresas();
     if (activeSection === 'billing' && !billing)              loadBilling();
     if (activeSection === 'system'  && accessLogs.length === 0) loadAccessLogs();
+    if (activeSection === 'site') {
+      if (planos.length === 0) loadPlanos();
+      if (Object.keys(conteudoSite).length === 0) loadConteudoSite();
+      if (Object.keys(imagensSite).length === 0) loadImagensSite();
+    }
   }, [authenticated, activeSection]);
 
   // ── Loaders ───────────────────────────────────────────────────────────────
@@ -239,12 +425,29 @@ const SuperAdminPanel: React.FC = () => {
     setLogsLoading(true);
     try { setAccessLogs(await getSuperAdminAccessLogs(50)); } catch (err) { console.error('[superadmin] loadAccessLogs:', err); } finally { setLogsLoading(false); }
   };
+  const loadPlanos = async () => {
+    setPlanosLoading(true);
+    try { setPlanos(await superadminListPlanos()); } catch (err) { console.error('[superadmin] loadPlanos:', err); } finally { setPlanosLoading(false); }
+  };
+  const loadConteudoSite = async () => {
+    setConteudoLoading(true);
+    try {
+      const data = await superadminGetConteudoSite();
+      setConteudoSite(data);
+      setConteudoDrafts(data);
+    } catch (err) { console.error('[superadmin] loadConteudoSite:', err); } finally { setConteudoLoading(false); }
+  };
+  const loadImagensSite = async () => {
+    setImagensLoading(true);
+    try { setImagensSite(await superadminGetImagensSite()); } catch (err) { console.error('[superadmin] loadImagensSite:', err); } finally { setImagensLoading(false); }
+  };
 
   const refreshSection = () => {
     if (activeSection === 'dashboard') { loadKpis(); loadActivity(); }
     if (activeSection === 'tenants')   loadEmpresas();
     if (activeSection === 'billing')   loadBilling();
     if (activeSection === 'system')    loadAccessLogs();
+    if (activeSection === 'site')      { loadPlanos(); loadConteudoSite(); loadImagensSite(); }
   };
 
   // ── Auth handlers ─────────────────────────────────────────────────────────
@@ -404,6 +607,7 @@ const SuperAdminPanel: React.FC = () => {
         nome_instituicao: '', email_comercial: '', cidade: '', estado: '',
         cnpj: '', telefone: '', plano_id: 'essencial', plano_nome: 'Essencial',
         valor_mensal: 399, status_inicial: 'ativa',
+        qtd_residentes: '', qtd_usuarios: '',
       });
       await loadEmpresas();
       await loadKpis();
@@ -411,6 +615,115 @@ const SuperAdminPanel: React.FC = () => {
       setNovaIlpiError(err instanceof Error ? err.message : 'Erro ao criar ILPI');
     } finally {
       setNovaIlpiLoading(false);
+    }
+  };
+
+  // ── Planos handlers ───────────────────────────────────────────────────────
+  const openEditPlano = (plano: PlanoAdmin) => {
+    setEditingPlano(plano);
+    setPlanoForm({ ...plano, features: [...plano.features] });
+  };
+
+  const handleSavePlano = async () => {
+    if (!planoForm) return;
+
+    if (planoForm.max_residentes != null && (!Number.isInteger(planoForm.max_residentes) || planoForm.max_residentes < 1)) {
+      alert('Limite de residentes deve ser um número inteiro maior ou igual a 1 (ou vazio para ilimitado).');
+      return;
+    }
+    if (planoForm.max_usuarios != null && (!Number.isInteger(planoForm.max_usuarios) || planoForm.max_usuarios < 1)) {
+      alert('Limite de usuários deve ser um número inteiro maior ou igual a 1 (ou vazio para ilimitado).');
+      return;
+    }
+
+    const ficouMaisRestritivo =
+      (planoForm.max_residentes != null && (editingPlano?.max_residentes == null || planoForm.max_residentes < editingPlano.max_residentes)) ||
+      (planoForm.max_usuarios   != null && (editingPlano?.max_usuarios   == null || planoForm.max_usuarios   < editingPlano.max_usuarios));
+
+    if (ficouMaisRestritivo) {
+      try {
+        const excedentes = await superadminCheckPlanoExcedentes(planoForm.plano_id, planoForm.max_residentes, planoForm.max_usuarios);
+        if (excedentes.length > 0) {
+          const lista = excedentes
+            .slice(0, 5)
+            .map(e => `• ${e.nome_instituicao} — ${e.qtd_residentes} residente(s), ${e.qtd_usuarios} usuário(s)`)
+            .join('\n');
+          const resto = excedentes.length > 5 ? `\n... e mais ${excedentes.length - 5}.` : '';
+          const confirmado = window.confirm(
+            `${excedentes.length} ILPI(s) já excedem os novos limites deste plano:\n\n${lista}${resto}\n\nDeseja salvar mesmo assim?`
+          );
+          if (!confirmado) return;
+        }
+      } catch (err: unknown) {
+        alert('Erro ao verificar ILPIs excedentes: ' + (err instanceof Error ? err.message : 'Erro desconhecido'));
+        return;
+      }
+    }
+
+    setPlanoSaving(true);
+    try {
+      await superadminUpsertPlano({
+        plano_id:                       planoForm.plano_id,
+        plano_nome:                     planoForm.plano_nome,
+        preco_mensal:                   Number(planoForm.preco_mensal),
+        preco_anual_total:              Number(planoForm.preco_anual_total),
+        preco_mensal_equivalente_anual: planoForm.preco_mensal_equivalente_anual != null ? Number(planoForm.preco_mensal_equivalente_anual) : null,
+        ativo:                          planoForm.ativo,
+        self_service:                   planoForm.self_service,
+        descricao:                      planoForm.descricao,
+        features:                       planoForm.features.filter(f => f.trim() !== ''),
+        popular:                        planoForm.popular,
+        badge_label:                    planoForm.badge_label || null,
+        cta_label:                      planoForm.cta_label,
+        max_residentes:                 planoForm.max_residentes,
+        max_usuarios:                   planoForm.max_usuarios,
+      });
+      setPlanos(prev => prev.map(p => p.plano_id === planoForm.plano_id ? { ...planoForm } : p));
+      setEditingPlano(null);
+      setPlanoForm(null);
+    } catch (err: unknown) {
+      alert('Erro ao salvar plano: ' + (err instanceof Error ? err.message : 'Erro desconhecido'));
+    } finally {
+      setPlanoSaving(false);
+    }
+  };
+
+  // ── Conteúdo do site handlers ─────────────────────────────────────────────
+  const handleSaveConteudoSecao = async (secao: string) => {
+    setConteudoSaving(secao);
+    try {
+      await superadminUpsertConteudoSite(secao, conteudoDrafts[secao]);
+      setConteudoSite(prev => ({ ...prev, [secao]: conteudoDrafts[secao] }));
+    } catch (err: unknown) {
+      alert('Erro ao salvar conteúdo: ' + (err instanceof Error ? err.message : 'Erro desconhecido'));
+    } finally {
+      setConteudoSaving(null);
+    }
+  };
+
+  // ── Imagens do site handlers ──────────────────────────────────────────────
+  const handleUploadImagem = async (chave: string, file: File) => {
+    setUploadingChave(chave);
+    try {
+      const url = await uploadSiteImage(chave, file);
+      await superadminUpsertImagemSite(chave, url, imagensSite[chave]?.alt_text ?? null);
+      setImagensSite(prev => ({ ...prev, [chave]: { url, alt_text: prev[chave]?.alt_text ?? null } }));
+    } catch (err: unknown) {
+      alert('Erro ao enviar imagem: ' + (err instanceof Error ? err.message : 'Erro desconhecido'));
+    } finally {
+      setUploadingChave(null);
+    }
+  };
+
+  const handleRemoveImagem = async (chave: string) => {
+    setUploadingChave(chave);
+    try {
+      await removeSiteImage(chave);
+      setImagensSite(prev => ({ ...prev, [chave]: { url: null, alt_text: null } }));
+    } catch (err: unknown) {
+      alert('Erro ao remover imagem: ' + (err instanceof Error ? err.message : 'Erro desconhecido'));
+    } finally {
+      setUploadingChave(null);
     }
   };
 
@@ -424,6 +737,20 @@ const SuperAdminPanel: React.FC = () => {
     const matchStatus = statusFilter === 'todos' || e.status === statusFilter;
     return matchSearch && matchStatus;
   });
+
+  const assinaturaPlanoAlvo = assinaturaModal?.acao === 'change_plan'
+    ? planos.find(p => p.plano_id === assinaturaForm.plano_id)
+    : undefined;
+  const assinaturaExcedeLimite = !!assinaturaModal && !!assinaturaPlanoAlvo && (
+    excedeLimite(assinaturaModal.tenant.qtd_residentes, assinaturaPlanoAlvo.max_residentes) ||
+    excedeLimite(assinaturaModal.tenant.qtd_usuarios, assinaturaPlanoAlvo.max_usuarios)
+  );
+
+  const novaIlpiPlanoAlvo = planos.find(p => p.plano_id === novaIlpiForm.plano_id);
+  const novaIlpiExcedeLimite = !!novaIlpiPlanoAlvo && (
+    excedeLimite(Number(novaIlpiForm.qtd_residentes) || 0, novaIlpiPlanoAlvo.max_residentes) ||
+    excedeLimite(Number(novaIlpiForm.qtd_usuarios) || 0, novaIlpiPlanoAlvo.max_usuarios)
+  );
 
   // ── Auth screen ───────────────────────────────────────────────────────────
   if (!authenticated) {
@@ -541,6 +868,7 @@ const SuperAdminPanel: React.FC = () => {
               {activeSection === 'dashboard' && 'Dashboard'}
               {activeSection === 'tenants'   && 'Gestão de Clientes'}
               {activeSection === 'billing'   && 'Faturamento & Assinaturas'}
+              {activeSection === 'site'      && 'Site & Planos'}
               {activeSection === 'system'    && 'Logs do Sistema'}
             </h1>
             <p className="text-slate-400 text-xs mt-0.5">
@@ -942,6 +1270,176 @@ const SuperAdminPanel: React.FC = () => {
             </>
           )}
 
+          {/* ─────────── SITE & PLANOS ─────────── */}
+          {activeSection === 'site' && (
+            <>
+              <div className="flex gap-2">
+                {[
+                  { key: 'planos' as const,    label: 'Planos',    Icon: Layers },
+                  { key: 'conteudo' as const,  label: 'Conteúdo',  Icon: Edit },
+                  { key: 'imagens' as const,   label: 'Imagens',   Icon: ImageIcon },
+                ].map(tab => (
+                  <button
+                    key={tab.key}
+                    onClick={() => setSiteSubTab(tab.key)}
+                    className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                      siteSubTab === tab.key
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-white border border-slate-200 text-slate-500 hover:text-slate-900 hover:border-slate-300'
+                    }`}
+                  >
+                    <tab.Icon className="h-4 w-4" />
+                    <span>{tab.label}</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* ── PLANOS ── */}
+              {siteSubTab === 'planos' && (
+                <div className="grid md:grid-cols-3 gap-5">
+                  {planosLoading
+                    ? Array.from({ length: 3 }).map((_, i) => (
+                        <div key={i} className="bg-white border border-slate-100 rounded-2xl p-6 shadow-sm">
+                          <Skeleton className="h-5 w-24 mb-3" />
+                          <Skeleton className="h-8 w-20 mb-4" />
+                          <Skeleton className="h-4 w-full mb-2" />
+                          <Skeleton className="h-4 w-2/3" />
+                        </div>
+                      ))
+                    : planos.map(p => (
+                        <div key={p.plano_id} className="bg-white border border-slate-100 rounded-2xl p-6 shadow-sm flex flex-col">
+                          <div className="flex items-start justify-between mb-2">
+                            <div>
+                              <p className="font-bold text-slate-900">{p.plano_nome}</p>
+                              <p className="text-xs text-slate-400 mt-0.5">{p.descricao}</p>
+                            </div>
+                            {!p.ativo && (
+                              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">Inativo</span>
+                            )}
+                          </div>
+                          <p className="text-2xl font-extrabold text-slate-900 my-2">
+                            {p.preco_mensal > 0 ? formatMoney(p.preco_mensal) + '/mês' : 'Sob consulta'}
+                          </p>
+                          {p.badge_label && (
+                            <span className="inline-block w-fit text-xs font-semibold px-2.5 py-1 rounded-full bg-blue-100 text-blue-700 mb-2">{p.badge_label}</span>
+                          )}
+                          <ul className="space-y-1.5 mb-4 flex-1">
+                            {p.features.slice(0, 4).map(f => (
+                              <li key={f} className="text-xs text-slate-500 flex items-center space-x-1.5">
+                                <CheckCircle className="h-3 w-3 text-blue-500 flex-shrink-0" />
+                                <span>{f}</span>
+                              </li>
+                            ))}
+                            {p.features.length > 4 && (
+                              <li className="text-xs text-slate-400">+{p.features.length - 4} mais</li>
+                            )}
+                          </ul>
+                          <button
+                            onClick={() => openEditPlano(p)}
+                            className="flex items-center justify-center space-x-1.5 border border-slate-200 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl text-sm font-medium transition-all"
+                          >
+                            <Edit className="h-3.5 w-3.5" />
+                            <span>Editar plano</span>
+                          </button>
+                        </div>
+                      ))
+                  }
+                </div>
+              )}
+
+              {/* ── CONTEÚDO ── */}
+              {siteSubTab === 'conteudo' && (
+                <div className="space-y-5">
+                  {conteudoLoading ? (
+                    Array.from({ length: 3 }).map((_, i) => (
+                      <div key={i} className="bg-white border border-slate-100 rounded-2xl p-6 shadow-sm">
+                        <Skeleton className="h-5 w-48 mb-4" />
+                        <Skeleton className="h-24 w-full" />
+                      </div>
+                    ))
+                  ) : (
+                    CONTEUDO_SECTION_ORDER.filter(secao => conteudoDrafts[secao]).map(secao => (
+                      <div key={secao} className="bg-white border border-slate-100 rounded-2xl p-6 shadow-sm">
+                        <div className="flex items-center justify-between mb-4">
+                          <h3 className="text-sm font-semibold text-slate-900">{CONTEUDO_SECTION_LABELS[secao] ?? humanizeKey(secao)}</h3>
+                          <button
+                            onClick={() => handleSaveConteudoSecao(secao)}
+                            disabled={conteudoSaving === secao}
+                            className="flex items-center space-x-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+                          >
+                            <Save className="h-3.5 w-3.5" />
+                            <span>{conteudoSaving === secao ? 'Salvando...' : 'Salvar'}</span>
+                          </button>
+                        </div>
+                        <SectionForm
+                          value={conteudoDrafts[secao]}
+                          onChange={next => setConteudoDrafts(prev => ({ ...prev, [secao]: next }))}
+                        />
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+
+              {/* ── IMAGENS ── */}
+              {siteSubTab === 'imagens' && (
+                <div className="grid md:grid-cols-3 gap-5">
+                  {imagensLoading
+                    ? Array.from({ length: 3 }).map((_, i) => (
+                        <div key={i} className="bg-white border border-slate-100 rounded-2xl p-6 shadow-sm">
+                          <Skeleton className="h-32 w-full mb-3" />
+                          <Skeleton className="h-4 w-24" />
+                        </div>
+                      ))
+                    : Object.keys(IMAGEM_LABELS).map(chave => {
+                        const info = imagensSite[chave];
+                        const meta = IMAGEM_LABELS[chave];
+                        return (
+                          <div key={chave} className="bg-white border border-slate-100 rounded-2xl p-6 shadow-sm">
+                            <p className="text-sm font-semibold text-slate-900 mb-1">{meta.label}</p>
+                            <p className="text-xs text-slate-400 mb-4">{meta.hint}</p>
+                            <div className="w-full h-32 bg-slate-50 border border-dashed border-slate-200 rounded-xl flex items-center justify-center overflow-hidden mb-4">
+                              {info?.url ? (
+                                <img src={info.url} alt={info.alt_text ?? meta.label} className="w-full h-full object-cover" />
+                              ) : (
+                                <ImageIcon className="h-8 w-8 text-slate-300" />
+                              )}
+                            </div>
+                            <div className="flex gap-2">
+                              <label className="flex-1 flex items-center justify-center space-x-1.5 border border-slate-200 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer">
+                                <Upload className="h-3.5 w-3.5" />
+                                <span>{uploadingChave === chave ? 'Enviando...' : 'Enviar'}</span>
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  className="hidden"
+                                  disabled={uploadingChave === chave}
+                                  onChange={e => {
+                                    const file = e.target.files?.[0];
+                                    if (file) handleUploadImagem(chave, file);
+                                    e.target.value = '';
+                                  }}
+                                />
+                              </label>
+                              {info?.url && (
+                                <button
+                                  onClick={() => handleRemoveImagem(chave)}
+                                  disabled={uploadingChave === chave}
+                                  className="w-10 h-10 flex items-center justify-center rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-all flex-shrink-0"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })
+                  }
+                </div>
+              )}
+            </>
+          )}
+
           {/* ─────────── SYSTEM ─────────── */}
           {activeSection === 'system' && (
             <>
@@ -1311,46 +1809,63 @@ const SuperAdminPanel: React.FC = () => {
 
             <div className="space-y-4">
               {/* change_plan */}
-              {assinaturaModal.acao === 'change_plan' && (
-                <>
-                  <div className="text-xs text-slate-500 flex items-center space-x-2">
-                    <span>Plano atual:</span>
-                    {planBadge(assinaturaModal.tenant.plano_nome)}
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-2">Novo plano</label>
-                    <div className="space-y-2">
-                      {PLANOS.map(p => (
-                        <button
-                          key={p.id}
-                          onClick={() => setAssinaturaForm(f => ({ ...f, plano_id: p.id, plano_nome: p.nome, valor_mensal: p.valor }))}
-                          className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border-2 text-left transition-all ${
-                            assinaturaForm.plano_id === p.id
-                              ? 'border-blue-500 bg-blue-50'
-                              : 'border-slate-200 bg-white hover:border-slate-300'
-                          }`}
-                        >
-                          <span className="text-sm font-medium text-slate-800">{p.nome}</span>
-                          <span className="text-sm text-slate-500">
-                            {p.valor > 0 ? `R$ ${p.valor}/mês` : 'Valor customizado'}
-                          </span>
-                        </button>
-                      ))}
+              {assinaturaModal.acao === 'change_plan' && (() => {
+                const planoAlvo = assinaturaPlanoAlvo;
+                return (
+                  <>
+                    <div className="text-xs text-slate-500 flex items-center space-x-2">
+                      <span>Plano atual:</span>
+                      {planBadge(assinaturaModal.tenant.plano_nome)}
                     </div>
-                  </div>
-                  {assinaturaForm.plano_id && (
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1.5">Valor mensal (R$)</label>
-                      <input
-                        type="number" min={0}
-                        value={assinaturaForm.valor_mensal}
-                        onChange={e => setAssinaturaForm(f => ({ ...f, valor_mensal: Number(e.target.value) }))}
-                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
+                      <label className="block text-sm font-medium text-slate-700 mb-2">Novo plano</label>
+                      <div className="space-y-2">
+                        {planos.filter(p => p.ativo).map(p => (
+                          <button
+                            key={p.plano_id}
+                            onClick={() => setAssinaturaForm(f => ({ ...f, plano_id: p.plano_id, plano_nome: p.plano_nome, valor_mensal: p.preco_mensal }))}
+                            className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border-2 text-left transition-all ${
+                              assinaturaForm.plano_id === p.plano_id
+                                ? 'border-blue-500 bg-blue-50'
+                                : 'border-slate-200 bg-white hover:border-slate-300'
+                            }`}
+                          >
+                            <div>
+                              <span className="text-sm font-medium text-slate-800 block">{p.plano_nome}</span>
+                              <span className="text-xs text-slate-400">
+                                Até {formatLimite(p.max_residentes)} residentes · {formatLimite(p.max_usuarios)} usuários
+                              </span>
+                            </div>
+                            <span className="text-sm text-slate-500">
+                              {p.preco_mensal > 0 ? `R$ ${p.preco_mensal}/mês` : 'Valor customizado'}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  )}
-                </>
-              )}
+                    {planoAlvo && assinaturaExcedeLimite && (
+                      <div className="bg-rose-50 border border-rose-200 rounded-xl px-4 py-3">
+                        <p className="text-sm text-rose-700 font-medium">
+                          Esta ILPI possui {assinaturaModal.tenant.qtd_residentes} residente(s) e {assinaturaModal.tenant.qtd_usuarios} usuário(s),
+                          acima do limite do plano {planoAlvo.plano_nome}
+                          {' '}({formatLimite(planoAlvo.max_residentes)} residentes / {formatLimite(planoAlvo.max_usuarios)} usuários).
+                        </p>
+                      </div>
+                    )}
+                    {assinaturaForm.plano_id && (
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1.5">Valor mensal (R$)</label>
+                        <input
+                          type="number" min={0}
+                          value={assinaturaForm.valor_mensal}
+                          onChange={e => setAssinaturaForm(f => ({ ...f, valor_mensal: Number(e.target.value) }))}
+                          className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
 
               {/* extend_trial */}
               {assinaturaModal.acao === 'extend_trial' && (
@@ -1422,7 +1937,7 @@ const SuperAdminPanel: React.FC = () => {
             <div className="flex gap-3 mt-6">
               <button
                 onClick={handleAssinaturaAction}
-                disabled={assinaturaLoading || (assinaturaModal.acao === 'change_plan' && !assinaturaForm.plano_id)}
+                disabled={assinaturaLoading || (assinaturaModal.acao === 'change_plan' && (!assinaturaForm.plano_id || assinaturaExcedeLimite))}
                 className={`flex-1 font-semibold py-3 rounded-xl transition-all text-sm disabled:opacity-60 ${
                   assinaturaModal.acao === 'cancel'
                     ? 'bg-rose-600 hover:bg-rose-700 text-white'
@@ -1549,23 +2064,55 @@ const SuperAdminPanel: React.FC = () => {
                 </div>
               </div>
 
+              {/* Capacidade estimada */}
+              <div>
+                <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Capacidade estimada</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">Nº estimado de residentes</label>
+                    <input
+                      type="number" min={0}
+                      value={novaIlpiForm.qtd_residentes}
+                      onChange={e => setNovaIlpiForm(f => ({ ...f, qtd_residentes: e.target.value }))}
+                      placeholder="Ex: 30"
+                      className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">Nº de usuários desejados</label>
+                    <input
+                      type="number" min={0}
+                      value={novaIlpiForm.qtd_usuarios}
+                      onChange={e => setNovaIlpiForm(f => ({ ...f, qtd_usuarios: e.target.value }))}
+                      placeholder="Ex: 5"
+                      className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
               {/* Plano */}
               <div>
                 <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Plano de assinatura</h3>
                 <div className="space-y-2">
-                  {PLANOS.map(p => (
+                  {planos.filter(p => p.ativo).map(p => (
                     <button
-                      key={p.id}
-                      onClick={() => setNovaIlpiForm(f => ({ ...f, plano_id: p.id, plano_nome: p.nome, valor_mensal: p.valor }))}
+                      key={p.plano_id}
+                      onClick={() => setNovaIlpiForm(f => ({ ...f, plano_id: p.plano_id, plano_nome: p.plano_nome, valor_mensal: p.preco_mensal }))}
                       className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border-2 text-left transition-all ${
-                        novaIlpiForm.plano_id === p.id
+                        novaIlpiForm.plano_id === p.plano_id
                           ? 'border-blue-500 bg-blue-50'
                           : 'border-slate-200 bg-white hover:border-slate-300'
                       }`}
                     >
-                      <span className="text-sm font-medium text-slate-800">{p.nome}</span>
+                      <div>
+                        <span className="text-sm font-medium text-slate-800 block">{p.plano_nome}</span>
+                        <span className="text-xs text-slate-400">
+                          Até {formatLimite(p.max_residentes)} residentes · {formatLimite(p.max_usuarios)} usuários
+                        </span>
+                      </div>
                       <span className="text-sm text-slate-500">
-                        {p.valor > 0 ? `R$ ${p.valor}/mês` : 'Valor customizado'}
+                        {p.preco_mensal > 0 ? `R$ ${p.preco_mensal}/mês` : 'Valor customizado'}
                       </span>
                     </button>
                   ))}
@@ -1579,6 +2126,14 @@ const SuperAdminPanel: React.FC = () => {
                       onChange={e => setNovaIlpiForm(f => ({ ...f, valor_mensal: Number(e.target.value) }))}
                       className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
+                  </div>
+                )}
+                {novaIlpiExcedeLimite && (
+                  <div className="mt-3 bg-rose-50 border border-rose-200 rounded-xl px-4 py-3">
+                    <p className="text-sm text-rose-700 font-medium">
+                      {novaIlpiForm.qtd_residentes || 0} residente(s) e {novaIlpiForm.qtd_usuarios || 0} usuário(s) excedem o limite do plano {novaIlpiPlanoAlvo?.plano_nome}
+                      {' '}({formatLimite(novaIlpiPlanoAlvo?.max_residentes)} residentes / {formatLimite(novaIlpiPlanoAlvo?.max_usuarios)} usuários). Escolha um plano maior ou reduza os números.
+                    </p>
                   </div>
                 )}
               </div>
@@ -1618,7 +2173,7 @@ const SuperAdminPanel: React.FC = () => {
               <div className="flex gap-3 pt-1">
                 <button
                   onClick={handleCreateEmpresa}
-                  disabled={novaIlpiLoading || !novaIlpiForm.nome_instituicao.trim()}
+                  disabled={novaIlpiLoading || !novaIlpiForm.nome_instituicao.trim() || novaIlpiExcedeLimite}
                   className="flex-1 flex items-center justify-center space-x-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-semibold py-3 rounded-xl transition-all text-sm"
                 >
                   {novaIlpiLoading ? (
@@ -1720,6 +2275,200 @@ const SuperAdminPanel: React.FC = () => {
               >
                 Cancelar
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Editar Plano Modal ───────────────────────────────────────────── */}
+      {editingPlano && planoForm && (
+        <div
+          className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+          onMouseDown={() => { modalMouseDown.current = false; }}
+          onMouseUp={(e) => { if (!modalMouseDown.current && e.target === e.currentTarget && !planoSaving) { setEditingPlano(null); setPlanoForm(null); } }}
+        >
+          <div
+            className="bg-white border border-slate-200 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto"
+            onMouseDown={(e) => { modalMouseDown.current = true; e.stopPropagation(); }}
+          >
+            <div className="flex items-center justify-between p-8 pb-5">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">Editar plano</h2>
+                <p className="text-sm text-slate-400 mt-0.5">{editingPlano.plano_nome}</p>
+              </div>
+              <button
+                onClick={() => { if (!planoSaving) { setEditingPlano(null); setPlanoForm(null); } }}
+                className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="px-8 pb-8 space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">Nome do plano</label>
+                  <input
+                    type="text"
+                    value={planoForm.plano_nome}
+                    onChange={e => setPlanoForm(f => f && { ...f, plano_nome: e.target.value })}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">Texto do botão (CTA)</label>
+                  <input
+                    type="text"
+                    value={planoForm.cta_label}
+                    onChange={e => setPlanoForm(f => f && { ...f, cta_label: e.target.value })}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Descrição</label>
+                <textarea
+                  value={planoForm.descricao}
+                  rows={2}
+                  onChange={e => setPlanoForm(f => f && { ...f, descricao: e.target.value })}
+                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">Preço mensal (R$)</label>
+                  <input
+                    type="number" min={0}
+                    value={planoForm.preco_mensal}
+                    onChange={e => setPlanoForm(f => f && { ...f, preco_mensal: Number(e.target.value) })}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">Preço anual (total)</label>
+                  <input
+                    type="number" min={0}
+                    value={planoForm.preco_anual_total}
+                    onChange={e => setPlanoForm(f => f && { ...f, preco_anual_total: Number(e.target.value) })}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">Equiv. mensal (anual)</label>
+                  <input
+                    type="number" min={0}
+                    value={planoForm.preco_mensal_equivalente_anual ?? ''}
+                    onChange={e => setPlanoForm(f => f && { ...f, preco_mensal_equivalente_anual: e.target.value ? Number(e.target.value) : null })}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">Limite de residentes</label>
+                  <input
+                    type="number" min={1}
+                    value={planoForm.max_residentes ?? ''}
+                    placeholder="Ilimitado"
+                    onChange={e => setPlanoForm(f => f && { ...f, max_residentes: e.target.value ? Number(e.target.value) : null })}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <p className="text-xs text-slate-400 mt-1">Vazio = ilimitado</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">Limite de usuários</label>
+                  <input
+                    type="number" min={1}
+                    value={planoForm.max_usuarios ?? ''}
+                    placeholder="Ilimitado"
+                    onChange={e => setPlanoForm(f => f && { ...f, max_usuarios: e.target.value ? Number(e.target.value) : null })}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <p className="text-xs text-slate-400 mt-1">Vazio = ilimitado</p>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Texto do selo (opcional)</label>
+                <input
+                  type="text"
+                  value={planoForm.badge_label ?? ''}
+                  placeholder="Ex: Mais popular"
+                  onChange={e => setPlanoForm(f => f && { ...f, badge_label: e.target.value })}
+                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div className="flex flex-wrap gap-4">
+                {([
+                  { key: 'ativo' as const,        label: 'Ativo (visível no site)' },
+                  { key: 'self_service' as const,  label: 'Autoatendimento (checkout direto)' },
+                  { key: 'popular' as const,       label: 'Destacar como "Mais popular"' },
+                ]).map(opt => (
+                  <label key={opt.key} className="flex items-center space-x-2 text-sm text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={planoForm[opt.key]}
+                      onChange={e => setPlanoForm(f => f && { ...f, [opt.key]: e.target.checked })}
+                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span>{opt.label}</span>
+                  </label>
+                ))}
+              </div>
+
+              <div>
+                <p className="text-sm font-medium text-slate-700 mb-2">Features exibidas no site</p>
+                <div className="space-y-2">
+                  {planoForm.features.map((feat, i) => (
+                    <div key={i} className="flex gap-2">
+                      <input
+                        value={feat}
+                        onChange={e => setPlanoForm(f => {
+                          if (!f) return f;
+                          const next = [...f.features];
+                          next[i] = e.target.value;
+                          return { ...f, features: next };
+                        })}
+                        className="flex-1 px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                      <button
+                        onClick={() => setPlanoForm(f => f && { ...f, features: f.features.filter((_, idx) => idx !== i) })}
+                        className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-all flex-shrink-0"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    onClick={() => setPlanoForm(f => f && { ...f, features: [...f.features, ''] })}
+                    className="text-xs text-blue-600 font-medium hover:text-blue-700"
+                  >
+                    + Adicionar feature
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  onClick={handleSavePlano}
+                  disabled={planoSaving}
+                  className="flex-1 flex items-center justify-center space-x-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-semibold py-3 rounded-xl transition-all text-sm"
+                >
+                  <Save className="h-4 w-4" />
+                  <span>{planoSaving ? 'Salvando...' : 'Salvar plano'}</span>
+                </button>
+                <button
+                  onClick={() => { if (!planoSaving) { setEditingPlano(null); setPlanoForm(null); } }}
+                  disabled={planoSaving}
+                  className="px-5 py-3 bg-slate-100 hover:bg-slate-200 disabled:opacity-60 text-slate-700 rounded-xl text-sm font-medium transition-all"
+                >
+                  Cancelar
+                </button>
+              </div>
             </div>
           </div>
         </div>

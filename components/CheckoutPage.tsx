@@ -5,7 +5,9 @@ import {
   Loader2, Copy, FileText, ExternalLink, QrCode, Sparkles, Mail, LogIn
 } from 'lucide-react';
 import { supabase } from '../services/supabaseClient';
+import { getPlanosPublicos } from '../services/siteContentService';
 import PlanoCards from './PlanoCards';
+import { excedeLimite, formatLimite } from '../utils/planLimits';
 import type { CheckoutFormData, PlanoId, Periodicidade, FormaPagamento, PlanoView } from '../types';
 
 const HCAPTCHA_SITE_KEY = ((import.meta as any).env?.VITE_HCAPTCHA_SITE_KEY as string | undefined) || '';
@@ -16,16 +18,19 @@ const PLANOS_FALLBACK: PlanoView[] = [
     id: 'essencial', nome: 'Essencial', precoMensal: 399, precoMensalAnual: 299, precoAnualTotal: 3588,
     selfService: true, desc: 'Ideal para ILPIs com até 30 residentes',
     features: ['Até 30 residentes', '5 usuários', 'Gestão de residentes', 'Saúde & checklists', 'Financeiro básico', 'Estoque', 'Suporte por e-mail'],
+    maxResidentes: 30, maxUsuarios: 5,
   },
   {
     id: 'profissional', nome: 'Profissional', precoMensal: 799, precoMensalAnual: 599, precoAnualTotal: 7188,
     selfService: true, desc: 'Para ILPIs de médio porte com mais recursos', popular: true,
     features: ['Até 100 residentes', '20 usuários', 'Todos os módulos', 'Relatórios avançados', 'IA Assistente', 'Portal do familiar', 'Suporte prioritário'],
+    maxResidentes: 100, maxUsuarios: 20,
   },
   {
     id: 'enterprise', nome: 'Enterprise', precoMensal: 0, precoMensalAnual: 0, precoAnualTotal: 0,
     selfService: false, desc: 'Para redes e grupos com múltiplas unidades',
     features: ['Residentes ilimitados', 'Usuários ilimitados', 'Múltiplas unidades', 'Dashboard consolidado', 'Onboarding dedicado', 'SLA 99,9%', 'Gerente de sucesso'],
+    maxResidentes: null, maxUsuarios: null,
   },
 ];
 
@@ -138,6 +143,7 @@ const CheckoutPage: React.FC = () => {
   const [showSenha, setShowSenha] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [planoErro, setPlanoErro] = useState('');
   const [loadingCEP, setLoadingCEP] = useState(false);
   const [loadingCNPJ, setLoadingCNPJ] = useState(false);
   const [cnpjFound, setCnpjFound] = useState(false);
@@ -161,28 +167,8 @@ const CheckoutPage: React.FC = () => {
   // ── Carrega o catálogo de planos ──
   useEffect(() => {
     (async () => {
-      const { data, error } = await supabase
-        .from('Recanto_Planos')
-        .select('plano_id, plano_nome, preco_mensal, preco_anual_total, preco_mensal_equivalente_anual, ativo, self_service')
-        .eq('ativo', true);
-      if (error || !data || data.length === 0) return;
-      const mapped: PlanoView[] = data.map((p: any) => {
-        const fb = PLANOS_FALLBACK.find(f => f.id === p.plano_id);
-        return {
-          id: p.plano_id as PlanoId,
-          nome: p.plano_nome,
-          precoMensal: Number(p.preco_mensal) || 0,
-          precoMensalAnual: Number(p.preco_mensal_equivalente_anual) || Number(p.preco_mensal) || 0,
-          precoAnualTotal: Number(p.preco_anual_total) || 0,
-          selfService: p.self_service !== false,
-          desc: fb?.desc ?? '',
-          features: fb?.features ?? [],
-          popular: fb?.popular,
-        };
-      });
-      const order = ['essencial', 'profissional', 'enterprise'];
-      mapped.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
-      setPlanos(mapped);
+      const mapped = await getPlanosPublicos();
+      if (mapped) setPlanos(mapped);
     })();
   }, []);
 
@@ -234,6 +220,35 @@ const CheckoutPage: React.FC = () => {
   }, [step]);
 
   const planoSelecionado = planos.find(p => p.id === form.planoId) ?? planos[0];
+
+  const qtdResidentesInformada = Number(form.qtdResidentes) || 0;
+  const qtdUsuariosInformada = Number(form.qtdUsuarios) || 0;
+
+  // Valida se o plano escolhido comporta os números informados no passo "Empresa".
+  // Não é uma barreira técnica (nada no sistema impede cadastrar mais residentes
+  // do que o plano permite) — apenas evita que o cliente contrate um plano insuficiente.
+  const validarLimitesPlano = (): boolean => {
+    setPlanoErro('');
+    if (!planoSelecionado) return true;
+    const residentesExcede = excedeLimite(qtdResidentesInformada, planoSelecionado.maxResidentes);
+    const usuariosExcede = excedeLimite(qtdUsuariosInformada, planoSelecionado.maxUsuarios);
+    if (!residentesExcede && !usuariosExcede) return true;
+
+    const planoCompativel = planos
+      .filter(p => p.selfService && p.id !== planoSelecionado.id)
+      .find(p => !excedeLimite(qtdResidentesInformada, p.maxResidentes) && !excedeLimite(qtdUsuariosInformada, p.maxUsuarios));
+
+    const partes: string[] = [];
+    if (residentesExcede) partes.push(`${qtdResidentesInformada} residentes (máx. ${formatLimite(planoSelecionado.maxResidentes)})`);
+    if (usuariosExcede) partes.push(`${qtdUsuariosInformada} usuários (máx. ${formatLimite(planoSelecionado.maxUsuarios)})`);
+
+    const sugestao = planoCompativel
+      ? ` Escolha o plano ${planoCompativel.nome}, que comporta essa quantidade.`
+      : ' Fale com nosso time comercial para um plano sob medida.';
+
+    setPlanoErro(`O plano ${planoSelecionado.nome} não comporta ${partes.join(' e ')}.${sugestao}`);
+    return false;
+  };
 
   const valorMensalExibicao = form.periodicidade === 'mensal'
     ? planoSelecionado.precoMensal
@@ -423,7 +438,7 @@ const CheckoutPage: React.FC = () => {
       sessionStorage.setItem('rc_adm', JSON.stringify(admData));
       await saveRascunho('admin', admData);
       setStep('plano');
-    } else if (step === 'plano') {
+    } else if (step === 'plano' && validarLimitesPlano()) {
       setStep('pagamento');
     } else if (step === 'pagamento' && validatePagamento()) {
       finalizar(false);
@@ -442,6 +457,7 @@ const CheckoutPage: React.FC = () => {
       setErrorMsg('O plano Enterprise é contratado com o nosso time comercial.');
       return;
     }
+    if (!validarLimitesPlano()) return;
     const planoData = { planoId: form.planoId, periodicidade: form.periodicidade };
     await saveRascunho('plano', planoData);
     finalizar(true);
@@ -977,7 +993,7 @@ const CheckoutPage: React.FC = () => {
                         <label className={labelCls}>E-mail * <span className="text-slate-400 font-normal text-xs">(será seu login)</span></label>
                         <input className={inputCls('emailAdmin')} type="email" value={form.emailAdmin}
                           onChange={e => set('emailAdmin', e.target.value)}
-                          placeholder="joao@empresa.com.br" />
+                          placeholder="joao@empresa.com.br" autoComplete="off" />
                         <FieldError name="emailAdmin" />
                       </div>
                       <div>
@@ -991,7 +1007,7 @@ const CheckoutPage: React.FC = () => {
                       <label className={labelCls}>Cargo / Função *</label>
                       <input className={inputCls('cargo')} value={form.cargo}
                         onChange={e => set('cargo', e.target.value)}
-                        placeholder="Ex: Diretor Administrativo" />
+                        placeholder="Ex: Diretor Administrativo" autoComplete="off" />
                       <FieldError name="cargo" />
                     </div>
                     <div className="grid md:grid-cols-2 gap-4">
@@ -1000,7 +1016,7 @@ const CheckoutPage: React.FC = () => {
                         <div className="relative">
                           <input className={inputCls('senha')} type={showSenha ? 'text' : 'password'}
                             value={form.senha} onChange={e => set('senha', e.target.value)}
-                            placeholder="Mínimo 8 caracteres" />
+                            placeholder="Mínimo 8 caracteres" autoComplete="new-password" />
                           <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                             onClick={() => setShowSenha(v => !v)}>
                             {showSenha ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -1013,7 +1029,7 @@ const CheckoutPage: React.FC = () => {
                         <div className="relative">
                           <input className={inputCls('confirmarSenha')} type={showConfirm ? 'text' : 'password'}
                             value={form.confirmarSenha} onChange={e => set('confirmarSenha', e.target.value)}
-                            placeholder="Repita a senha" />
+                            placeholder="Repita a senha" autoComplete="new-password" />
                           <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                             onClick={() => setShowConfirm(v => !v)}>
                             {showConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -1041,9 +1057,17 @@ const CheckoutPage: React.FC = () => {
                     planos={planos}
                     selectedId={form.planoId}
                     periodicidade={form.periodicidade}
-                    onSelect={id => set('planoId', id as string)}
+                    onSelect={id => { set('planoId', id as string); setPlanoErro(''); }}
                     onPeriodChange={p => set('periodicidade', p)}
+                    qtdResidentes={qtdResidentesInformada || undefined}
+                    qtdUsuarios={qtdUsuariosInformada || undefined}
                   />
+
+                  {planoErro && (
+                    <div className="mt-4 bg-rose-50 border border-rose-200 rounded-xl px-4 py-3">
+                      <p className="text-sm text-rose-600">{planoErro}</p>
+                    </div>
+                  )}
 
                   {/* Opção de trial */}
                   <div className="mt-6 border-t border-slate-100 pt-6">

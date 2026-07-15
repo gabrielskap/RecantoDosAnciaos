@@ -15,16 +15,19 @@ const PLANOS_FALLBACK: PlanoView[] = [
     id: 'essencial', nome: 'Essencial', precoMensal: 399, precoMensalAnual: 299, precoAnualTotal: 3588,
     selfService: true, desc: 'Ideal para ILPIs com até 30 residentes',
     features: ['Até 30 residentes', '5 usuários', 'Gestão de residentes', 'Saúde & checklists', 'Financeiro básico', 'Estoque', 'Suporte por e-mail'],
+    maxResidentes: 30, maxUsuarios: 5,
   },
   {
     id: 'profissional', nome: 'Profissional', precoMensal: 799, precoMensalAnual: 599, precoAnualTotal: 7188,
     selfService: true, desc: 'Para ILPIs de médio porte com mais recursos', popular: true,
     features: ['Até 100 residentes', '20 usuários', 'Todos os módulos', 'Relatórios avançados', 'IA Assistente', 'Portal do familiar', 'Suporte prioritário'],
+    maxResidentes: 100, maxUsuarios: 20,
   },
   {
     id: 'enterprise', nome: 'Enterprise', precoMensal: 0, precoMensalAnual: 0, precoAnualTotal: 0,
     selfService: false, desc: 'Para redes e grupos com múltiplas unidades',
     features: ['Residentes ilimitados', 'Usuários ilimitados', 'Múltiplas unidades', 'Dashboard consolidado', 'Onboarding dedicado', 'SLA 99,9%', 'Gerente de sucesso'],
+    maxResidentes: null, maxUsuarios: null,
   },
 ];
 
@@ -103,7 +106,7 @@ const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, onClose }
     (async () => {
       const { data } = await supabase
         .from('Recanto_Planos')
-        .select('plano_id, plano_nome, preco_mensal, preco_anual_total, preco_mensal_equivalente_anual, ativo, self_service')
+        .select('plano_id, plano_nome, preco_mensal, preco_anual_total, preco_mensal_equivalente_anual, ativo, self_service, max_residentes, max_usuarios')
         .eq('ativo', true);
       if (!data || data.length === 0) return;
       const mapped: PlanoView[] = data.map((p: any) => {
@@ -118,6 +121,8 @@ const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, onClose }
           desc: fb?.desc ?? '',
           features: fb?.features ?? [],
           popular: fb?.popular,
+          maxResidentes: p.max_residentes ?? null,
+          maxUsuarios: p.max_usuarios ?? null,
         };
       });
       const order = ['essencial', 'profissional', 'enterprise'];
