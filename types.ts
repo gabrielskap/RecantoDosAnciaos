@@ -132,6 +132,12 @@ export interface ResidentDocument {
   type: 'exame' | 'laudo' | 'receita' | 'documento_pessoal' | 'outro';
   url: string;
   uploadDate: string;
+  folderId?: string | null;
+}
+
+export interface DocumentFolder {
+  id: string;
+  name: string;
 }
 
 export interface EmergencyContact {
@@ -234,6 +240,7 @@ export interface Resident {
   carePlan: CarePlan[];
   dailyChecklists: DailyChecklist[];
   documents: ResidentDocument[];
+  documentFolders?: DocumentFolder[];
   auditLogs: AuditLog[];
   visits: Visit[];
 

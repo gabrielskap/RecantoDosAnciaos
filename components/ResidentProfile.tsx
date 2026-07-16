@@ -4,9 +4,10 @@ import {
   Thermometer, Heart, CheckCircle, PenTool, ShieldCheck,
   ClipboardList, History, Plus, User, Clock, File, Paperclip, CalendarCheck, AlertOctagon,
   BedDouble, Home, Wrench, PaintRoller, Edit2, X, Phone, FileHeart, Trash2, Users, Camera, Sun, Moon,
-  Key, Printer, Upload, Wind, UserCheck, Droplet, Syringe
+  Key, Printer, Upload, Wind, UserCheck, Droplet, Syringe,
+  Folder, FolderPlus, FolderOpen, ChevronDown, ChevronRight
 } from 'lucide-react';
-import { Resident, CarePlan, AuditLog, DailyChecklist, Medication, ResidentPrescriptionRecord, RoomStatus, Room, ViewState, GlucoseReading, GlicemiaMomento } from '../types';
+import { Resident, CarePlan, AuditLog, DailyChecklist, Medication, ResidentPrescriptionRecord, RoomStatus, Room, ViewState, GlucoseReading, GlicemiaMomento, DocumentFolder, ResidentDocument } from '../types';
 import { residentAvatarSrc } from '../lib/avatar';
 import { toast } from '../services/toast';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
@@ -336,7 +337,17 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   const [docUploadFile, setDocUploadFile] = useState<File | null>(null);
   const [docUploadName, setDocUploadName] = useState('');
   const [docUploadType, setDocUploadType] = useState<'exame' | 'laudo' | 'receita' | 'documento_pessoal' | 'outro'>('outro');
+  const [docUploadFolderId, setDocUploadFolderId] = useState<string>('');
   const [isUploadingResidentDoc, setIsUploadingResidentDoc] = useState(false);
+
+  // Pastas de documentos
+  const [showFolderModal, setShowFolderModal] = useState(false);
+  const [folderName, setFolderName] = useState('');
+  const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
+  const [folderToDelete, setFolderToDelete] = useState<DocumentFolder | null>(null);
+  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
+  const [docToMove, setDocToMove] = useState<ResidentDocument | null>(null);
+  const [moveFolderId, setMoveFolderId] = useState<string>('');
 
   const [isVisitModalOpen, setIsVisitModalOpen] = useState(false);
   const [visitData, setVisitData] = useState({
@@ -3148,7 +3159,8 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
         name: docUploadName.trim(),
         type: docUploadType,
         url,
-        uploadDate: new Date().toISOString().split('T')[0]
+        uploadDate: new Date().toISOString().split('T')[0],
+        folderId: docUploadFolderId || null
       };
       const updatedResident = {
         ...resident,
@@ -3160,12 +3172,94 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
       setDocUploadFile(null);
       setDocUploadName('');
       setDocUploadType('outro');
+      setDocUploadFolderId('');
     } catch (err) {
       console.error(err);
       toast.error('Erro ao enviar documento. Tente novamente.');
     } finally {
       setIsUploadingResidentDoc(false);
     }
+  };
+
+  const openCreateFolder = () => {
+    setEditingFolderId(null);
+    setFolderName('');
+    setShowFolderModal(true);
+  };
+
+  const openRenameFolder = (folder: DocumentFolder) => {
+    setEditingFolderId(folder.id);
+    setFolderName(folder.name);
+    setShowFolderModal(true);
+  };
+
+  const handleSaveFolder = async () => {
+    const name = folderName.trim();
+    if (!name || !onUpdateResident) return;
+    const folders = resident.documentFolders || [];
+    let updatedFolders: DocumentFolder[];
+    if (editingFolderId) {
+      updatedFolders = folders.map(f => f.id === editingFolderId ? { ...f, name } : f);
+    } else {
+      updatedFolders = [...folders, { id: Math.random().toString(36).substr(2, 9), name }];
+    }
+    try {
+      await onUpdateResident({ ...resident, documentFolders: updatedFolders });
+      toast.success(editingFolderId ? 'Pasta renomeada com sucesso!' : 'Pasta criada com sucesso!');
+      setShowFolderModal(false);
+      setEditingFolderId(null);
+      setFolderName('');
+    } catch (err) {
+      console.error(err);
+      toast.error('Erro ao salvar pasta. Tente novamente.');
+    }
+  };
+
+  const handleDeleteFolder = async () => {
+    if (!folderToDelete || !onUpdateResident) return;
+    const updatedFolders = (resident.documentFolders || []).filter(f => f.id !== folderToDelete.id);
+    // Documentos da pasta excluída voltam para "Sem pasta"
+    const updatedDocuments = (resident.documents || []).map(d =>
+      d.folderId === folderToDelete.id ? { ...d, folderId: null } : d
+    );
+    try {
+      await onUpdateResident({ ...resident, documentFolders: updatedFolders, documents: updatedDocuments });
+      toast.success('Pasta excluída. Documentos movidos para "Sem pasta".');
+      setFolderToDelete(null);
+    } catch (err) {
+      console.error(err);
+      toast.error('Erro ao excluir pasta. Tente novamente.');
+    }
+  };
+
+  const openMoveDocument = (doc: ResidentDocument) => {
+    setDocToMove(doc);
+    setMoveFolderId(doc.folderId || '');
+  };
+
+  const handleMoveDocument = async () => {
+    if (!docToMove || !onUpdateResident) return;
+    const updatedDocuments = (resident.documents || []).map(d =>
+      d.id === docToMove.id ? { ...d, folderId: moveFolderId || null } : d
+    );
+    try {
+      await onUpdateResident({ ...resident, documents: updatedDocuments });
+      toast.success('Documento movido com sucesso!');
+      setDocToMove(null);
+      setMoveFolderId('');
+    } catch (err) {
+      console.error(err);
+      toast.error('Erro ao mover documento. Tente novamente.');
+    }
+  };
+
+  const toggleFolderCollapse = (folderId: string) => {
+    setCollapsedFolders(prev => {
+      const next = new Set(prev);
+      if (next.has(folderId)) next.delete(folderId);
+      else next.add(folderId);
+      return next;
+    });
   };
 
   const handleSaveEvolutionNote = () => {
@@ -6341,60 +6435,149 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
             </div>
           )}
           
-          {activeTab === 'docs' && (
-            <div className="space-y-6">
-               <div className="flex justify-between items-center">
-                  <h3 className="text-lg font-semibold text-slate-800">Documentos Digitalizados</h3>
-                  {hasPermission(ViewState.RESIDENT_DETAIL_DOCS, 'create') && (
+          {activeTab === 'docs' && (() => {
+            const folders = resident.documentFolders || [];
+            const allDocs = resident.documents || [];
+            const folderIds = new Set(folders.map(f => f.id));
+            const canCreate = hasPermission(ViewState.RESIDENT_DETAIL_DOCS, 'create');
+
+            const renderDocCard = (doc: typeof allDocs[number]) => (
+              <div
+                key={doc.id}
+                className="border border-slate-200 rounded-lg p-4 flex items-start bg-white hover:bg-slate-50 transition-colors group relative"
+              >
+                <a
+                  href={doc.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-start flex-1 min-w-0 no-underline"
+                >
+                  <div className="p-2 bg-slate-100 rounded text-slate-600 mr-3 shrink-0">
+                    <FileText size={20} />
+                  </div>
+                  <div className="flex-1 overflow-hidden">
+                    <h4 className="font-medium text-slate-800 text-sm truncate">{doc.name}</h4>
+                    <p className="text-xs text-slate-500 capitalize">{doc.type.replace(/_/g, ' ')}</p>
+                    <p className="text-[10px] text-slate-400 mt-1">{new Date(doc.uploadDate).toLocaleDateString('pt-BR')}</p>
+                  </div>
+                </a>
+                {canManageDocuments && (
+                  <div className="ml-2 flex items-center gap-0.5 shrink-0">
                     <button
-                      onClick={() => setShowDocUploadModal(true)}
-                      className="flex items-center text-sm text-primary-600 font-medium bg-primary-50 px-3 py-1.5 rounded-lg border border-primary-100 hover:bg-primary-100 transition-colors cursor-pointer"
+                      onClick={(e) => { e.stopPropagation(); openMoveDocument(doc); }}
+                      className="p-1.5 rounded-md text-slate-300 hover:text-primary-600 hover:bg-primary-50 opacity-0 group-hover:opacity-100 transition-all"
+                      title="Mover para outra pasta"
                     >
-                      <Plus className="h-4 w-4 mr-1" /> Novo Upload
+                      <Edit2 size={15} />
                     </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setDocToDelete(doc.id); }}
+                      className="p-1.5 rounded-md text-slate-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all"
+                      title="Excluir documento"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+
+            // Grupos: cada pasta + grupo virtual "Sem pasta" (folderId nulo ou órfão)
+            const groups: { id: string | null; name: string; folder: DocumentFolder | null; docs: typeof allDocs }[] =
+              folders.map(f => ({ id: f.id, name: f.name, folder: f, docs: allDocs.filter(d => d.folderId === f.id) }));
+            const looseDocs = allDocs.filter(d => !d.folderId || !folderIds.has(d.folderId));
+            if (looseDocs.length > 0 || folders.length === 0) {
+              groups.push({ id: null, name: 'Sem pasta', folder: null, docs: looseDocs });
+            }
+
+            return (
+              <div className="space-y-6">
+                <div className="flex justify-between items-center gap-2">
+                  <h3 className="text-lg font-semibold text-slate-800">Documentos Digitalizados</h3>
+                  {canCreate && (
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={openCreateFolder}
+                        className="flex items-center text-sm text-slate-600 font-medium bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 transition-colors cursor-pointer"
+                      >
+                        <FolderPlus className="h-4 w-4 mr-1" /> Nova Pasta
+                      </button>
+                      <button
+                        onClick={() => setShowDocUploadModal(true)}
+                        className="flex items-center text-sm text-primary-600 font-medium bg-primary-50 px-3 py-1.5 rounded-lg border border-primary-100 hover:bg-primary-100 transition-colors cursor-pointer"
+                      >
+                        <Plus className="h-4 w-4 mr-1" /> Novo Upload
+                      </button>
+                    </div>
                   )}
                 </div>
-               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                 {resident.documents?.map((doc) => (
-                   <div
-                     key={doc.id}
-                     className="border border-slate-200 rounded-lg p-4 flex items-start bg-white hover:bg-slate-50 transition-colors group relative"
-                   >
-                     <a
-                       href={doc.url}
-                       target="_blank"
-                       rel="noopener noreferrer"
-                       className="flex items-start flex-1 min-w-0 no-underline"
-                     >
-                       <div className="p-2 bg-slate-100 rounded text-slate-600 mr-3 shrink-0">
-                         <FileText size={20} />
-                       </div>
-                       <div className="flex-1 overflow-hidden">
-                         <h4 className="font-medium text-slate-800 text-sm truncate">{doc.name}</h4>
-                         <p className="text-xs text-slate-500 capitalize">{doc.type.replace(/_/g, ' ')}</p>
-                         <p className="text-[10px] text-slate-400 mt-1">{new Date(doc.uploadDate).toLocaleDateString('pt-BR')}</p>
-                       </div>
-                     </a>
-                     {canManageDocuments && (
-                       <button
-                         onClick={(e) => { e.stopPropagation(); setDocToDelete(doc.id); }}
-                         className="ml-2 p-1.5 rounded-md text-slate-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all shrink-0"
-                         title="Excluir documento"
-                       >
-                         <Trash2 size={15} />
-                       </button>
-                     )}
-                   </div>
-                 ))}
-                 {(!resident.documents || resident.documents.length === 0) && (
-                   <div className="col-span-full text-center py-8 text-slate-400 bg-slate-50 rounded-lg border border-dashed border-slate-300">
-                     <File size={32} className="mx-auto mb-2 opacity-30" />
-                     <p>Nenhum documento anexado.</p>
-                   </div>
-                 )}
-               </div>
-            </div>
-          )}
+
+                {allDocs.length === 0 && folders.length === 0 ? (
+                  <div className="text-center py-8 text-slate-400 bg-slate-50 rounded-lg border border-dashed border-slate-300">
+                    <File size={32} className="mx-auto mb-2 opacity-30" />
+                    <p>Nenhum documento anexado.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {groups.map((group) => {
+                      const key = group.id ?? '__loose__';
+                      const isCollapsed = collapsedFolders.has(key);
+                      return (
+                        <div key={key} className="border border-slate-200 rounded-xl overflow-hidden bg-white">
+                          <div className="flex items-center gap-2 px-4 py-3 bg-slate-50 border-b border-slate-100">
+                            <button
+                              onClick={() => toggleFolderCollapse(key)}
+                              className="flex items-center gap-2 flex-1 min-w-0 text-left cursor-pointer"
+                            >
+                              {isCollapsed
+                                ? <ChevronRight size={16} className="text-slate-400 shrink-0" />
+                                : <ChevronDown size={16} className="text-slate-400 shrink-0" />}
+                              {group.folder
+                                ? (isCollapsed
+                                    ? <Folder size={18} className="text-primary-500 shrink-0" />
+                                    : <FolderOpen size={18} className="text-primary-500 shrink-0" />)
+                                : <File size={18} className="text-slate-400 shrink-0" />}
+                              <span className="font-medium text-slate-800 text-sm truncate">{group.name}</span>
+                              <span className="text-xs text-slate-400 shrink-0">({group.docs.length})</span>
+                            </button>
+                            {group.folder && canManageDocuments && (
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  onClick={() => openRenameFolder(group.folder!)}
+                                  className="p-1.5 rounded-md text-slate-400 hover:text-primary-600 hover:bg-primary-50 transition-colors"
+                                  title="Renomear pasta"
+                                >
+                                  <Edit2 size={14} />
+                                </button>
+                                <button
+                                  onClick={() => setFolderToDelete(group.folder!)}
+                                  className="p-1.5 rounded-md text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                                  title="Excluir pasta"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                          {!isCollapsed && (
+                            <div className="p-4">
+                              {group.docs.length > 0 ? (
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                  {group.docs.map(renderDocCard)}
+                                </div>
+                              ) : (
+                                <p className="text-sm text-slate-400 text-center py-4">Pasta vazia.</p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {activeTab === 'evolution' && (() => {
             const evolutionLogs = (resident.auditLogs || [])
@@ -7722,7 +7905,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
               <h2 className="text-lg font-bold text-slate-800">Novo Documento</h2>
               <button
-                onClick={() => { setShowDocUploadModal(false); setDocUploadFile(null); setDocUploadName(''); setDocUploadType('outro'); }}
+                onClick={() => { setShowDocUploadModal(false); setDocUploadFile(null); setDocUploadName(''); setDocUploadType('outro'); setDocUploadFolderId(''); }}
                 className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 transition-colors"
               >
                 <X size={18} />
@@ -7788,10 +7971,25 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                   <option value="outro">Outro</option>
                 </select>
               </div>
+
+              {/* Pasta de destino */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Pasta</label>
+                <select
+                  value={docUploadFolderId}
+                  onChange={(e) => setDocUploadFolderId(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none bg-white"
+                >
+                  <option value="">Sem pasta</option>
+                  {(resident.documentFolders || []).map((folder) => (
+                    <option key={folder.id} value={folder.id}>{folder.name}</option>
+                  ))}
+                </select>
+              </div>
             </div>
             <div className="flex gap-3 px-6 pb-6">
               <button
-                onClick={() => { setShowDocUploadModal(false); setDocUploadFile(null); setDocUploadName(''); setDocUploadType('outro'); }}
+                onClick={() => { setShowDocUploadModal(false); setDocUploadFile(null); setDocUploadName(''); setDocUploadType('outro'); setDocUploadFolderId(''); }}
                 className="flex-1 px-4 py-2.5 border border-slate-300 rounded-xl text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
               >
                 Cancelar
@@ -7842,6 +8040,133 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                 className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-xl text-sm font-semibold hover:bg-red-700 transition-colors"
               >
                 Excluir
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Criar / Renomear Pasta */}
+      {showFolderModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <h2 className="text-lg font-bold text-slate-800">{editingFolderId ? 'Renomear Pasta' : 'Nova Pasta'}</h2>
+              <button
+                onClick={() => { setShowFolderModal(false); setEditingFolderId(null); setFolderName(''); }}
+                className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-6">
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">Nome da pasta <span className="text-red-500">*</span></label>
+              <input
+                type="text"
+                value={folderName}
+                onChange={(e) => setFolderName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && folderName.trim()) handleSaveFolder(); }}
+                autoFocus
+                placeholder="Ex: Exames, Receitas, Documentos pessoais"
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none"
+              />
+            </div>
+            <div className="flex gap-3 px-6 pb-6">
+              <button
+                onClick={() => { setShowFolderModal(false); setEditingFolderId(null); setFolderName(''); }}
+                className="flex-1 px-4 py-2.5 border border-slate-300 rounded-xl text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSaveFolder}
+                disabled={!folderName.trim()}
+                className="flex-1 px-4 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {editingFolderId ? 'Salvar' : 'Criar Pasta'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmação de exclusão de pasta */}
+      {folderToDelete && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+            <div className="p-6">
+              <div className="flex items-center justify-center w-12 h-12 rounded-full bg-red-100 mx-auto mb-4">
+                <Trash2 size={22} className="text-red-600" />
+              </div>
+              <h3 className="text-lg font-bold text-slate-800 text-center mb-1">Excluir Pasta</h3>
+              <p className="text-sm text-slate-500 text-center">
+                Excluir a pasta <span className="font-semibold text-slate-700">"{folderToDelete.name}"</span>? Os documentos dentro dela não serão apagados — voltarão para "Sem pasta".
+              </p>
+            </div>
+            <div className="flex gap-3 px-6 pb-6">
+              <button
+                onClick={() => setFolderToDelete(null)}
+                className="flex-1 px-4 py-2.5 border border-slate-300 rounded-xl text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleDeleteFolder}
+                className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-xl text-sm font-semibold hover:bg-red-700 transition-colors"
+              >
+                Excluir
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Mover Documento de Pasta */}
+      {docToMove && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <h2 className="text-lg font-bold text-slate-800">Mover Documento</h2>
+              <button
+                onClick={() => { setDocToMove(null); setMoveFolderId(''); }}
+                className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg border border-slate-100">
+                <div className="p-2 bg-slate-100 rounded text-slate-600 shrink-0">
+                  <FileText size={18} />
+                </div>
+                <span className="text-sm font-medium text-slate-700 truncate">{docToMove.name}</span>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Pasta de destino</label>
+                <select
+                  value={moveFolderId}
+                  onChange={(e) => setMoveFolderId(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none bg-white"
+                >
+                  <option value="">Sem pasta</option>
+                  {(resident.documentFolders || []).map((folder) => (
+                    <option key={folder.id} value={folder.id}>{folder.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="flex gap-3 px-6 pb-6">
+              <button
+                onClick={() => { setDocToMove(null); setMoveFolderId(''); }}
+                className="flex-1 px-4 py-2.5 border border-slate-300 rounded-xl text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleMoveDocument}
+                className="flex-1 px-4 py-2.5 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 transition-colors"
+              >
+                Mover
               </button>
             </div>
           </div>

@@ -16,6 +16,7 @@ export async function fetchResidents(empresaId: string): Promise<Resident[]> {
       carePlan:Recanto_PlanosAssistencia(*),
       dailyChecklists:Recanto_ChecklistDiario(*, carePlanAdherence:Recanto_AcompanhamentoPlano(*)),
       documents:Recanto_Documentos(*),
+      documentFolders:Recanto_DocumentosPastas(*),
       auditLogs:Recanto_LogsAuditoria(*),
       dietPlan:Recanto_PlanosDieta(*),
       nutritionalLogs:Recanto_LogsNutricao(*),
@@ -200,7 +201,12 @@ export async function fetchResidents(empresaId: string): Promise<Resident[]> {
       name: doc.name,
       type: doc.type,
       url: doc.url,
-      uploadDate: doc.upload_date
+      uploadDate: doc.upload_date,
+      folderId: doc.folder_id ?? null
+    })),
+    documentFolders: (r.documentFolders || []).map((f: any) => ({
+      id: f.id,
+      name: f.name
     })),
     auditLogs: (r.auditLogs || []).map((al: any) => ({
       id: al.id,

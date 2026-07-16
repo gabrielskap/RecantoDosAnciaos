@@ -904,10 +904,45 @@ function AppInner() {
         }
       }
 
-      // 8. Documentos
+      // 8. Pastas de Documentos (persistir antes dos documentos p/ resolver folder_id)
+      const folderIdMap = new Map<string, string>(); // idLocal/idReal -> idReal
+      if (updated.documentFolders) {
+        // Reconciliar exclusões: remover pastas do banco que saíram do estado.
+        // ON DELETE SET NULL zera o folder_id dos documentos afetados.
+        const keptRealIds = updated.documentFolders
+          .map(f => f.id)
+          .filter(id => id.length >= 15);
+        let delQuery = supabase
+          .from('Recanto_DocumentosPastas')
+          .delete()
+          .eq('resident_id', updated.id);
+        if (keptRealIds.length > 0) {
+          delQuery = delQuery.not('id', 'in', `(${keptRealIds.join(',')})`);
+        }
+        await delQuery;
+
+        for (const folder of updated.documentFolders) {
+          const isFolderMock = folder.id.length < 15;
+          const { data: folderData } = await supabase
+            .from('Recanto_DocumentosPastas')
+            .upsert({
+              id: isFolderMock ? undefined : folder.id,
+              resident_id: updated.id,
+              name: folder.name
+            })
+            .select()
+            .single();
+          if (folderData) folderIdMap.set(folder.id, folderData.id);
+        }
+      }
+
+      // 8b. Documentos
       if (updated.documents) {
         for (const doc of updated.documents) {
           const isDocMock = doc.id.length < 15;
+          const resolvedFolderId = doc.folderId
+            ? (folderIdMap.get(doc.folderId) ?? doc.folderId)
+            : null;
           await supabase
             .from('Recanto_Documentos')
             .upsert({
@@ -916,7 +951,8 @@ function AppInner() {
               name: doc.name,
               type: doc.type,
               url: doc.url,
-              upload_date: doc.uploadDate
+              upload_date: doc.uploadDate,
+              folder_id: resolvedFolderId
             });
         }
       }
