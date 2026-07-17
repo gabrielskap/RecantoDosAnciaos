@@ -278,9 +278,13 @@ interface ResidentProfileProps {
   rooms: Room[];
   onBack: () => void;
   onUpdateResident?: (resident: Resident) => void;
+  onCreateFolder?: (residentId: string, name: string) => Promise<void>;
+  onRenameFolder?: (folderId: string, name: string, residentId: string) => Promise<void>;
+  onDeleteFolder?: (folderId: string, residentId: string) => Promise<void>;
+  onMoveDocument?: (documentId: string, folderId: string | null, residentId: string) => Promise<void>;
 }
 
-const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBack, onUpdateResident }) => {
+const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBack, onUpdateResident, onCreateFolder, onRenameFolder, onDeleteFolder, onMoveDocument }) => {
   const { currentUser, hasPermission, modeloBoletim } = useAuth();
 
   const TAB_VIEW_STATE_MAP: Record<string, ViewState> = {
@@ -3195,17 +3199,25 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
 
   const handleSaveFolder = async () => {
     const name = folderName.trim();
-    if (!name || !onUpdateResident) return;
-    const folders = resident.documentFolders || [];
-    let updatedFolders: DocumentFolder[];
-    if (editingFolderId) {
-      updatedFolders = folders.map(f => f.id === editingFolderId ? { ...f, name } : f);
-    } else {
-      updatedFolders = [...folders, { id: Math.random().toString(36).substr(2, 9), name }];
-    }
+    if (!name) return;
     try {
-      await onUpdateResident({ ...resident, documentFolders: updatedFolders });
-      toast.success(editingFolderId ? 'Pasta renomeada com sucesso!' : 'Pasta criada com sucesso!');
+      if (editingFolderId) {
+        if (onRenameFolder) {
+          await onRenameFolder(editingFolderId, name, resident.id);
+        } else if (onUpdateResident) {
+          const updatedFolders = (resident.documentFolders || []).map(f => f.id === editingFolderId ? { ...f, name } : f);
+          await onUpdateResident({ ...resident, documentFolders: updatedFolders });
+        }
+        toast.success('Pasta renomeada com sucesso!');
+      } else {
+        if (onCreateFolder) {
+          await onCreateFolder(resident.id, name);
+        } else if (onUpdateResident) {
+          const updatedFolders = [...(resident.documentFolders || []), { id: Math.random().toString(36).substr(2, 9), name }];
+          await onUpdateResident({ ...resident, documentFolders: updatedFolders });
+        }
+        toast.success('Pasta criada com sucesso!');
+      }
       setShowFolderModal(false);
       setEditingFolderId(null);
       setFolderName('');
@@ -3216,14 +3228,18 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   };
 
   const handleDeleteFolder = async () => {
-    if (!folderToDelete || !onUpdateResident) return;
-    const updatedFolders = (resident.documentFolders || []).filter(f => f.id !== folderToDelete.id);
-    // Documentos da pasta excluída voltam para "Sem pasta"
-    const updatedDocuments = (resident.documents || []).map(d =>
-      d.folderId === folderToDelete.id ? { ...d, folderId: null } : d
-    );
+    if (!folderToDelete) return;
     try {
-      await onUpdateResident({ ...resident, documentFolders: updatedFolders, documents: updatedDocuments });
+      if (onDeleteFolder) {
+        await onDeleteFolder(folderToDelete.id, resident.id);
+      } else if (onUpdateResident) {
+        const updatedFolders = (resident.documentFolders || []).filter(f => f.id !== folderToDelete.id);
+        // Documentos da pasta excluída voltam para "Sem pasta"
+        const updatedDocuments = (resident.documents || []).map(d =>
+          d.folderId === folderToDelete.id ? { ...d, folderId: null } : d
+        );
+        await onUpdateResident({ ...resident, documentFolders: updatedFolders, documents: updatedDocuments });
+      }
       toast.success('Pasta excluída. Documentos movidos para "Sem pasta".');
       setFolderToDelete(null);
     } catch (err) {
@@ -3238,12 +3254,16 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   };
 
   const handleMoveDocument = async () => {
-    if (!docToMove || !onUpdateResident) return;
-    const updatedDocuments = (resident.documents || []).map(d =>
-      d.id === docToMove.id ? { ...d, folderId: moveFolderId || null } : d
-    );
+    if (!docToMove) return;
     try {
-      await onUpdateResident({ ...resident, documents: updatedDocuments });
+      if (onMoveDocument) {
+        await onMoveDocument(docToMove.id, moveFolderId || null, resident.id);
+      } else if (onUpdateResident) {
+        const updatedDocuments = (resident.documents || []).map(d =>
+          d.id === docToMove.id ? { ...d, folderId: moveFolderId || null } : d
+        );
+        await onUpdateResident({ ...resident, documents: updatedDocuments });
+      }
       toast.success('Documento movido com sucesso!');
       setDocToMove(null);
       setMoveFolderId('');

@@ -799,12 +799,15 @@ function AppInner() {
             .single();
 
           if (!medErr && medData && med.logs && med.logs.length > 0) {
-            for (const log of med.logs) {
-              const isLogMock = log.id.length < 15;
+            // Logs são somente-anexação (nunca editados após criados), então só
+            // é preciso inserir os novos (id mock). Re-enviar logs já persistidos
+            // forçaria um UPDATE via upsert, que a RLS de Recanto_LogsMedicacao
+            // não permite (só há política de INSERT/SELECT) e retornava 403.
+            const newLogs = med.logs.filter(log => log.id.length < 15);
+            for (const log of newLogs) {
               await supabase
                 .from('Recanto_LogsMedicacao')
-                .upsert({
-                  id: isLogMock ? undefined : log.id,
+                .insert({
                   medication_id: medData.id,
                   timestamp: log.timestamp,
                   administered_by: log.administeredBy,
@@ -1166,6 +1169,50 @@ function AppInner() {
       console.error('Error updating resident:', err);
       toast.error('Erro ao atualizar dados do residente no servidor.');
     }
+  };
+
+  // Dedicated single-purpose writes for document folder CRUD and moving a
+  // document between folders. These deliberately bypass handleUpdateResident's
+  // 13-step resave-the-whole-resident pipeline (and don't swallow errors the
+  // way it does) so a failure in an unrelated section of the resident's record
+  // can never silently block a folder rename/delete.
+  const handleCreateDocumentFolder = async (residentId: string, name: string) => {
+    const { error } = await supabase
+      .from('Recanto_DocumentosPastas')
+      .insert({ resident_id: residentId, name });
+    if (error) throw error;
+    await fetchResidents();
+    if (selectedResident?.id === residentId) await refreshSelectedResidentDetail(residentId);
+  };
+
+  const handleRenameDocumentFolder = async (folderId: string, name: string, residentId: string) => {
+    const { error } = await supabase
+      .from('Recanto_DocumentosPastas')
+      .update({ name })
+      .eq('id', folderId);
+    if (error) throw error;
+    await fetchResidents();
+    if (selectedResident?.id === residentId) await refreshSelectedResidentDetail(residentId);
+  };
+
+  const handleDeleteDocumentFolder = async (folderId: string, residentId: string) => {
+    const { error } = await supabase
+      .from('Recanto_DocumentosPastas')
+      .delete()
+      .eq('id', folderId);
+    if (error) throw error;
+    await fetchResidents();
+    if (selectedResident?.id === residentId) await refreshSelectedResidentDetail(residentId);
+  };
+
+  const handleMoveResidentDocument = async (documentId: string, folderId: string | null, residentId: string) => {
+    const { error } = await supabase
+      .from('Recanto_Documentos')
+      .update({ folder_id: folderId })
+      .eq('id', documentId);
+    if (error) throw error;
+    await fetchResidents();
+    if (selectedResident?.id === residentId) await refreshSelectedResidentDetail(residentId);
   };
 
   const handleAddFinancialRecord = async (newRecord: FinancialRecord) => {
@@ -1558,6 +1605,10 @@ function AppInner() {
             rooms={rooms}
             onBack={() => navigateTo(ViewState.RESIDENTS)}
             onUpdateResident={handleUpdateResident}
+            onCreateFolder={handleCreateDocumentFolder}
+            onRenameFolder={handleRenameDocumentFolder}
+            onDeleteFolder={handleDeleteDocumentFolder}
+            onMoveDocument={handleMoveResidentDocument}
           />
         );
       case ViewState.AGENDA:
