@@ -116,6 +116,13 @@ function AppInner() {
   const [subscriptionModalOpen, setSubscriptionModalOpen] = useState(false);
   const [currentView, setCurrentView] = useState<ViewState>(ViewState.DASHBOARD);
   const [selectedResident, setSelectedResident] = useState<Resident | null>(null);
+  // Full clinical history (vitals, checklists, documents, audit trail,
+  // visits, prescriptions) for the ONE resident whose profile is currently
+  // open. `residents` only carries the lightweight summary now, so this is
+  // hydrated lazily (see effect below) instead of being loaded for everyone
+  // up front — that's what used to blow past Postgres' statement_timeout.
+  const [selectedResidentDetail, setSelectedResidentDetail] = useState<Resident | null>(null);
+  const [portalResidentDetail, setPortalResidentDetail] = useState<Resident | null>(null);
   const [dataLoaded, setDataLoaded] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -167,7 +174,7 @@ function AppInner() {
   const fetchResidents = async () => {
     if (!currentUser?.empresaId) return;
     try {
-      const mapped = await dataService.fetchResidents(currentUser.empresaId);
+      const mapped = await dataService.fetchResidentsSummary(currentUser.empresaId);
       setResidents(mapped);
       setDataLoaded(true);
       if (selectedResident) {
@@ -178,6 +185,43 @@ function AppInner() {
       console.error('Erro ao buscar residentes:', err);
     }
   };
+
+  const refreshSelectedResidentDetail = async (residentId: string) => {
+    try {
+      const detail = await dataService.fetchResidentDetails(residentId);
+      setSelectedResidentDetail(detail);
+    } catch (err) {
+      console.error('Erro ao buscar detalhes do residente:', err);
+    }
+  };
+
+  // Hydrate the full clinical history only when a resident's profile is
+  // actually opened (id changes) — not on every unrelated refresh of the
+  // lightweight `residents` list, which keeps the same id but a new object
+  // reference every time it reloads.
+  useEffect(() => {
+    if (selectedResident) {
+      refreshSelectedResidentDetail(selectedResident.id);
+    } else {
+      setSelectedResidentDetail(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedResident?.id]);
+
+  // Family/legal-guardian portal: only ever needs the one resident tied to
+  // the logged-in "Responsável" account, so fetch that resident's full
+  // detail directly instead of loading every resident's history.
+  useEffect(() => {
+    if (currentUser?.profile.type === 'Responsável' && currentUser.residentId) {
+      dataService.fetchResidentDetails(currentUser.residentId)
+        .then(setPortalResidentDetail)
+        .catch(err => console.error('Erro ao buscar detalhes do residente (portal):', err));
+    }
+  }, [currentUser?.profile.type, currentUser?.residentId]);
+
+  const residentForProfile = selectedResidentDetail && selectedResident && selectedResidentDetail.id === selectedResident.id
+    ? selectedResidentDetail
+    : selectedResident;
 
   const fetchFinancials = async () => {
     if (!currentUser?.empresaId) return;
@@ -774,10 +818,18 @@ function AppInner() {
 
       // 5. Receitas Médicas
       if (updated.prescriptions !== undefined) {
-        const originalResident = residents.find(r => r.id === updated.id);
-        const originalPrescriptions = originalResident?.prescriptions || [];
+        // Prescriptions are no longer part of the lightweight resident list
+        // state (see fetchResidentsSummary), so check what's currently in
+        // the database directly instead of diffing against client state —
+        // this is also more correct than the old approach, since it can't
+        // go stale/incomplete depending on what happened to be loaded.
+        const { data: existingPrescriptions, error: existingPrescError } = await supabase
+          .from('Recanto_Receitas')
+          .select('id')
+          .eq('resident_id', updated.id);
+        if (existingPrescError) throw existingPrescError;
         const updatedIds = updated.prescriptions.map(p => p.id);
-        const deletedPrescriptions = originalPrescriptions.filter(p => !updatedIds.includes(p.id));
+        const deletedPrescriptions = (existingPrescriptions || []).filter(p => !updatedIds.includes(p.id));
         for (const dp of deletedPrescriptions) {
           await supabase.from('Recanto_Receitas').delete().eq('id', dp.id);
         }
@@ -1004,18 +1056,23 @@ function AppInner() {
 
       // 11. Visitas
       if (updated.visits) {
-        // Excluir visitas removidas no front-end
-        const originalResident = residents.find(r => r.id === updated.id);
-        if (originalResident && originalResident.visits) {
-          const updatedVisitIds = updated.visits.map(v => v.id);
-          const deletedVisits = originalResident.visits.filter(v => !updatedVisitIds.includes(v.id));
-          for (const dVisit of deletedVisits) {
-            if (dVisit.id.length >= 15) {
-              await supabase
-                .from('Recanto_Visitas')
-                .delete()
-                .eq('id', dVisit.id);
-            }
+        // Excluir visitas removidas no front-end. Visits are no longer part
+        // of the lightweight resident list state, so check the database
+        // directly for what currently exists instead of diffing against
+        // client state.
+        const { data: existingVisits, error: existingVisitsError } = await supabase
+          .from('Recanto_Visitas')
+          .select('id')
+          .eq('resident_id', updated.id);
+        if (existingVisitsError) throw existingVisitsError;
+        const updatedVisitIds = updated.visits.map(v => v.id);
+        const deletedVisits = (existingVisits || []).filter(v => !updatedVisitIds.includes(v.id));
+        for (const dVisit of deletedVisits) {
+          if (dVisit.id.length >= 15) {
+            await supabase
+              .from('Recanto_Visitas')
+              .delete()
+              .eq('id', dVisit.id);
           }
         }
 
@@ -1040,17 +1097,22 @@ function AppInner() {
 
       // 12. Glicemia
       if (updated.glucoseReadings) {
-        const originalResident = residents.find(r => r.id === updated.id);
-        if (originalResident && originalResident.glucoseReadings) {
-          const updatedGlicemiaIds = updated.glucoseReadings.map(g => g.id);
-          const deletedGlicemia = originalResident.glucoseReadings.filter(g => !updatedGlicemiaIds.includes(g.id));
-          for (const dG of deletedGlicemia) {
-            if (dG.id.length >= 15) {
-              await supabase
-                .from('Recanto_Glicemia')
-                .delete()
-                .eq('id', dG.id);
-            }
+        // Glucose readings are no longer part of the lightweight resident
+        // list state, so check the database directly for what currently
+        // exists instead of diffing against client state.
+        const { data: existingGlicemia, error: existingGlicemiaError } = await supabase
+          .from('Recanto_Glicemia')
+          .select('id')
+          .eq('resident_id', updated.id);
+        if (existingGlicemiaError) throw existingGlicemiaError;
+        const updatedGlicemiaIds = updated.glucoseReadings.map(g => g.id);
+        const deletedGlicemia = (existingGlicemia || []).filter(g => !updatedGlicemiaIds.includes(g.id));
+        for (const dG of deletedGlicemia) {
+          if (dG.id.length >= 15) {
+            await supabase
+              .from('Recanto_Glicemia')
+              .delete()
+              .eq('id', dG.id);
           }
         }
 
@@ -1093,6 +1155,13 @@ function AppInner() {
       }
 
       await fetchResidents();
+      // The summary refresh above doesn't carry the heavy fields, so
+      // re-hydrate this resident's full detail explicitly if their profile
+      // is the one currently open — the id-based effect won't refire since
+      // the id itself didn't change.
+      if (selectedResident?.id === updated.id) {
+        await refreshSelectedResidentDetail(updated.id);
+      }
     } catch (err) {
       console.error('Error updating resident:', err);
       toast.error('Erro ao atualizar dados do residente no servidor.');
@@ -1485,7 +1554,7 @@ function AppInner() {
         );
         return (
           <ResidentProfile
-            resident={selectedResident}
+            resident={residentForProfile}
             rooms={rooms}
             onBack={() => navigateTo(ViewState.RESIDENTS)}
             onUpdateResident={handleUpdateResident}
@@ -1611,7 +1680,10 @@ function AppInner() {
 
   // Responsável: portal simplificado
   if (currentUser.profile.type === 'Responsável') {
-    const resident = residents.find(r => r.id === currentUser.residentId);
+    const summaryResident = residents.find(r => r.id === currentUser.residentId);
+    const resident = portalResidentDetail && portalResidentDetail.id === currentUser.residentId
+      ? portalResidentDetail
+      : summaryResident;
     return <ResidentPortal resident={resident} events={events} />;
   }
 
