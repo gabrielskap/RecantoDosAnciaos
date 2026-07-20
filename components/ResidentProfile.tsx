@@ -4,13 +4,13 @@ import {
   Thermometer, Heart, CheckCircle, PenTool, ShieldCheck,
   ClipboardList, History, Plus, User, Clock, File, Paperclip, CalendarCheck, AlertOctagon,
   BedDouble, Home, Wrench, PaintRoller, Edit2, X, Phone, FileHeart, Trash2, Users, Camera, Sun, Moon,
-  Key, Printer, Upload, Wind, UserCheck, Droplet, Syringe,
+  Key, Printer, Upload, Wind, UserCheck, Droplet, Syringe, Check,
   Folder, FolderPlus, FolderOpen, ChevronDown, ChevronRight
 } from 'lucide-react';
-import { Resident, CarePlan, AuditLog, DailyChecklist, Medication, ResidentPrescriptionRecord, RoomStatus, Room, ViewState, GlucoseReading, GlicemiaMomento, DocumentFolder, ResidentDocument } from '../types';
+import { Resident, CarePlan, AuditLog, DailyChecklist, Medication, ResidentPrescriptionRecord, RoomStatus, Room, ViewState, GlucoseReading, GlicemiaMomento, DocumentFolder, ResidentDocument, INSULINA_TIPO_OPTIONS } from '../types';
 import { residentAvatarSrc } from '../lib/avatar';
 import { toast } from '../services/toast';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import CustomSelect from './CustomSelect';
 import { useAuth } from '../contexts/AuthContext';
 import { compressImage, uploadResidentPhoto, uploadPrescriptionDocument, uploadResidentDocument, supabase } from '../services/supabaseClient';
@@ -41,6 +41,95 @@ export const GLICEMIA_MOMENTO_OPTIONS: { value: GlicemiaMomento; label: string }
   { value: 'madrugada', label: 'Madrugada' },
   { value: 'outro', label: 'Outro' }
 ];
+
+// Limiares gerais usados como linhas de referência nos gráficos (a classificação exata por
+// medição, exibida nos badges e na tabela, considera o momento — ver classifyGlicemia).
+export const GLICEMIA_HIPO_LIMIT = 70;
+export const GLICEMIA_HIPER_LIMIT = 180;
+
+// Anel azul desenhado atrás do ponto sempre que insulina foi aplicada naquela medição —
+// permite correlacionar visualmente o horário da dose com o horário do pico de glicemia.
+const InsulinRing = ({ cx, cy }: { cx: number; cy: number }) => (
+  <circle cx={cx} cy={cy} r={8} fill="none" stroke="#0ea5e9" strokeWidth={1.75} />
+);
+
+// Dots customizados que destacam, em cada gráfico dedicado, os pontos que ultrapassam o limiar.
+const HipoDot = (props: any) => {
+  const { cx, cy, index, payload } = props;
+  if (cx == null || cy == null) return null;
+  const isOut = payload.value < GLICEMIA_HIPO_LIMIT;
+  return (
+    <g key={`hipo-dot-${index}`}>
+      {payload.insulinApplied && <InsulinRing cx={cx} cy={cy} />}
+      <circle cx={cx} cy={cy} r={isOut ? 5 : 3} fill={isOut ? '#e11d48' : '#fda4af'} stroke="#fff" strokeWidth={1} />
+    </g>
+  );
+};
+
+const HiperDot = (props: any) => {
+  const { cx, cy, index, payload } = props;
+  if (cx == null || cy == null) return null;
+  const isOut = payload.value >= GLICEMIA_HIPER_LIMIT;
+  return (
+    <g key={`hiper-dot-${index}`}>
+      {payload.insulinApplied && <InsulinRing cx={cx} cy={cy} />}
+      <circle cx={cx} cy={cy} r={isOut ? 5 : 3} fill={isOut ? '#d97706' : '#fcd34d'} stroke="#fff" strokeWidth={1} />
+    </g>
+  );
+};
+
+const GlicemiaDot = (props: any) => {
+  const { cx, cy, index, payload } = props;
+  if (cx == null || cy == null) return null;
+  return (
+    <g key={`glicemia-dot-${index}`}>
+      {payload.insulinApplied && <InsulinRing cx={cx} cy={cy} />}
+      <circle cx={cx} cy={cy} r={3} fill="#e11d48" stroke="#fff" strokeWidth={1} />
+    </g>
+  );
+};
+
+// Faixas de horário do dia usadas para revelar padrões recorrentes (ex.: hipoglicemia sempre
+// por volta das 7h) nos painéis dos gráficos de Hipoglicemias/Hiperglicemias.
+const GLICEMIA_HOUR_BUCKETS = [
+  { label: '00h–04h', start: 0, end: 4 },
+  { label: '04h–08h', start: 4, end: 8 },
+  { label: '08h–12h', start: 8, end: 12 },
+  { label: '12h–16h', start: 12, end: 16 },
+  { label: '16h–20h', start: 16, end: 20 },
+  { label: '20h–24h', start: 20, end: 24 },
+];
+
+export const bucketReadingsByHour = (readings: GlucoseReading[]) =>
+  GLICEMIA_HOUR_BUCKETS.map(b => ({
+    ...b,
+    count: readings.filter(r => {
+      const h = new Date(r.timestamp).getHours();
+      return h >= b.start && h < b.end;
+    }).length
+  }));
+
+// Tooltip compartilhado pelos 3 gráficos de glicemia: mostra o horário real, o momento da
+// medição e, quando houve aplicação de insulina, a dose/tipo aplicados naquele horário.
+const GlicemiaTooltip = ({ active, payload, label }: any) => {
+  if (!active || !payload || payload.length === 0) return null;
+  const reading: GlucoseReading = payload[0].payload;
+  return (
+    <div className="bg-white rounded-lg border border-slate-200 shadow-sm px-3 py-2 text-xs">
+      <p className="font-semibold text-slate-700 mb-1">{label}</p>
+      <p className="text-slate-600">
+        <span className="font-bold text-rose-600">{reading.value} mg/dL</span>
+        {' '}· {GLICEMIA_MOMENTO_LABELS[reading.moment]}
+      </p>
+      {reading.insulinApplied && (
+        <p className="text-sky-600 font-medium mt-1">
+          Insulina: {reading.insulinUnits ? `${reading.insulinUnits} UI` : 'aplicada'}
+          {reading.insulinType ? ` — ${reading.insulinType}` : ''}
+        </p>
+      )}
+    </div>
+  );
+};
 
 export const classifyGlicemia = (value: number, moment: GlicemiaMomento): { label: string; badgeClass: string } => {
   if (value < 70) {
@@ -372,6 +461,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     moment: 'jejum' as GlicemiaMomento,
     insulinApplied: false,
     insulinUnits: '',
+    insulinType: '',
     notes: ''
   });
   const [glicemiaToDelete, setGlicemiaToDelete] = useState<string | null>(null);
@@ -562,6 +652,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
         moment: reading.moment,
         insulinApplied: reading.insulinApplied || false,
         insulinUnits: reading.insulinUnits != null ? String(reading.insulinUnits) : '',
+        insulinType: reading.insulinType || '',
         notes: reading.notes || ''
       });
     } else {
@@ -572,6 +663,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
         moment: 'jejum',
         insulinApplied: false,
         insulinUnits: '',
+        insulinType: '',
         notes: ''
       });
     }
@@ -597,6 +689,9 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
       insulinApplied: glicemiaFormData.insulinApplied,
       insulinUnits: glicemiaFormData.insulinApplied && glicemiaFormData.insulinUnits
         ? parseFloat(glicemiaFormData.insulinUnits)
+        : undefined,
+      insulinType: glicemiaFormData.insulinApplied && glicemiaFormData.insulinType
+        ? glicemiaFormData.insulinType
         : undefined,
       notes: glicemiaFormData.notes || undefined
     };
@@ -4096,6 +4191,10 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
             const last30 = sortedReadings.filter(r => new Date(r.timestamp) >= thirtyDaysAgo);
             const hipoCount30 = last30.filter(r => r.value < 70).length;
             const hiperCount30 = last30.filter(r => classifyGlicemia(r.value, r.moment).label === 'Hiperglicemia').length;
+            const hipoBuckets = bucketReadingsByHour(last30.filter(r => r.value < GLICEMIA_HIPO_LIMIT));
+            const hiperBuckets = bucketReadingsByHour(last30.filter(r => classifyGlicemia(r.value, r.moment).label === 'Hiperglicemia'));
+            const hipoMaxBucket = Math.max(1, ...hipoBuckets.map(b => b.count));
+            const hiperMaxBucket = Math.max(1, ...hiperBuckets.map(b => b.count));
 
             const chartData = [...(resident.glucoseReadings || [])]
               .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
@@ -4104,9 +4203,12 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                 const d = new Date(r.timestamp);
                 return {
                   ...r,
-                  formattedDate: d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) + ' ' + GLICEMIA_MOMENTO_LABELS[r.moment].slice(0, 3)
+                  formattedDate: d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+                    + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
                 };
               });
+
+            const xAxisInterval = chartData.length > 6 ? Math.ceil(chartData.length / 6) - 1 : 0;
 
             const getWeekMonday = (dt: Date) => {
               const temp = new Date(dt);
@@ -4189,26 +4291,128 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                   </div>
                 </div>
 
-                <div className="h-64 w-full bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                  <h4 className="text-sm font-semibold text-slate-700 mb-4">Histórico de Glicemia (últimas medições)</h4>
-                  {chartData.length > 0 ? (
-                    <ResponsiveContainer width="100%" height="90%">
-                      <LineChart data={chartData}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                        <XAxis dataKey="formattedDate" stroke="#94a3b8" fontSize={11} />
-                        <YAxis stroke="#94a3b8" fontSize={11} domain={[40, 300]} />
-                        <Tooltip
-                          contentStyle={{ backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #e2e8f0' }}
-                          formatter={(value: any, _name: any, props: any) => [`${value} mg/dL`, GLICEMIA_MOMENTO_LABELS[props.payload.moment as GlicemiaMomento]]}
-                        />
-                        <Line type="monotone" dataKey="value" stroke="#e11d48" strokeWidth={2.5} dot={{ r: 4 }} activeDot={{ r: 6 }} name="Glicemia (mg/dL)" />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  ) : (
-                    <div className="h-4/5 flex items-center justify-center border border-dashed border-slate-200 rounded-lg p-6 text-slate-400 text-xs italic">
-                      Nenhum registro de glicemia encontrado para este residente.
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
+                  <div className="h-72 w-full bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col">
+                    <h4 className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+                      <Droplet className="h-3.5 w-3.5 text-rose-500" /> Histórico de Glicemia
+                    </h4>
+                    <p className="text-[11px] text-slate-400 mb-2">Últimas medições · horário real</p>
+                    <div className="flex-1 min-h-0">
+                      {chartData.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart data={chartData} margin={{ top: 5, right: 8, left: 0, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                            <XAxis dataKey="formattedDate" stroke="#94a3b8" fontSize={10} interval={xAxisInterval} />
+                            <YAxis stroke="#94a3b8" fontSize={11} domain={[40, 300]} width={32} />
+                            <Tooltip content={<GlicemiaTooltip />} />
+                            <Line type="monotone" dataKey="value" stroke="#e11d48" strokeWidth={2.5} dot={GlicemiaDot} activeDot={{ r: 6 }} name="Glicemia (mg/dL)" />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="h-full flex items-center justify-center border border-dashed border-slate-200 rounded-lg p-4 text-slate-400 text-[11px] italic text-center">
+                          Nenhum registro de glicemia encontrado para este residente.
+                        </div>
+                      )}
                     </div>
-                  )}
+                  </div>
+
+                  <div className="w-full bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col">
+                    <h4 className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+                      <AlertOctagon className="h-3.5 w-3.5 text-rose-500" /> Hipoglicemias
+                    </h4>
+                    <p className="text-[11px] text-slate-400 mb-2">Limite: {'<'} {GLICEMIA_HIPO_LIMIT} mg/dL</p>
+                    <div className="h-40 shrink-0">
+                      {chartData.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart data={chartData} margin={{ top: 5, right: 8, left: 0, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                            <XAxis dataKey="formattedDate" stroke="#94a3b8" fontSize={10} interval={xAxisInterval} />
+                            <YAxis stroke="#94a3b8" fontSize={11} domain={[40, 300]} width={32} />
+                            <Tooltip content={<GlicemiaTooltip />} />
+                            <ReferenceLine
+                              y={GLICEMIA_HIPO_LIMIT}
+                              stroke="#f43f5e"
+                              strokeWidth={1.5}
+                              strokeDasharray="5 4"
+                              label={{ value: `${GLICEMIA_HIPO_LIMIT} mg/dL`, position: 'insideBottomLeft', fill: '#f43f5e', fontSize: 10 }}
+                            />
+                            <Line type="monotone" dataKey="value" stroke="#fda4af" strokeWidth={2} dot={HipoDot} activeDot={{ r: 6 }} name="Glicemia (mg/dL)" />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="h-full flex items-center justify-center border border-dashed border-slate-200 rounded-lg p-4 text-slate-400 text-[11px] italic text-center">
+                          Nenhum registro de glicemia encontrado para este residente.
+                        </div>
+                      )}
+                    </div>
+                    <div className="mt-3 pt-3 border-t border-slate-100">
+                      <p className="text-[11px] font-semibold text-slate-500 mb-2">Horários mais frequentes (30 dias)</p>
+                      {hipoCount30 > 0 ? (
+                        <div className="space-y-1">
+                          {hipoBuckets.map(b => (
+                            <div key={b.label} className="flex items-center gap-2">
+                              <span className="text-[10px] text-slate-500 w-12 shrink-0">{b.label}</span>
+                              <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
+                                <div className="h-full bg-rose-400 rounded-full" style={{ width: `${(b.count / hipoMaxBucket) * 100}%` }} />
+                              </div>
+                              <span className="text-[10px] text-slate-500 w-4 text-right shrink-0">{b.count}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-[11px] text-slate-400 italic">Nenhuma hipoglicemia nos últimos 30 dias.</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="w-full bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col">
+                    <h4 className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+                      <AlertOctagon className="h-3.5 w-3.5 text-amber-500" /> Hiperglicemias
+                    </h4>
+                    <p className="text-[11px] text-slate-400 mb-2">Limite: {'≥'} {GLICEMIA_HIPER_LIMIT} mg/dL</p>
+                    <div className="h-40 shrink-0">
+                      {chartData.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart data={chartData} margin={{ top: 5, right: 8, left: 0, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                            <XAxis dataKey="formattedDate" stroke="#94a3b8" fontSize={10} interval={xAxisInterval} />
+                            <YAxis stroke="#94a3b8" fontSize={11} domain={[40, 300]} width={32} />
+                            <Tooltip content={<GlicemiaTooltip />} />
+                            <ReferenceLine
+                              y={GLICEMIA_HIPER_LIMIT}
+                              stroke="#f59e0b"
+                              strokeWidth={1.5}
+                              strokeDasharray="5 4"
+                              label={{ value: `${GLICEMIA_HIPER_LIMIT} mg/dL`, position: 'insideTopLeft', fill: '#f59e0b', fontSize: 10 }}
+                            />
+                            <Line type="monotone" dataKey="value" stroke="#fcd34d" strokeWidth={2} dot={HiperDot} activeDot={{ r: 6 }} name="Glicemia (mg/dL)" />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="h-full flex items-center justify-center border border-dashed border-slate-200 rounded-lg p-4 text-slate-400 text-[11px] italic text-center">
+                          Nenhum registro de glicemia encontrado para este residente.
+                        </div>
+                      )}
+                    </div>
+                    <div className="mt-3 pt-3 border-t border-slate-100">
+                      <p className="text-[11px] font-semibold text-slate-500 mb-2">Horários mais frequentes (30 dias)</p>
+                      {hiperCount30 > 0 ? (
+                        <div className="space-y-1">
+                          {hiperBuckets.map(b => (
+                            <div key={b.label} className="flex items-center gap-2">
+                              <span className="text-[10px] text-slate-500 w-12 shrink-0">{b.label}</span>
+                              <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
+                                <div className="h-full bg-amber-400 rounded-full" style={{ width: `${(b.count / hiperMaxBucket) * 100}%` }} />
+                              </div>
+                              <span className="text-[10px] text-slate-500 w-4 text-right shrink-0">{b.count}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-[11px] text-slate-400 italic">Nenhuma hiperglicemia nos últimos 30 dias.</p>
+                      )}
+                    </div>
+                  </div>
                 </div>
 
                 <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-4">
@@ -4338,10 +4542,17 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                                 <td className="px-4 py-3 text-xs text-slate-600">{GLICEMIA_MOMENTO_LABELS[reading.moment]}</td>
                                 <td className="px-4 py-3 text-xs text-slate-600">
                                   {reading.insulinApplied ? (
-                                    <span className="inline-flex items-center gap-1">
-                                      <Syringe className="h-3 w-3 text-sky-500" />
-                                      {reading.insulinUnits ? `${reading.insulinUnits} un.` : 'Sim'}
-                                    </span>
+                                    <div className="flex flex-col gap-0.5">
+                                      <span className="inline-flex items-center gap-1 font-semibold text-slate-700">
+                                        <Syringe className="h-3.5 w-3.5 text-sky-500 shrink-0" />
+                                        {reading.insulinUnits ? `${reading.insulinUnits} UI` : 'Sim'}
+                                      </span>
+                                      {reading.insulinType && (
+                                        <span className="inline-block text-[10px] text-sky-700 bg-sky-50 px-1.5 py-0.5 rounded border border-sky-100 font-medium w-fit">
+                                          {reading.insulinType}
+                                        </span>
+                                      )}
+                                    </div>
                                   ) : '—'}
                                 </td>
                                 <td className="px-4 py-3 text-xs text-slate-500 max-w-xs truncate">{reading.notes || '—'}</td>
@@ -4423,22 +4634,73 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                             type="checkbox"
                             id="glicemia-insulin"
                             checked={glicemiaFormData.insulinApplied}
-                            onChange={e => setGlicemiaFormData({ ...glicemiaFormData, insulinApplied: e.target.checked })}
-                            className="h-4 w-4 rounded border-slate-300"
+                            onChange={e => setGlicemiaFormData({
+                              ...glicemiaFormData,
+                              insulinApplied: e.target.checked,
+                              insulinUnits: e.target.checked ? glicemiaFormData.insulinUnits : '',
+                              insulinType: e.target.checked ? glicemiaFormData.insulinType : ''
+                            })}
+                            className="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 cursor-pointer"
                           />
-                          <label htmlFor="glicemia-insulin" className="text-xs font-semibold text-slate-600">Insulina aplicada</label>
+                          <label htmlFor="glicemia-insulin" className="text-xs font-semibold text-slate-700 cursor-pointer">
+                            Insulina aplicada
+                          </label>
                         </div>
                         {glicemiaFormData.insulinApplied && (
-                          <div>
-                            <label className="block text-xs font-semibold text-slate-600 mb-1">Unidades de Insulina</label>
-                            <input
-                              type="number"
-                              step="0.5"
-                              min={0}
-                              value={glicemiaFormData.insulinUnits}
-                              onChange={e => setGlicemiaFormData({ ...glicemiaFormData, insulinUnits: e.target.value })}
-                              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
-                            />
+                          <div className="space-y-3.5 p-3.5 bg-slate-50/80 rounded-xl border border-slate-200/80">
+                            <div>
+                              <label className="block text-xs font-semibold text-slate-700 mb-2">
+                                Tipo de Insulina
+                              </label>
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                {INSULINA_TIPO_OPTIONS.map((opt) => {
+                                  const isSelected = glicemiaFormData.insulinType === opt.value;
+                                  return (
+                                    <button
+                                      key={opt.value}
+                                      type="button"
+                                      onClick={() => setGlicemiaFormData(prev => ({
+                                        ...prev,
+                                        insulinType: isSelected ? '' : opt.value
+                                      }))}
+                                      className={`p-2.5 rounded-xl border text-left transition-all duration-150 flex flex-col justify-between cursor-pointer ${
+                                        isSelected
+                                          ? 'border-primary-600 bg-primary-50/80 text-primary-900 shadow-xs ring-2 ring-primary-500/20'
+                                          : 'border-slate-200 hover:border-slate-300 bg-white text-slate-700 hover:bg-slate-100/60'
+                                      }`}
+                                    >
+                                      <div className="flex items-start justify-between gap-1 mb-1">
+                                        <span className="text-[11px] font-bold tracking-tight text-slate-800 leading-snug">
+                                          {opt.label}
+                                        </span>
+                                        <div className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center shrink-0 mt-0.5 ${
+                                          isSelected ? 'border-primary-600 bg-primary-600 text-white' : 'border-slate-300 bg-white'
+                                        }`}>
+                                          {isSelected && <Check className="w-2.5 h-2.5 stroke-[3]" />}
+                                        </div>
+                                      </div>
+                                      <span className="text-[10px] text-slate-500 block leading-tight font-normal">
+                                        {opt.description}
+                                      </span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                            <div>
+                              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                                Unidades de Insulina (UI)
+                              </label>
+                              <input
+                                type="number"
+                                step="0.5"
+                                min={0}
+                                placeholder="Ex: 4"
+                                value={glicemiaFormData.insulinUnits}
+                                onChange={e => setGlicemiaFormData({ ...glicemiaFormData, insulinUnits: e.target.value })}
+                                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500"
+                              />
+                            </div>
                           </div>
                         )}
                         <div>

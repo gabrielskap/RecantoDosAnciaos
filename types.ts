@@ -40,6 +40,14 @@ export interface VitalSign {
 
 export type GlicemiaMomento = 'jejum' | 'pre_prandial' | 'pos_prandial' | 'madrugada' | 'outro';
 
+export type InsulinType = 'INSULINA FIXA NPH' | 'INSULINA REGULAR' | 'INSULINA GLARGINA';
+
+export const INSULINA_TIPO_OPTIONS: { value: InsulinType; label: string; description: string }[] = [
+  { value: 'INSULINA FIXA NPH', label: 'INSULINA FIXA NPH', description: 'Ação Intermediária' },
+  { value: 'INSULINA REGULAR', label: 'INSULINA REGULAR', description: 'Ação Rápida' },
+  { value: 'INSULINA GLARGINA', label: 'INSULINA GLARGINA', description: 'Ação Prolongada (Basal)' }
+];
+
 export interface GlucoseReading {
   id: string;
   timestamp: string;
@@ -47,6 +55,7 @@ export interface GlucoseReading {
   moment: GlicemiaMomento;
   insulinApplied?: boolean;
   insulinUnits?: number;
+  insulinType?: InsulinType | string;
   notes?: string;
 }
 

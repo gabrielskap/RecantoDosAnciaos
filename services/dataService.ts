@@ -132,6 +132,7 @@ function mapResidentRow(r: any, heavy: ResidentHeavyData): Resident {
           moment: g.momento,
           insulinApplied: g.insulina_aplicada || false,
           insulinUnits: g.insulina_unidades != null ? parseFloat(g.insulina_unidades) : undefined,
+          insulinType: g.tipo_insulina || undefined,
           notes: g.observacoes || undefined
         }))
         .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()),

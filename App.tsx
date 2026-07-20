@@ -1131,6 +1131,7 @@ function AppInner() {
               momento: g.moment,
               insulina_aplicada: g.insulinApplied || false,
               insulina_unidades: g.insulinUnits ?? null,
+              tipo_insulina: g.insulinApplied ? (g.insulinType || null) : null,
               observacoes: g.notes || null
             });
         }
