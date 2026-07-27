@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Users, Calendar, Award, Shield, Plus, X, Search, CheckCircle, AlertOctagon, UserCheck, Edit, Trash2, ShieldAlert } from 'lucide-react';
+import { Users, Calendar, Award, Shield, Plus, X, Search, CheckCircle, AlertOctagon, UserCheck, Edit, Trash2, ShieldAlert, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Employee, TrainingRecord, SystemAccessLog, UserRole, Resident, ViewState } from '../types';
 import ProfileManager from './ProfileManager';
 import { useAuth } from '../contexts/AuthContext';
@@ -34,6 +34,8 @@ const TeamModule: React.FC<TeamModuleProps> = ({
   const isAdmin = currentUser?.profile.type === 'Administrador';
   const showUsersTab = hasPermission(ViewState.USERS, 'view');
   const [activeTab, setActiveTab] = useState<'employees' | 'users' | 'schedule' | 'training' | 'logs' | 'profiles'>('employees');
+  const [logsPage, setLogsPage] = useState(1);
+  const [logsItemsPerPage, setLogsItemsPerPage] = useState(10);
   const [isEmpModalOpen, setIsEmpModalOpen] = useState(() => {
     return localStorage.getItem('modal_team_emp_open') === 'true';
   });
@@ -580,50 +582,112 @@ const TeamModule: React.FC<TeamModuleProps> = ({
         )}
 
         {/* LOGS TAB */}
-        {activeTab === 'logs' && (
-           <div className="p-0">
-             <div className="p-6 bg-slate-50 border-b border-slate-200">
-               <div className="flex items-start gap-4">
-                 <div className="p-3 bg-blue-100 rounded-full text-blue-700">
-                   <Shield className="h-6 w-6" />
+        {activeTab === 'logs' && (() => {
+           const totalLogs = accessLogs.length;
+           const totalPages = Math.ceil(totalLogs / logsItemsPerPage) || 1;
+           const safePage = Math.min(logsPage, totalPages);
+           const startIdx = (safePage - 1) * logsItemsPerPage;
+           const endIdx = startIdx + logsItemsPerPage;
+           const paginatedAccessLogs = accessLogs.slice(startIdx, endIdx);
+
+           return (
+             <div className="p-0">
+               <div className="p-6 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                 <div className="flex items-start gap-4">
+                   <div className="p-3 bg-blue-100 rounded-full text-blue-700">
+                     <Shield className="h-6 w-6" />
+                   </div>
+                   <div>
+                     <h3 className="text-lg font-bold text-slate-800">Auditoria de Acessos (LGPD)</h3>
+                     <p className="text-sm text-slate-600 max-w-2xl">
+                       Registro imutável de todas as ações sensíveis no sistema. O acesso a estes dados é restrito a Administradores.
+                     </p>
+                   </div>
                  </div>
-                 <div>
-                   <h3 className="text-lg font-bold text-slate-800">Auditoria de Acessos (LGPD)</h3>
-                   <p className="text-sm text-slate-600 max-w-2xl">
-                     Registro imutável de todas as ações sensíveis no sistema. O acesso a estes dados é restrito a Administradores.
-                   </p>
+                 <div className="text-xs font-semibold px-3 py-1.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg whitespace-nowrap">
+                   {totalLogs} registros no total
                  </div>
                </div>
-             </div>
-             <div className="overflow-x-auto">
-               <table className="w-full text-left text-xs text-slate-600 font-mono">
-                 <thead className="bg-slate-100 text-slate-700 font-semibold uppercase">
-                   <tr>
-                     <th className="px-6 py-3">Data/Hora</th>
-                     <th className="px-6 py-3">Usuário</th>
-                     <th className="px-6 py-3">Função</th>
-                     <th className="px-6 py-3">Ação</th>
-                     <th className="px-6 py-3">IP</th>
-                   </tr>
-                 </thead>
-                 <tbody className="divide-y divide-slate-100">
-                   {accessLogs.map((log) => (
-                     <tr key={log.id} className="hover:bg-slate-50">
-                       <td className="px-6 py-3 whitespace-nowrap">{new Date(log.timestamp).toLocaleString()}</td>
-                       <td className="px-6 py-3 font-medium text-slate-900">{log.userName}</td>
-                       <td className="px-6 py-3">{log.role}</td>
-                       <td className="px-6 py-3">
-                         <span className="px-2 py-0.5 bg-slate-200 rounded text-slate-700">{log.action}</span>
-                         {log.resource && <span className="ml-2 text-slate-400">({log.resource})</span>}
-                       </td>
-                       <td className="px-6 py-3">{log.ipAddress}</td>
+
+               <div className="overflow-x-auto">
+                 <table className="w-full text-left text-xs text-slate-600 font-mono">
+                   <thead className="bg-slate-100 text-slate-700 font-semibold uppercase">
+                     <tr>
+                       <th className="px-6 py-3">Data/Hora</th>
+                       <th className="px-6 py-3">Usuário</th>
+                       <th className="px-6 py-3">Função</th>
+                       <th className="px-6 py-3">Ação</th>
+                       <th className="px-6 py-3">IP</th>
                      </tr>
-                   ))}
-                 </tbody>
-               </table>
+                   </thead>
+                   <tbody className="divide-y divide-slate-100">
+                     {paginatedAccessLogs.map((log) => (
+                       <tr key={log.id} className="hover:bg-slate-50">
+                         <td className="px-6 py-3 whitespace-nowrap">{new Date(log.timestamp).toLocaleString()}</td>
+                         <td className="px-6 py-3 font-medium text-slate-900">{log.userName}</td>
+                         <td className="px-6 py-3">{log.role}</td>
+                         <td className="px-6 py-3">
+                           <span className="px-2 py-0.5 bg-slate-200 rounded text-slate-700">{log.action}</span>
+                           {log.resource && <span className="ml-2 text-slate-400">({log.resource})</span>}
+                         </td>
+                         <td className="px-6 py-3">{log.ipAddress}</td>
+                       </tr>
+                     ))}
+                   </tbody>
+                 </table>
+               </div>
+
+               {/* Controles de Paginação */}
+               {totalLogs > 0 && (
+                 <div className="p-4 flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-slate-200 bg-slate-50/50">
+                   <div className="text-xs text-slate-500">
+                     Exibindo <span className="font-semibold text-slate-700">{startIdx + 1}</span> a <span className="font-semibold text-slate-700">{Math.min(endIdx, totalLogs)}</span> de <span className="font-semibold text-slate-700">{totalLogs}</span> registros
+                   </div>
+                   <div className="flex items-center gap-3">
+                     <div className="flex items-center gap-1.5 text-xs text-slate-600">
+                       <span>Itens por página:</span>
+                       <select
+                         value={logsItemsPerPage}
+                         onChange={(e) => {
+                           setLogsItemsPerPage(Number(e.target.value));
+                           setLogsPage(1);
+                         }}
+                         className="px-2 py-1 bg-white border border-slate-300 rounded text-xs focus:ring-1 focus:ring-primary-500"
+                       >
+                         <option value={5}>5</option>
+                         <option value={10}>10</option>
+                         <option value={20}>20</option>
+                         <option value={50}>50</option>
+                       </select>
+                     </div>
+
+                     <div className="flex items-center gap-1">
+                       <button
+                         onClick={() => setLogsPage(p => Math.max(1, p - 1))}
+                         disabled={safePage <= 1}
+                         className="p-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed text-slate-600 transition-colors cursor-pointer"
+                         title="Página Anterior"
+                       >
+                         <ChevronLeft className="h-4 w-4" />
+                       </button>
+                       <span className="px-3 py-1 text-xs font-medium text-slate-700">
+                         Página {safePage} de {totalPages}
+                       </span>
+                       <button
+                         onClick={() => setLogsPage(p => Math.min(totalPages, p + 1))}
+                         disabled={safePage >= totalPages}
+                         className="p-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed text-slate-600 transition-colors cursor-pointer"
+                         title="Próxima Página"
+                       >
+                         <ChevronRight className="h-4 w-4" />
+                       </button>
+                     </div>
+                   </div>
+                 </div>
+               )}
              </div>
-           </div>
-         )}
+           );
+        })()}
 
         {/* PROFILES TAB */}
         {activeTab === 'profiles' && isAdmin && (

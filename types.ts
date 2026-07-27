@@ -253,6 +253,13 @@ export interface Resident {
   auditLogs: AuditLog[];
   visits: Visit[];
 
+  // True only when this object came from fetchResidentDetails (full clinical
+  // history). The lightweight fetchResidentsSummary() result leaves this
+  // false/undefined and always sends prescriptions/visits/glucoseReadings as
+  // [] — handleUpdateResident must never treat that [] as "user deleted
+  // everything" or it wipes real rows out of the database.
+  isDetailLoaded?: boolean;
+
   // Nutrition
   dietPlan?: DietPlan;
   nutritionalLogs?: NutritionalLog[];

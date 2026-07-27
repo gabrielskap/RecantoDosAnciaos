@@ -820,7 +820,11 @@ function AppInner() {
       }
 
       // 5. Receitas Médicas
-      if (updated.prescriptions !== undefined) {
+      // Only sync when `updated` came from fetchResidentDetails (full
+      // clinical history). The lightweight summary always sends
+      // prescriptions as [], and diffing that against the database would
+      // delete every real prescription the resident has.
+      if (updated.isDetailLoaded && updated.prescriptions !== undefined) {
         // Prescriptions are no longer part of the lightweight resident list
         // state (see fetchResidentsSummary), so check what's currently in
         // the database directly instead of diffing against client state —
@@ -1058,7 +1062,10 @@ function AppInner() {
       }
 
       // 11. Visitas
-      if (updated.visits) {
+      // Guarded by isDetailLoaded for the same reason as prescriptions/glicemia
+      // below: the lightweight summary always sends visits as [], and that
+      // must never be read as "the user deleted all visits".
+      if (updated.isDetailLoaded && updated.visits) {
         // Excluir visitas removidas no front-end. Visits are no longer part
         // of the lightweight resident list state, so check the database
         // directly for what currently exists instead of diffing against
@@ -1099,7 +1106,13 @@ function AppInner() {
       }
 
       // 12. Glicemia
-      if (updated.glucoseReadings) {
+      // Guarded by isDetailLoaded: the lightweight resident summary always
+      // sends glucoseReadings as [] (see fetchResidentsSummary). Without this
+      // guard, any onUpdateResident call that fires before this resident's
+      // full detail has been hydrated (e.g. editing Cadastro right after
+      // opening the profile) would diff against that empty array and delete
+      // every real glucose reading in the database.
+      if (updated.isDetailLoaded && updated.glucoseReadings) {
         // Glucose readings are no longer part of the lightweight resident
         // list state, so check the database directly for what currently
         // exists instead of diffing against client state.

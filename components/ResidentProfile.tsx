@@ -5,7 +5,7 @@ import {
   ClipboardList, History, Plus, User, Clock, File, Paperclip, CalendarCheck, AlertOctagon,
   BedDouble, Home, Wrench, PaintRoller, Edit2, X, Phone, FileHeart, Trash2, Users, Camera, Sun, Moon,
   Key, Printer, Upload, Wind, UserCheck, Droplet, Syringe, Check,
-  Folder, FolderPlus, FolderOpen, ChevronDown, ChevronRight
+  Folder, FolderPlus, FolderOpen, ChevronDown, ChevronRight, ChevronLeft, Search
 } from 'lucide-react';
 import { Resident, CarePlan, AuditLog, DailyChecklist, Medication, ResidentPrescriptionRecord, RoomStatus, Room, ViewState, GlucoseReading, GlicemiaMomento, DocumentFolder, ResidentDocument, INSULINA_TIPO_OPTIONS } from '../types';
 import { residentAvatarSrc } from '../lib/avatar';
@@ -441,6 +441,24 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
   const [docToMove, setDocToMove] = useState<ResidentDocument | null>(null);
   const [moveFolderId, setMoveFolderId] = useState<string>('');
+
+  // Estados para Paginação e Filtros de Auditoria e Evoluções
+  const [auditLogPage, setAuditLogPage] = useState(1);
+  const [auditLogItemsPerPage, setAuditLogItemsPerPage] = useState(10);
+  const [auditSearchTerm, setAuditSearchTerm] = useState('');
+  const [auditDateFilter, setAuditDateFilter] = useState('');
+  const [auditActionFilter, setAuditActionFilter] = useState('all');
+
+  const [evolutionPage, setEvolutionPage] = useState(1);
+  const [evolutionItemsPerPage, setEvolutionItemsPerPage] = useState(10);
+
+  React.useEffect(() => {
+    setAuditLogPage(1);
+    setEvolutionPage(1);
+    setAuditSearchTerm('');
+    setAuditDateFilter('');
+    setAuditActionFilter('all');
+  }, [resident.id]);
 
   const [isVisitModalOpen, setIsVisitModalOpen] = useState(false);
   const [visitData, setVisitData] = useState({
@@ -6866,6 +6884,13 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
               .filter(log => log.action === 'Evolução')
               .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
+            const totalEvolutionItems = evolutionLogs.length;
+            const totalEvolutionPages = Math.ceil(totalEvolutionItems / evolutionItemsPerPage) || 1;
+            const safeEvolutionPage = Math.min(evolutionPage, totalEvolutionPages);
+            const startIdx = (safeEvolutionPage - 1) * evolutionItemsPerPage;
+            const endIdx = startIdx + evolutionItemsPerPage;
+            const paginatedEvolutionLogs = evolutionLogs.slice(startIdx, endIdx);
+
             return (
               <div className="space-y-4">
                  {hasPermission(ViewState.RESIDENT_DETAIL_EVOLUTION, 'create') && (
@@ -6887,26 +6912,75 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                     </div>
                   )}
                  {evolutionLogs.length > 0 ? (
-                   <div className="space-y-6 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-slate-300 before:to-transparent">
-                      {evolutionLogs.map((log, i) => (
-                        <div key={log.id} className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
-                            <div className="flex items-center justify-center w-10 h-10 rounded-full border border-white bg-slate-300 group-[.is-active]:bg-emerald-500 text-slate-500 group-[.is-active]:text-white shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2">
-                                <CheckCircle className="w-5 h-5" />
-                            </div>
-                            <div className="w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] p-4 rounded bg-white border border-slate-200 shadow-sm hover:shadow transition-shadow">
-                                <div className="flex items-center justify-between space-x-2 mb-1">
-                                    <div className="font-bold text-slate-900">{log.userName}</div>
-                                    <time className="font-medium text-slate-550 text-xs">
-                                      {new Date(log.timestamp).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
-                                      {', '}
-                                      {new Date(log.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                                    </time>
-                                </div>
-                                <div className="text-slate-600 text-sm whitespace-pre-wrap break-words">{log.details}</div>
-                            </div>
-                        </div>
-                      ))}
-                   </div>
+                   <>
+                     <div className="space-y-6 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-slate-300 before:to-transparent">
+                        {paginatedEvolutionLogs.map((log) => (
+                          <div key={log.id} className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
+                              <div className="flex items-center justify-center w-10 h-10 rounded-full border border-white bg-slate-300 group-[.is-active]:bg-emerald-500 text-slate-500 group-[.is-active]:text-white shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2">
+                                  <CheckCircle className="w-5 h-5" />
+                              </div>
+                              <div className="w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] p-4 rounded bg-white border border-slate-200 shadow-sm hover:shadow transition-shadow">
+                                  <div className="flex items-center justify-between space-x-2 mb-1">
+                                      <div className="font-bold text-slate-900">{log.userName}</div>
+                                      <time className="font-medium text-slate-550 text-xs">
+                                        {new Date(log.timestamp).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
+                                        {', '}
+                                        {new Date(log.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                                      </time>
+                                  </div>
+                                  <div className="text-slate-600 text-sm whitespace-pre-wrap break-words">{log.details}</div>
+                              </div>
+                          </div>
+                        ))}
+                     </div>
+
+                     {/* Controles de Paginação */}
+                     <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-slate-200 mt-6">
+                       <div className="text-xs text-slate-500">
+                         Exibindo <span className="font-semibold text-slate-700">{startIdx + 1}</span> a <span className="font-semibold text-slate-700">{Math.min(endIdx, totalEvolutionItems)}</span> de <span className="font-semibold text-slate-700">{totalEvolutionItems}</span> registros
+                       </div>
+                       <div className="flex items-center gap-3">
+                         <div className="flex items-center gap-1.5 text-xs text-slate-600">
+                           <span>Itens por página:</span>
+                           <select
+                             value={evolutionItemsPerPage}
+                             onChange={(e) => {
+                               setEvolutionItemsPerPage(Number(e.target.value));
+                               setEvolutionPage(1);
+                             }}
+                             className="px-2 py-1 bg-white border border-slate-300 rounded text-xs focus:ring-1 focus:ring-primary-500"
+                           >
+                             <option value={5}>5</option>
+                             <option value={10}>10</option>
+                             <option value={20}>20</option>
+                             <option value={50}>50</option>
+                           </select>
+                         </div>
+
+                         <div className="flex items-center gap-1">
+                           <button
+                             onClick={() => setEvolutionPage(p => Math.max(1, p - 1))}
+                             disabled={safeEvolutionPage <= 1}
+                             className="p-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed text-slate-600 transition-colors"
+                             title="Página Anterior"
+                           >
+                             <ChevronLeft className="h-4 w-4" />
+                           </button>
+                           <span className="px-3 py-1 text-xs font-medium text-slate-700">
+                             Página {safeEvolutionPage} de {totalEvolutionPages}
+                           </span>
+                           <button
+                             onClick={() => setEvolutionPage(p => Math.min(totalEvolutionPages, p + 1))}
+                             disabled={safeEvolutionPage >= totalEvolutionPages}
+                             className="p-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed text-slate-600 transition-colors"
+                             title="Próxima Página"
+                           >
+                             <ChevronRight className="h-4 w-4" />
+                           </button>
+                         </div>
+                       </div>
+                     </div>
+                   </>
                  ) : (
                    <div className="flex flex-col items-center justify-center py-12 px-4 border border-dashed border-slate-300 rounded-xl bg-slate-50/50 text-center gap-3">
                      <div className="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center">
@@ -6922,42 +6996,242 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
             );
           })()}
 
-          {activeTab === 'history' && (
-             <div className="space-y-4">
-                <h3 className="text-lg font-semibold text-slate-800 mb-4">Histórico de Auditoria</h3>
-                <div className="flow-root">
-                  <ul role="list" className="-mb-8">
-                    {(resident.auditLogs || []).map((log, logIdx) => (
-                      <li key={log.id}>
-                        <div className="relative pb-8">
-                          {logIdx !== (resident.auditLogs?.length || 0) - 1 ? (
-                            <span className="absolute top-4 left-4 -ml-px h-full w-0.5 bg-slate-200" aria-hidden="true" />
-                          ) : null}
-                          <div className="relative flex space-x-3">
-                            <div>
-                              <span className="h-8 w-8 rounded-full bg-slate-100 flex items-center justify-center ring-8 ring-white">
-                                <User className="h-4 w-4 text-slate-500" aria-hidden="true" />
-                              </span>
-                            </div>
-                            <div className="flex min-w-0 flex-1 justify-between space-x-4 pt-1.5">
-                              <div>
-                                <p className="text-sm text-slate-500">
-                                  <span className="font-medium text-slate-900">{log.action}</span> por <span className="font-medium text-slate-900">{log.userName}</span>
-                                </p>
-                                <p className="text-sm text-slate-600 mt-1">{log.details}</p>
+          {activeTab === 'history' && (() => {
+             const allRawLogs = (resident.auditLogs || [])
+               .slice()
+               .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+             const availableActions = Array.from(new Set(allRawLogs.map(l => l.action).filter(Boolean)));
+
+             const filteredLogs = allRawLogs.filter(log => {
+               if (auditActionFilter !== 'all' && log.action !== auditActionFilter) {
+                 return false;
+               }
+
+               if (auditDateFilter) {
+                 const logDateStr = new Date(log.timestamp).toISOString().slice(0, 10);
+                 if (logDateStr !== auditDateFilter) {
+                   return false;
+                 }
+               }
+
+               if (auditSearchTerm.trim()) {
+                 const term = auditSearchTerm.toLowerCase().trim();
+                 const formattedDate = new Date(log.timestamp).toLocaleString('pt-BR').toLowerCase();
+                 const userNameStr = (log.userName || '').toLowerCase();
+                 const actionStr = (log.action || '').toLowerCase();
+                 const detailsStr = (log.details || '').toLowerCase();
+
+                 const matches = userNameStr.includes(term) ||
+                                 actionStr.includes(term) ||
+                                 detailsStr.includes(term) ||
+                                 formattedDate.includes(term);
+
+                 if (!matches) return false;
+               }
+
+               return true;
+             });
+
+             const totalAuditLogs = filteredLogs.length;
+             const totalAuditPages = Math.ceil(totalAuditLogs / auditLogItemsPerPage) || 1;
+             const safeAuditPage = Math.min(auditLogPage, totalAuditPages);
+             const startIdx = (safeAuditPage - 1) * auditLogItemsPerPage;
+             const endIdx = startIdx + auditLogItemsPerPage;
+             const paginatedLogs = filteredLogs.slice(startIdx, endIdx);
+
+             return (
+               <div className="space-y-4">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-2">
+                    <div>
+                      <h3 className="text-lg font-semibold text-slate-800">Histórico de Auditoria</h3>
+                      <p className="text-xs text-slate-500">
+                        Registro de auditoria de ações e alterações realizadas no prontuário.
+                      </p>
+                    </div>
+                    <span className="text-xs font-semibold text-slate-600 bg-slate-100 border border-slate-200 px-3 py-1 rounded-full">
+                      {totalAuditLogs} {totalAuditLogs === 1 ? 'registro' : 'registros'}
+                    </span>
+                  </div>
+
+                  {/* Barra de Filtro e Pesquisa */}
+                  <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 grid grid-cols-1 sm:grid-cols-12 gap-3">
+                    {/* Pesquisa por Texto (Usuário, Ação, Registro, Detalhes) */}
+                    <div className="relative sm:col-span-6 md:col-span-6">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                      <input
+                        type="text"
+                        value={auditSearchTerm}
+                        onChange={(e) => {
+                          setAuditSearchTerm(e.target.value);
+                          setAuditLogPage(1);
+                        }}
+                        placeholder="Pesquisar por usuário, ação, registro ou detalhe..."
+                        className="w-full pl-9 pr-8 py-2 bg-white border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all placeholder:text-slate-400"
+                      />
+                      {auditSearchTerm && (
+                        <button
+                          onClick={() => {
+                            setAuditSearchTerm('');
+                            setAuditLogPage(1);
+                          }}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-full hover:bg-slate-100 cursor-pointer"
+                          title="Limpar busca"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Filtro por Data */}
+                    <div className="relative sm:col-span-3 md:col-span-3">
+                      <input
+                        type="date"
+                        value={auditDateFilter}
+                        onChange={(e) => {
+                          setAuditDateFilter(e.target.value);
+                          setAuditLogPage(1);
+                        }}
+                        className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all text-slate-700 cursor-pointer"
+                      />
+                      {auditDateFilter && (
+                        <button
+                          onClick={() => {
+                            setAuditDateFilter('');
+                            setAuditLogPage(1);
+                          }}
+                          className="absolute right-7 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+                          title="Limpar data"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Filtro por Ação / Registro */}
+                    <div className="sm:col-span-3 md:col-span-3">
+                      <select
+                        value={auditActionFilter}
+                        onChange={(e) => {
+                          setAuditActionFilter(e.target.value);
+                          setAuditLogPage(1);
+                        }}
+                        className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all text-slate-700 cursor-pointer"
+                      >
+                        <option value="all">Todas as ações</option>
+                        {availableActions.map(action => (
+                          <option key={action} value={action}>{action}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {(auditSearchTerm || auditDateFilter || auditActionFilter !== 'all') && (
+                    <div className="flex items-center justify-between text-xs text-slate-500 px-1">
+                      <span>Filtros ativos aplicados ao histórico</span>
+                      <button
+                        onClick={() => {
+                          setAuditSearchTerm('');
+                          setAuditDateFilter('');
+                          setAuditActionFilter('all');
+                          setAuditLogPage(1);
+                        }}
+                        className="text-primary-600 hover:text-primary-700 font-semibold hover:underline cursor-pointer"
+                      >
+                        Limpar todos os filtros
+                      </button>
+                    </div>
+                  )}
+
+                  {totalAuditLogs > 0 ? (
+                    <>
+                      <div className="flow-root">
+                        <ul role="list" className="-mb-8">
+                          {paginatedLogs.map((log, logIdx) => (
+                            <li key={log.id}>
+                              <div className="relative pb-8">
+                                {logIdx !== paginatedLogs.length - 1 ? (
+                                  <span className="absolute top-4 left-4 -ml-px h-full w-0.5 bg-slate-200" aria-hidden="true" />
+                                ) : null}
+                                <div className="relative flex space-x-3">
+                                  <div>
+                                    <span className="h-8 w-8 rounded-full bg-slate-100 flex items-center justify-center ring-8 ring-white">
+                                      <User className="h-4 w-4 text-slate-500" aria-hidden="true" />
+                                    </span>
+                                  </div>
+                                  <div className="flex min-w-0 flex-1 justify-between space-x-4 pt-1.5">
+                                    <div>
+                                      <p className="text-sm text-slate-500">
+                                        <span className="font-medium text-slate-900">{log.action}</span> por <span className="font-medium text-slate-900">{log.userName}</span>
+                                      </p>
+                                      <p className="text-sm text-slate-600 mt-1">{log.details}</p>
+                                    </div>
+                                    <div className="whitespace-nowrap text-right text-xs text-slate-400">
+                                      <time dateTime={log.timestamp}>{new Date(log.timestamp).toLocaleString()}</time>
+                                    </div>
+                                  </div>
+                                </div>
                               </div>
-                              <div className="whitespace-nowrap text-right text-xs text-slate-400">
-                                <time dateTime={log.timestamp}>{new Date(log.timestamp).toLocaleString()}</time>
-                              </div>
-                            </div>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+
+                      {/* Controles de Paginação */}
+                      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-6 border-t border-slate-200 mt-8">
+                        <div className="text-xs text-slate-500">
+                          Exibindo <span className="font-semibold text-slate-700">{startIdx + 1}</span> a <span className="font-semibold text-slate-700">{Math.min(endIdx, totalAuditLogs)}</span> de <span className="font-semibold text-slate-700">{totalAuditLogs}</span> registros
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-1.5 text-xs text-slate-600">
+                            <span>Itens por página:</span>
+                            <select
+                              value={auditLogItemsPerPage}
+                              onChange={(e) => {
+                                setAuditLogItemsPerPage(Number(e.target.value));
+                                setAuditLogPage(1);
+                              }}
+                              className="px-2 py-1 bg-white border border-slate-300 rounded text-xs focus:ring-1 focus:ring-primary-500"
+                            >
+                              <option value={5}>5</option>
+                              <option value={10}>10</option>
+                              <option value={20}>20</option>
+                              <option value={50}>50</option>
+                            </select>
+                          </div>
+
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => setAuditLogPage(p => Math.max(1, p - 1))}
+                              disabled={safeAuditPage <= 1}
+                              className="p-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed text-slate-600 transition-colors cursor-pointer"
+                              title="Página Anterior"
+                            >
+                              <ChevronLeft className="h-4 w-4" />
+                            </button>
+                            <span className="px-3 py-1 text-xs font-medium text-slate-700">
+                              Página {safeAuditPage} de {totalAuditPages}
+                            </span>
+                            <button
+                              onClick={() => setAuditLogPage(p => Math.min(totalAuditPages, p + 1))}
+                              disabled={safeAuditPage >= totalAuditPages}
+                              className="p-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed text-slate-600 transition-colors cursor-pointer"
+                              title="Próxima Página"
+                            >
+                              <ChevronRight className="h-4 w-4" />
+                            </button>
                           </div>
                         </div>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-             </div>
-          )}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-center py-10 px-4 border border-dashed border-slate-300 rounded-xl bg-slate-50/50 text-slate-500 text-sm">
+                      Nenhum registro de auditoria encontrado para os filtros aplicados.
+                    </div>
+                  )}
+               </div>
+             );
+          })()}
 
           {activeTab === 'visits' && (
              <div className="space-y-6">

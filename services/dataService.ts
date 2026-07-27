@@ -24,6 +24,7 @@ interface ResidentHeavyData {
   auditLogs: any[];
   nutritionalLogs: any[];
   visits: any[];
+  isDetailLoaded: boolean;
 }
 
 // Shared shaping logic between fetchResidentsSummary (light, one row per
@@ -260,7 +261,8 @@ function mapResidentRow(r: any, heavy: ResidentHeavyData): Resident {
         temperature: v.temperature ? parseFloat(v.temperature) : undefined,
         observations: v.observations || undefined,
         createdBy: v.created_by
-      })).sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      })).sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime()),
+      isDetailLoaded: heavy.isDetailLoaded
     };
   }
 }
@@ -322,7 +324,8 @@ export async function fetchResidentsSummary(empresaId: string): Promise<Resident
     documents: [],
     auditLogs: [],
     nutritionalLogs: nutriLogsByResident.get(r.id) || [],
-    visits: []
+    visits: [],
+    isDetailLoaded: false
   }));
 }
 
@@ -359,7 +362,7 @@ export async function fetchResidentDetails(residentId: string): Promise<Resident
     supabase.from('Recanto_Glicemia').select('*').eq('resident_id', residentId),
     supabase.from('Recanto_ChecklistDiario').select('*').eq('resident_id', residentId),
     supabase.from('Recanto_Documentos').select('*').eq('resident_id', residentId),
-    supabase.from('Recanto_LogsAuditoria').select('*').eq('resident_id', residentId),
+    supabase.from('Recanto_LogsAuditoria').select('*').eq('resident_id', residentId).order('timestamp', { ascending: false }),
     supabase.from('Recanto_LogsNutricao').select('*').eq('resident_id', residentId),
     supabase.from('Recanto_Visitas').select('*').eq('resident_id', residentId)
   ]);
@@ -410,7 +413,8 @@ export async function fetchResidentDetails(residentId: string): Promise<Resident
     documents: docsResult.data || [],
     auditLogs: auditLogsResult.data || [],
     nutritionalLogs: nutriLogsResult.data || [],
-    visits: visitsResult.data || []
+    visits: visitsResult.data || [],
+    isDetailLoaded: true
   });
 }
 
