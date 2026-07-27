@@ -355,38 +355,55 @@ const Dashboard: React.FC<DashboardProps> = ({
         </div>
 
         {/* Upcoming events */}
-        <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
-          <div className="flex items-center justify-between mb-5">
-            <p className="text-sm font-bold text-slate-800">Próximos Eventos</p>
+        <div className="lg:col-span-2 bg-gradient-to-br from-blue-700 via-blue-600 to-indigo-700 text-white rounded-2xl border border-blue-500/30 shadow-md p-5 relative overflow-hidden">
+          {/* Subtle background glow element */}
+          <div className="absolute -right-6 -bottom-6 w-32 h-32 bg-white/10 rounded-full blur-2xl pointer-events-none" />
+
+          <div className="flex items-center justify-between mb-4 relative z-10">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center shadow-inner">
+                <Calendar className="h-4 w-4 text-white" />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-white leading-none">Próximos Eventos</p>
+                <p className="text-[11px] text-blue-100/80 mt-0.5">Atividades e compromissos agendados</p>
+              </div>
+            </div>
             {onNavigate && (
-              <button onClick={() => nav(ViewState.AGENDA)} className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-0.5 font-medium">
+              <button
+                onClick={() => nav(ViewState.AGENDA)}
+                className="text-xs text-white bg-white/15 hover:bg-white/25 border border-white/25 transition-all rounded-lg px-2.5 py-1 flex items-center gap-1 font-semibold backdrop-blur-sm cursor-pointer"
+              >
                 Agenda <ChevronRight className="h-3.5 w-3.5" />
               </button>
             )}
           </div>
 
           {upcomingEvents.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-8 text-center">
-              <div className="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center mb-3">
-                <Calendar className="h-5 w-5 text-slate-300" />
+            <div className="flex flex-col items-center justify-center py-7 text-center bg-white/10 backdrop-blur-sm rounded-xl border border-white/10 relative z-10">
+              <div className="w-10 h-10 rounded-full bg-white/15 flex items-center justify-center mb-2">
+                <Calendar className="h-5 w-5 text-blue-100" />
               </div>
-              <p className="text-sm text-slate-400">Nenhum evento agendado</p>
-              <p className="text-xs text-slate-300 mt-0.5">nos próximos 7 dias</p>
+              <p className="text-sm font-semibold text-white">Nenhum evento agendado</p>
+              <p className="text-xs text-blue-100/70 mt-0.5">para os próximos 7 dias</p>
             </div>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-2.5 relative z-10">
               {upcomingEvents.map(ev => {
                 const cfg = EVENT_TYPE[ev.type] ?? EVENT_TYPE.outro;
                 return (
-                  <div key={ev.id} className="flex items-start gap-3 group">
-                    <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${cfg.dot}`} />
+                  <div key={ev.id} className="flex items-center gap-3 bg-white/10 hover:bg-white/20 backdrop-blur-md border border-white/15 rounded-xl p-2.5 transition-all group">
+                    <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${cfg.dot} ring-2 ring-white/40`} />
                     <div className="min-w-0 flex-1">
-                      <p className="text-xs font-semibold text-slate-700 truncate">{ev.title}</p>
-                      <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1">
-                        <Clock className="h-3 w-3" />
+                      <p className="text-xs font-semibold text-white truncate">{ev.title}</p>
+                      <p className="text-[11px] text-blue-100/80 mt-0.5 flex items-center gap-1">
+                        <Clock className="h-3 w-3 text-blue-200" />
                         {formatEventDate(ev.start)}
                       </p>
                     </div>
+                    <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-white/15 text-white border border-white/20 shrink-0">
+                      {cfg.label}
+                    </span>
                   </div>
                 );
               })}
