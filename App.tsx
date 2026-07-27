@@ -1178,7 +1178,8 @@ function AppInner() {
                 user_id: log.userId,
                 user_name: log.userName,
                 action: log.action,
-                details: log.details
+                details: log.details,
+                dados: log.data ?? null
               });
             if (logErr) {
               console.error('Erro ao salvar log de auditoria:', logErr);
@@ -1899,7 +1900,7 @@ function AppInner() {
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 md:p-8">
-          <div className="max-w-7xl mx-auto">
+          <div className="w-full">
             {renderContent()}
           </div>
         </div>

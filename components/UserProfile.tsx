@@ -302,7 +302,7 @@ const UserProfile: React.FC = () => {
   })();
 
   return (
-    <div className="max-w-3xl">
+    <div className="w-full">
       <PageHeader title="Meu Perfil" subtitle="Suas informações e preferências" />
 
       {loadingData ? (

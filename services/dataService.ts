@@ -232,7 +232,8 @@ function mapResidentRow(r: any, heavy: ResidentHeavyData): Resident {
         userId: al.user_id,
         userName: al.user_name,
         action: al.action,
-        details: al.details || ''
+        details: al.details || '',
+        data: al.dados || undefined
       })),
       dietPlan: r.dietPlan && r.dietPlan.length > 0 ? {
         consistency: r.dietPlan[0].consistency,

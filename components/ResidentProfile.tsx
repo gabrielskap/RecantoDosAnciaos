@@ -624,7 +624,8 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
       userId: currentUser?.id || 'current-user',
       userName: currentUser?.name || 'Usuário Atual',
       action: 'Registro de Visita',
-      details: `Registrou visita de ${newVisit.visitorName} (${newVisit.relation})`
+      details: `Registrou visita de ${newVisit.visitorName} (${newVisit.relation})`,
+      data: newVisit
     };
 
     onUpdateResident({
@@ -660,7 +661,8 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
         userId: currentUser?.id || 'current-user',
         userName: currentUser?.name || 'Usuário Atual',
         action: 'Exclusão de Visita',
-        details: `Removeu visita de ${visit.visitorName} (${visit.relation})`
+        details: `Removeu visita de ${visit.visitorName} (${visit.relation})`,
+        data: visit
       };
 
       onUpdateResident({
@@ -734,7 +736,8 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
       userId: currentUser?.id || 'current-user',
       userName: currentUser?.name || 'Usuário Atual',
       action: isEditing ? 'Edição de Glicemia' : 'Registro de Glicemia',
-      details: `${isEditing ? 'Editou' : 'Registrou'} medição de glicemia de ${reading.value} mg/dL (${GLICEMIA_MOMENTO_LABELS[reading.moment]})`
+      details: `${isEditing ? 'Editou' : 'Registrou'} medição de glicemia de ${reading.value} mg/dL (${GLICEMIA_MOMENTO_LABELS[reading.moment]})`,
+      data: reading
     };
 
     onUpdateResident({
@@ -763,7 +766,8 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
         userId: currentUser?.id || 'current-user',
         userName: currentUser?.name || 'Usuário Atual',
         action: 'Exclusão de Glicemia',
-        details: `Removeu medição de glicemia de ${reading.value} mg/dL (${GLICEMIA_MOMENTO_LABELS[reading.moment]})`
+        details: `Removeu medição de glicemia de ${reading.value} mg/dL (${GLICEMIA_MOMENTO_LABELS[reading.moment]})`,
+        data: reading
       };
 
       onUpdateResident({
@@ -1243,9 +1247,20 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
       createdAt: new Date().toISOString()
     };
 
+    const newLog: AuditLog = {
+      id: Math.random().toString(36).substr(2, 9),
+      timestamp: new Date().toISOString(),
+      userId: currentUser?.id || 'current-user',
+      userName: currentUser?.name || 'Usuário Atual',
+      action: 'Registro de Receita',
+      details: `Anexou receita: ${newReceita.description}`,
+      data: newReceita
+    };
+
     onUpdateResident({
       ...resident,
-      prescriptions: [...(resident.prescriptions || []), newReceita]
+      prescriptions: [...(resident.prescriptions || []), newReceita],
+      auditLogs: [newLog, ...(resident.auditLogs || [])]
     });
 
     setReceitaFormData({ description: '', expiryDate: '', fileUrl: '', fileName: '' });
@@ -1255,10 +1270,23 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
 
   const handleDeleteReceita = (receitaId: string) => {
     if (!onUpdateResident) return;
+    const receita = resident.prescriptions?.find(p => p.id === receitaId);
+    if (!receita) return;
     if (confirm('Tem certeza que deseja excluir esta receita?')) {
+      const newLog: AuditLog = {
+        id: Math.random().toString(36).substr(2, 9),
+        timestamp: new Date().toISOString(),
+        userId: currentUser?.id || 'current-user',
+        userName: currentUser?.name || 'Usuário Atual',
+        action: 'Exclusão de Receita',
+        details: `Removeu receita: ${receita.description}`,
+        data: receita
+      };
+
       onUpdateResident({
         ...resident,
-        prescriptions: (resident.prescriptions || []).filter(p => p.id !== receitaId)
+        prescriptions: (resident.prescriptions || []).filter(p => p.id !== receitaId),
+        auditLogs: [newLog, ...(resident.auditLogs || [])]
       });
     }
   };
@@ -3254,7 +3282,8 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
       userId: currentUser?.id || 'current-user',
       userName: currentUser?.name || 'Usuário Atual',
       action: 'Plano de Cuidado',
-      details: `Criou plano: ${plan.title}`
+      details: `Criou plano: ${plan.title}`,
+      data: plan
     };
 
     onUpdateResident({

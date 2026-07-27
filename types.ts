@@ -133,6 +133,13 @@ export interface AuditLog {
   userName: string;
   action: string;
   details: string;
+  // Structured snapshot of the record the action created/edited/removed (e.g.
+  // the full GlucoseReading or Visit object). `details` is a human-readable
+  // summary meant for display and is lossy (e.g. it drops insulin dose/type,
+  // record id); `data` is what a future recovery script should parse instead
+  // of regexing `details`, so it must carry everything needed to reinsert an
+  // equivalent row if the record itself is ever lost.
+  data?: Record<string, any>;
 }
 
 export interface ResidentDocument {

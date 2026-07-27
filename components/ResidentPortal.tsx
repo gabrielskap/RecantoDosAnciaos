@@ -127,7 +127,7 @@ const ResidentPortal: React.FC<ResidentPortalProps> = ({ resident, events }) => 
         <div className="absolute -top-8 -right-8 w-40 h-40 rounded-full bg-white/5 pointer-events-none" />
         <div className="absolute top-4 right-16 w-20 h-20 rounded-full bg-white/5 pointer-events-none" />
 
-        <div className="relative max-w-2xl mx-auto flex items-center gap-4">
+        <div className="relative max-w-5xl mx-auto flex items-center gap-4">
           <div className="relative shrink-0">
             <img
               src={resident.photoUrl || undefined}
@@ -158,7 +158,7 @@ const ResidentPortal: React.FC<ResidentPortalProps> = ({ resident, events }) => 
       </div>
 
       {/* ── QUICK METRICS (overlap hero) ── */}
-      <div className="relative z-10 -mt-10 px-4 max-w-2xl mx-auto w-full">
+      <div className="relative z-10 -mt-10 px-4 max-w-5xl mx-auto w-full">
         {latestVital ? (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             {[
@@ -185,7 +185,7 @@ const ResidentPortal: React.FC<ResidentPortalProps> = ({ resident, events }) => 
       </div>
 
       {/* ── TAB CONTENT ── */}
-      <div className="flex-1 max-w-2xl mx-auto w-full px-4 pt-5 pb-28 space-y-4">
+      <div className="flex-1 max-w-5xl mx-auto w-full px-4 pt-5 pb-28 space-y-4">
 
         {/* ── TODAY ── */}
         {activeTab === 'today' && (
@@ -495,7 +495,7 @@ const ResidentPortal: React.FC<ResidentPortalProps> = ({ resident, events }) => 
 
       {/* ── BOTTOM NAVIGATION ── */}
       <nav className="fixed bottom-0 inset-x-0 z-30 bg-white/90 backdrop-blur-md border-t border-violet-100 safe-area-bottom">
-        <div className="max-w-2xl mx-auto flex items-center">
+        <div className="max-w-5xl mx-auto flex items-center">
           {tabs.map(tab => {
             const active = activeTab === tab.id;
             return (
