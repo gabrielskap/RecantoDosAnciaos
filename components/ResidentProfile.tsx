@@ -4,7 +4,7 @@ import {
   Thermometer, Heart, CheckCircle, PenTool, ShieldCheck,
   ClipboardList, History, Plus, User, Clock, File, Paperclip, CalendarCheck, AlertOctagon,
   BedDouble, Home, Wrench, PaintRoller, Edit2, X, Phone, FileHeart, Trash2, Users, Camera, Sun, Moon,
-  Key, Printer, Upload, Wind, UserCheck, Droplet, Syringe, Check,
+  Key, Printer, Upload, Wind, UserCheck, UserX, UploadCloud, ExternalLink, Droplet, Syringe, Check,
   Folder, FolderPlus, FolderOpen, ChevronDown, ChevronRight, ChevronLeft, Search
 } from 'lucide-react';
 import { Resident, CarePlan, AuditLog, DailyChecklist, Medication, ResidentPrescriptionRecord, RoomStatus, Room, ViewState, GlucoseReading, GlicemiaMomento, DocumentFolder, ResidentDocument, INSULINA_TIPO_OPTIONS } from '../types';
@@ -442,6 +442,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   const [docUploadType, setDocUploadType] = useState<'exame' | 'laudo' | 'receita' | 'documento_pessoal' | 'outro'>('outro');
   const [docUploadFolderId, setDocUploadFolderId] = useState<string>('');
   const [isUploadingResidentDoc, setIsUploadingResidentDoc] = useState(false);
+  const [uploadingOffboardingDoc, setUploadingOffboardingDoc] = useState(false);
 
   // Pastas de documentos
   const [showFolderModal, setShowFolderModal] = useState(false);
@@ -462,9 +463,13 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   const [evolutionPage, setEvolutionPage] = useState(1);
   const [evolutionItemsPerPage, setEvolutionItemsPerPage] = useState(10);
 
+  const [glicemiaPage, setGlicemiaPage] = useState(1);
+  const [glicemiaItemsPerPage, setGlicemiaItemsPerPage] = useState(10);
+
   React.useEffect(() => {
     setAuditLogPage(1);
     setEvolutionPage(1);
+    setGlicemiaPage(1);
     setAuditSearchTerm('');
     setAuditDateFilter('');
     setAuditActionFilter('all');
@@ -840,6 +845,10 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
       reqMobility: resident.reqMobility ?? null,
       reqDressings: resident.reqDressings ?? null,
       reqLeisure: resident.reqLeisure ?? null,
+      status: resident.status || 'ativo',
+      dataDesligamento: resident.dataDesligamento || '',
+      motivoDesligamento: resident.motivoDesligamento || '',
+      documentoDesligamento: resident.documentoDesligamento || '',
     });
     setAllergiesText(resident.allergies ? resident.allergies.join(', ') : '');
     setModalActiveTab('personal');
@@ -928,6 +937,34 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     }
   };
 
+  const handleOffboardingDocUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadingOffboardingDoc(true);
+    try {
+      let url = '';
+      try {
+        url = await uploadResidentDocument(file, resident.id);
+      } catch (err) {
+        console.warn('Storage upload error, converting to data url fallback:', err);
+        url = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+      }
+      setFormData(prev => ({ ...prev, documentoDesligamento: url }));
+      toast.success('Documento de desligamento anexado!');
+    } catch (err) {
+      console.error('Erro ao carregar documento:', err);
+      toast.error('Erro ao carregar documento.');
+    } finally {
+      setUploadingOffboardingDoc(false);
+    }
+  };
+
   const handleSaveResident = (e: React.FormEvent) => {
     e.preventDefault();
     if (!onUpdateResident || !formData.name || !formData.room) return;
@@ -966,9 +1003,16 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
       reqMobility: formData.reqMobility ?? null,
       reqDressings: formData.reqDressings ?? null,
       reqLeisure: formData.reqLeisure ?? null,
+      status: formData.status || 'ativo',
+      dataDesligamento: formData.dataDesligamento || undefined,
+      motivoDesligamento: formData.motivoDesligamento || undefined,
+      documentoDesligamento: formData.documentoDesligamento || undefined,
     };
 
     onUpdateResident(updated);
+    if (formData.status === 'inativo') {
+      toast.success(`Residente ${formData.name} foi desligado(a) com sucesso.`);
+    }
     setAllergiesText('');
     setIsEditModalOpen(false);
   };
@@ -4235,6 +4279,13 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
             const sortedReadings = [...(resident.glucoseReadings || [])].sort(
               (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
             );
+            const totalGlicemiaItems = sortedReadings.length;
+            const totalGlicemiaPages = Math.max(1, Math.ceil(totalGlicemiaItems / glicemiaItemsPerPage));
+            const safeGlicemiaPage = Math.min(glicemiaPage, totalGlicemiaPages);
+            const startGlicemiaIdx = (safeGlicemiaPage - 1) * glicemiaItemsPerPage;
+            const endGlicemiaIdx = safeGlicemiaPage * glicemiaItemsPerPage;
+            const paginatedReadings = sortedReadings.slice(startGlicemiaIdx, endGlicemiaIdx);
+
             const latestReading = sortedReadings[0] || null;
             const latestClassification = latestReading ? classifyGlicemia(latestReading.value, latestReading.moment) : null;
 
@@ -4580,8 +4631,8 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                         </tr>
                       </thead>
                       <tbody>
-                        {sortedReadings.length > 0 ? (
-                          sortedReadings.map(reading => {
+                        {paginatedReadings.length > 0 ? (
+                          paginatedReadings.map(reading => {
                             const classification = classifyGlicemia(reading.value, reading.moment);
                             return (
                               <tr key={reading.id} className="border-t border-slate-100 hover:bg-slate-50/30 transition-colors">
@@ -4642,6 +4693,53 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                       </tbody>
                     </table>
                   </div>
+                  {totalGlicemiaItems > 0 && (
+                    <div className="px-4 py-3 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4 bg-slate-50/50">
+                      <div className="text-xs text-slate-500">
+                        Exibindo <span className="font-semibold text-slate-700">{startGlicemiaIdx + 1}</span> a <span className="font-semibold text-slate-700">{Math.min(endGlicemiaIdx, totalGlicemiaItems)}</span> de <span className="font-semibold text-slate-700">{totalGlicemiaItems}</span> medições
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-1.5 text-xs text-slate-600">
+                          <span>Itens por página:</span>
+                          <select
+                            value={glicemiaItemsPerPage}
+                            onChange={(e) => {
+                              setGlicemiaItemsPerPage(Number(e.target.value));
+                              setGlicemiaPage(1);
+                            }}
+                            className="px-2 py-1 bg-white border border-slate-300 rounded text-xs focus:ring-1 focus:ring-primary-500"
+                          >
+                            <option value={5}>5</option>
+                            <option value={10}>10</option>
+                            <option value={20}>20</option>
+                            <option value={50}>50</option>
+                          </select>
+                        </div>
+
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => setGlicemiaPage(p => Math.max(1, p - 1))}
+                            disabled={safeGlicemiaPage <= 1}
+                            className="p-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed text-slate-600 transition-colors cursor-pointer"
+                            title="Página Anterior"
+                          >
+                            <ChevronLeft className="h-4 w-4" />
+                          </button>
+                          <span className="px-3 py-1 text-xs font-medium text-slate-700">
+                            Página {safeGlicemiaPage} de {totalGlicemiaPages}
+                          </span>
+                          <button
+                            onClick={() => setGlicemiaPage(p => Math.min(totalGlicemiaPages, p + 1))}
+                            disabled={safeGlicemiaPage >= totalGlicemiaPages}
+                            className="p-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed text-slate-600 transition-colors cursor-pointer"
+                            title="Próxima Página"
+                          >
+                            <ChevronRight className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {isGlicemiaModalOpen && (
@@ -7391,6 +7489,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                 { id: 'contacts' as const, label: 'Contatos', icon: Phone },
                 { id: 'clinical' as const, label: 'Clínico', icon: FileHeart },
                 { id: 'routine' as const, label: 'Plano de Rotina', icon: ClipboardList },
+                { id: 'offboarding' as const, label: 'Desligamento', icon: UserX },
               ].map(tab => (
                 <button
                   key={tab.id}
@@ -7805,6 +7904,137 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                           </div>
                         );
                       })}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {modalActiveTab === 'offboarding' && (
+                <div className="space-y-4">
+                  <div className="p-4 bg-rose-50/70 border border-rose-200 rounded-2xl">
+                    <div className="flex items-center gap-3 mb-3">
+                      <div className="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center text-rose-600 shrink-0">
+                        <UserX className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-bold text-slate-900">Desligamento do Residente</h4>
+                        <p className="text-xs text-slate-500">Ao desligar o residente, ele passará para a seção "Residentes Desligados" com o status Inativo no banco de dados.</p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3 pt-2 border-t border-rose-200/60">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1.5">Status do Residente</label>
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => setFormData(prev => ({ ...prev, status: 'ativo' }))}
+                            className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold border transition-colors flex items-center justify-center gap-2 ${
+                              formData.status !== 'inativo'
+                                ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                            }`}
+                          >
+                            <UserCheck className="w-4 h-4" /> Residente Ativo
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setFormData(prev => ({
+                              ...prev,
+                              status: 'inativo',
+                              dataDesligamento: prev.dataDesligamento || new Date().toISOString().split('T')[0]
+                            }))}
+                            className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold border transition-colors flex items-center justify-center gap-2 ${
+                              formData.status === 'inativo'
+                                ? 'bg-rose-600 text-white border-rose-600 shadow-sm'
+                                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                            }`}
+                          >
+                            <UserX className="w-4 h-4" /> Desligado / Inativo
+                          </button>
+                        </div>
+                      </div>
+
+                      {formData.status === 'inativo' && (
+                        <div className="space-y-3 pt-2">
+                          <div>
+                            <label className="block text-xs font-bold text-slate-700 mb-1">Data do Desligamento *</label>
+                            <input
+                              type="date"
+                              value={formData.dataDesligamento || ''}
+                              onChange={e => setFormData(prev => ({ ...prev, dataDesligamento: e.target.value }))}
+                              className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                              required={formData.status === 'inativo'}
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-bold text-slate-700 mb-1">Motivo do Desligamento *</label>
+                            <textarea
+                              rows={3}
+                              value={formData.motivoDesligamento || ''}
+                              onChange={e => setFormData(prev => ({ ...prev, motivoDesligamento: e.target.value }))}
+                              placeholder="Descreva o motivo (ex: óbito/certidão de óbito, transferência para outro local, alta médica...)"
+                              className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white resize-none"
+                              required={formData.status === 'inativo'}
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-bold text-slate-700 mb-1">Anexar Documento (ex: Certidão de Óbito, Termo de Rescisão)</label>
+                            
+                            {formData.documentoDesligamento ? (
+                              <div className="flex items-center justify-between p-3 bg-white border border-slate-200 rounded-xl">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <FileText className="w-4 h-4 text-blue-600 shrink-0" />
+                                  <span className="text-xs font-semibold text-slate-700 truncate">Documento de Desligamento Anexado</span>
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <a
+                                    href={formData.documentoDesligamento}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="px-2.5 py-1 text-xs font-semibold bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors inline-flex items-center gap-1"
+                                  >
+                                    Visualizar <ExternalLink className="w-3 h-3" />
+                                  </a>
+                                  <button
+                                    type="button"
+                                    onClick={() => setFormData(prev => ({ ...prev, documentoDesligamento: '' }))}
+                                    className="px-2.5 py-1 text-xs font-semibold bg-rose-50 text-rose-600 hover:bg-rose-100 rounded-lg transition-colors"
+                                  >
+                                    Remover
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="relative">
+                                <label className="flex flex-col items-center justify-center p-4 border-2 border-dashed border-slate-200 hover:border-blue-400 rounded-xl cursor-pointer bg-white hover:bg-blue-50/30 transition-colors">
+                                  {uploadingOffboardingDoc ? (
+                                    <div className="flex items-center gap-2 text-xs font-semibold text-blue-600">
+                                      <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                                      Enviando documento...
+                                    </div>
+                                  ) : (
+                                    <>
+                                      <UploadCloud className="w-6 h-6 text-slate-400 mb-1" />
+                                      <span className="text-xs font-semibold text-slate-700">Clique para anexar documento (PDF ou Imagem)</span>
+                                      <span className="text-[10px] text-slate-400">Certidão de óbito, termo de desligamento...</span>
+                                    </>
+                                  )}
+                                  <input
+                                    type="file"
+                                    accept="image/*,application/pdf"
+                                    onChange={handleOffboardingDocUpload}
+                                    disabled={uploadingOffboardingDoc}
+                                    className="hidden"
+                                  />
+                                </label>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>

@@ -283,6 +283,11 @@ export interface Resident {
   reqMobility?: boolean | null;
   reqDressings?: boolean | null;
   reqLeisure?: boolean | null;
+  // Status & Desligamento
+  status?: 'ativo' | 'inativo';
+  dataDesligamento?: string;
+  motivoDesligamento?: string;
+  documentoDesligamento?: string;
 }
 
 // --- FINANCIAL & CONTRACTS TYPES ---
@@ -430,6 +435,7 @@ export enum ViewState {
   NOTIFICATIONS = 'NOTIFICATIONS',
   SETTINGS = 'SETTINGS',
   PROFILE = 'PROFILE',
+  FRIGOBAR = 'FRIGOBAR',
   
   // Sub-pages of RESIDENT_DETAIL (Prontuário)
   RESIDENT_DETAIL_INFO = 'RESIDENT_DETAIL_INFO',
@@ -442,6 +448,29 @@ export enum ViewState {
   RESIDENT_DETAIL_DOCS = 'RESIDENT_DETAIL_DOCS',
   RESIDENT_DETAIL_EVOLUTION = 'RESIDENT_DETAIL_EVOLUTION',
   RESIDENT_DETAIL_HISTORY = 'RESIDENT_DETAIL_HISTORY'
+}
+
+// --- CONTROLE DE TEMPERATURA DE FRIGOBAR (OMS / ANVISA - 12H EM 12H) ---
+
+export type FrigobarShift = 'diurno' | 'noturno';
+export type FrigobarStatus = 'conforme' | 'alerta_frio' | 'alerta_quente';
+
+export interface FrigobarReading {
+  id: string;
+  empresaId?: string;
+  equipamentoNome: string;
+  localizacao?: string;
+  dataHora: string; // ISO string
+  turno: FrigobarShift;
+  temperaturaAtual: number; // °C
+  temperaturaMinima?: number; // °C
+  temperaturaMaxima?: number; // °C
+  status: FrigobarStatus;
+  responsavelNome: string;
+  usuarioId?: string;
+  observacoes?: string;
+  acaoCorretiva?: string;
+  createdAt?: string;
 }
 
 // --- NOTIFICAÇÕES WHATSAPP (UAZAPI) ---

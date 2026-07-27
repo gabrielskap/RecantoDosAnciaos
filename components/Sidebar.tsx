@@ -1,5 +1,5 @@
 import React from 'react';
-import { LayoutDashboard, Users, HeartPulse, Wallet, Package, LogOut, UserCog, Utensils, PieChart, CalendarDays, X, UserCircle, BedDouble, ChevronRight, Settings, MessageSquare } from 'lucide-react';
+import { LayoutDashboard, Users, HeartPulse, Wallet, Package, LogOut, UserCog, Utensils, PieChart, CalendarDays, X, UserCircle, BedDouble, ChevronRight, Settings, MessageSquare, Thermometer } from 'lucide-react';
 import { ViewState } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -20,6 +20,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, isOpen, se
     { id: ViewState.ROOMS,           label: 'Gerenciamento de Quartos',  icon: BedDouble },
     { id: ViewState.AGENDA,          label: 'Agenda & Atividades',       icon: CalendarDays },
     { id: ViewState.NUTRITION,       label: 'Alimentação & Nutrição',    icon: Utensils },
+    { id: ViewState.FRIGOBAR,        label: 'Controle de Frigobar',      icon: Thermometer },
     { id: ViewState.TEAM,            label: 'Equipe e Acessos',          icon: UserCog },
     { id: ViewState.FINANCE,         label: 'Financeiro & Contratos',    icon: Wallet },
     { id: ViewState.STOCK,           label: 'Estoque & Insumos',         icon: Package },

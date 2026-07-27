@@ -87,6 +87,10 @@ function mapResidentRow(r: any, heavy: ResidentHeavyData): Resident {
       reqMobility: r.req_mobility,
       reqDressings: r.req_dressings,
       reqLeisure: r.req_leisure,
+      status: r.status || 'ativo',
+      dataDesligamento: r.data_desligamento || undefined,
+      motivoDesligamento: r.motivo_desligamento || undefined,
+      documentoDesligamento: r.documento_desligamento || undefined,
       medications: rMedications.map((m: any) => ({
         id: m.id,
         name: m.name,

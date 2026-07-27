@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { Search, Filter, FileText, X, User, Phone, FileHeart, Plus, AlertCircle, BedDouble, Home, Edit2, Pill, Camera, ArrowUpDown, ArrowUp, ArrowDown, ChevronDown } from 'lucide-react';
+import { Search, Filter, FileText, X, User, Phone, FileHeart, Plus, AlertCircle, BedDouble, Home, Edit2, Pill, Camera, ArrowUpDown, ArrowUp, ArrowDown, ChevronDown, UserX, UserCheck, UploadCloud, LogOut, Calendar, ExternalLink, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Resident, Room, ViewState } from '../types';
 import CustomSelect from './CustomSelect';
-import { compressImage, uploadResidentPhoto } from '../services/supabaseClient';
+import { compressImage, uploadResidentPhoto, uploadResidentDocument } from '../services/supabaseClient';
 import { residentAvatarSrc } from '../lib/avatar';
 import { toast } from '../services/toast';
 import { useAuth } from '../contexts/AuthContext';
@@ -97,15 +97,19 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
   const [editingResidentId, setEditingResidentId] = useState<string | null>(() => {
     return localStorage.getItem('modal_residents_editing_id') || null;
   });
-  const [activeTab, setActiveTab] = useState<'personal' | 'contacts' | 'clinical'>(() => {
+  const [activeTab, setActiveTab] = useState<'personal' | 'contacts' | 'clinical' | 'offboarding'>(() => {
     return (localStorage.getItem('modal_residents_active_tab') as any) || 'personal';
   });
+  const [sectionTab, setSectionTab] = useState<'ativos' | 'desligados'>('ativos');
   const [search, setSearch] = useState('');
   const [filterCareLevel, setFilterCareLevel] = useState<'' | 'I' | 'II' | 'III'>('');
   const [sortBy, setSortBy] = useState<'name' | 'age' | 'room' | 'careLevel'>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [showSortMenu, setShowSortMenu] = useState(false);
   const [photoUploading, setPhotoUploading] = useState(false);
+  const [uploadingOffboardingDoc, setUploadingOffboardingDoc] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(9);
 
   React.useEffect(() => {
     if (!showSortMenu) return;
@@ -134,6 +138,10 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
       reqMobility: null,
       reqDressings: null,
       reqLeisure: null,
+      status: 'ativo',
+      dataDesligamento: '',
+      motivoDesligamento: '',
+      documentoDesligamento: '',
     };
   });
   const [contactTemp, setContactTemp] = useState(() => {
@@ -211,7 +219,12 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
 
   const careLevelOrder = { I: 1, II: 2, III: 3 };
 
-  const filtered = residents
+  const activeResidents = residents.filter(r => r.status !== 'inativo');
+  const inactiveResidents = residents.filter(r => r.status === 'inativo');
+
+  const currentList = sectionTab === 'ativos' ? activeResidents : inactiveResidents;
+
+  const filtered = currentList
     .filter(r => {
       const matchSearch = r.name.toLowerCase().includes(search.toLowerCase()) || r.room.toLowerCase().includes(search.toLowerCase());
       const matchLevel = filterCareLevel === '' || r.careLevel === filterCareLevel;
@@ -225,6 +238,18 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
       else if (sortBy === 'careLevel') cmp = careLevelOrder[a.careLevel] - careLevelOrder[b.careLevel];
       return sortOrder === 'asc' ? cmp : -cmp;
     });
+
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [search, filterCareLevel, sortBy, sortOrder, sectionTab]);
+
+  const totalItems = filtered.length;
+  const totalPages = Math.ceil(totalItems / itemsPerPage) || 1;
+  const safePage = Math.min(Math.max(1, currentPage), totalPages);
+
+  const startIndex = (safePage - 1) * itemsPerPage;
+  const endIndex = Math.min(startIndex + itemsPerPage, totalItems);
+  const paginatedResidents = filtered.slice(startIndex, endIndex);
 
   const addContact = () => {
     if (contactTemp.name && contactTemp.phone) {
@@ -268,6 +293,10 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
       reqMobility: resident.reqMobility ?? null,
       reqDressings: resident.reqDressings ?? null,
       reqLeisure: resident.reqLeisure ?? null,
+      status: resident.status || 'ativo',
+      dataDesligamento: resident.dataDesligamento || '',
+      motivoDesligamento: resident.motivoDesligamento || '',
+      documentoDesligamento: resident.documentoDesligamento || '',
     });
     setAllergiesText(resident.allergies ? resident.allergies.join(', ') : '');
     setActiveTab('personal');
@@ -288,6 +317,35 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
       toast.error('Erro ao processar a foto. Tente novamente.');
     } finally {
       setPhotoUploading(false);
+    }
+  };
+
+  const handleOffboardingDocUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadingOffboardingDoc(true);
+    try {
+      const targetId = editingResidentId || 'temp_' + Date.now();
+      let url = '';
+      try {
+        url = await uploadResidentDocument(file, targetId);
+      } catch (err) {
+        console.warn('Storage upload error, converting to data url fallback:', err);
+        url = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+      }
+      setFormData(prev => ({ ...prev, documentoDesligamento: url }));
+      toast.success('Documento de desligamento anexado!');
+    } catch (err) {
+      console.error('Erro ao carregar documento:', err);
+      toast.error('Erro ao carregar documento.');
+    } finally {
+      setUploadingOffboardingDoc(false);
     }
   };
 
@@ -356,8 +414,15 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
             reqMobility: formData.reqMobility ?? null,
             reqDressings: formData.reqDressings ?? null,
             reqLeisure: formData.reqLeisure ?? null,
+            status: formData.status || 'ativo',
+            dataDesligamento: formData.dataDesligamento || undefined,
+            motivoDesligamento: formData.motivoDesligamento || undefined,
+            documentoDesligamento: formData.documentoDesligamento || undefined,
           };
           onUpdateResident(updated);
+          if (formData.status === 'inativo') {
+            toast.success(`Residente ${formData.name} foi desligado(a) com sucesso.`);
+          }
         }
       }
     } else {
@@ -393,6 +458,10 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
         reqMobility: formData.reqMobility ?? null,
         reqDressings: formData.reqDressings ?? null,
         reqLeisure: formData.reqLeisure ?? null,
+        status: formData.status || 'ativo',
+        dataDesligamento: formData.dataDesligamento || undefined,
+        motivoDesligamento: formData.motivoDesligamento || undefined,
+        documentoDesligamento: formData.documentoDesligamento || undefined,
       };
       onAddResident(resident);
     }
@@ -415,9 +484,13 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
       reqMobility: null,
       reqDressings: null,
       reqLeisure: null,
+      status: 'ativo',
+      dataDesligamento: '',
+      motivoDesligamento: '',
+      documentoDesligamento: '',
     });
     setAllergiesText('');
-    setActiveTab('personal');
+    setIsModalOpen(false);
   };
 
   const inputClass = 'w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white';
@@ -426,6 +499,7 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
     { id: 'personal' as const, label: 'Dados Pessoais', icon: User },
     { id: 'contacts' as const, label: 'Contatos', icon: Phone },
     { id: 'clinical' as const, label: 'Clínico', icon: FileHeart },
+    ...(editingResidentId ? [{ id: 'offboarding' as const, label: 'Desligamento', icon: UserX }] : []),
   ];
 
   const [expandedPhotoUrl, setExpandedPhotoUrl] = useState<string | null>(null);
@@ -459,41 +533,78 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
       {/* Header */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-xl font-bold text-slate-900">Residentes</h1>
-          <p className="text-slate-500 text-sm mt-0.5">{residents.length} residente{residents.length !== 1 ? 's' : ''} cadastrado{residents.length !== 1 ? 's' : ''}</p>
+          <h1 className="text-xl font-bold text-slate-900">
+            {sectionTab === 'ativos' ? 'Residentes Ativos' : 'Residentes Desligados'}
+          </h1>
+          <p className="text-slate-500 text-sm mt-0.5">
+            {activeResidents.length} ativo{activeResidents.length !== 1 ? 's' : ''} · {inactiveResidents.length} desligado{inactiveResidents.length !== 1 ? 's' : ''}
+          </p>
         </div>
-        {canCreate && (
-          <button
-            onClick={() => {
-              setEditingResidentId(null);
-              setFormData({
-                name: '', age: 0, room: '', careLevel: 'I', cpf: '', rg: '', birthDate: '', admissionDate: '', photoUrl: '',
-                addressCep: '', addressState: '', addressCity: '', addressNeighborhood: '',
-                addressStreet: '', addressNumber: '', addressComplement: '',
-                emergencyContacts: [],
-                legalGuardian: { name: '', cpf: '', phone: '', address: '' },
-                clinicalCondition: '', functionalCondition: '', socialHistory: '',
-                usoFraldas: 'nao',
-                mobilidadeSet: 'independente',
-                higieneCorporal: 'independente',
-                higieneOralVestir: 'independente',
-                reqHygiene: null,
-                reqOralCare: null,
-                reqFeeding: null,
-                reqHydration: null,
-                reqMobility: null,
-                reqDressings: null,
-                reqLeisure: null,
-              });
-              setAllergiesText('');
-              setActiveTab('personal');
-              setIsModalOpen(true);
-            }}
-            className="flex items-center gap-2 bg-amber-400 hover:bg-amber-300 text-slate-900 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors shadow-sm w-full sm:w-auto justify-center"
-          >
-            <Plus className="h-4 w-4" /> Novo Residente
-          </button>
-        )}
+
+        <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+          {/* Navigation Tabs for Ativos vs Desligados */}
+          <div className="flex bg-slate-100 p-1 rounded-xl w-full sm:w-auto">
+            <button
+              onClick={() => setSectionTab('ativos')}
+              className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                sectionTab === 'ativos'
+                  ? 'bg-white text-blue-700 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <UserCheck className="w-3.5 h-3.5" />
+              Ativos ({activeResidents.length})
+            </button>
+            <button
+              onClick={() => setSectionTab('desligados')}
+              className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                sectionTab === 'desligados'
+                  ? 'bg-rose-600 text-white shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <UserX className="w-3.5 h-3.5" />
+              Residentes Desligados ({inactiveResidents.length})
+            </button>
+          </div>
+
+          {canCreate && (
+            <button
+              onClick={() => {
+                setEditingResidentId(null);
+                setFormData({
+                  name: '', age: 0, room: '', careLevel: 'I', cpf: '', rg: '', birthDate: '', admissionDate: '', photoUrl: '',
+                  addressCep: '', addressState: '', addressCity: '', addressNeighborhood: '',
+                  addressStreet: '', addressNumber: '', addressComplement: '',
+                  emergencyContacts: [],
+                  legalGuardian: { name: '', cpf: '', phone: '', address: '' },
+                  clinicalCondition: '', functionalCondition: '', socialHistory: '',
+                  usoFraldas: 'nao',
+                  mobilidadeSet: 'independente',
+                  higieneCorporal: 'independente',
+                  higieneOralVestir: 'independente',
+                  reqHygiene: null,
+                  reqOralCare: null,
+                  reqFeeding: null,
+                  reqHydration: null,
+                  reqMobility: null,
+                  reqDressings: null,
+                  reqLeisure: null,
+                  status: 'ativo',
+                  dataDesligamento: '',
+                  motivoDesligamento: '',
+                  documentoDesligamento: '',
+                });
+                setAllergiesText('');
+                setActiveTab('personal');
+                setIsModalOpen(true);
+              }}
+              className="flex items-center gap-2 bg-amber-400 hover:bg-amber-300 text-slate-900 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors shadow-sm w-full sm:w-auto justify-center"
+            >
+              <Plus className="h-4 w-4" /> Novo Residente
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Search + Filter + Sort */}
@@ -594,7 +705,7 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
 
       {/* Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-        {filtered.map(resident => {
+        {paginatedResidents.map(resident => {
           const lvl = careLevelConfig[resident.careLevel] ?? careLevelConfig['I'];
           return (
             <div
@@ -658,6 +769,39 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
                   </div>
                 )}
 
+                {resident.status === 'inativo' && (
+                  <div className="mb-4 p-3 bg-rose-50/80 border border-rose-200/80 rounded-xl space-y-1.5 text-xs">
+                    <div className="flex items-center justify-between font-bold text-rose-800">
+                      <span className="flex items-center gap-1">
+                        <UserX className="w-3.5 h-3.5 text-rose-600" /> Residente Desligado
+                      </span>
+                      {resident.dataDesligamento && (
+                        <span className="text-[11px] text-rose-700 bg-rose-100 px-2 py-0.5 rounded-md font-semibold">
+                          Desligamento: {resident.dataDesligamento}
+                        </span>
+                      )}
+                    </div>
+                    {resident.motivoDesligamento && (
+                      <p className="text-slate-700 text-xs">
+                        <strong className="text-slate-800">Motivo:</strong> {resident.motivoDesligamento}
+                      </p>
+                    )}
+                    {resident.documentoDesligamento && (
+                      <div className="pt-1 flex items-center justify-between">
+                        <span className="text-[11px] text-slate-500 font-medium">Certidão / Doc:</span>
+                        <a
+                          href={resident.documentoDesligamento}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-600 hover:text-blue-800 hover:underline bg-white px-2 py-1 rounded border border-blue-100 shadow-xs"
+                        >
+                          <FileText className="w-3 h-3" /> Visualizar Documento <ExternalLink className="w-2.5 h-2.5" />
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div className="pt-3 border-t border-slate-50 flex items-center justify-between">
                   <span className="text-xs text-slate-400">Última aferição: Hoje 08:00</span>
                   <div className="flex items-center gap-2">
@@ -693,6 +837,97 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
           </div>
         )}
       </div>
+
+      {/* Pagination Controls */}
+      {filtered.length > 0 && (
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
+            <span>
+              Mostrando <strong className="text-slate-700 font-semibold">{totalItems > 0 ? startIndex + 1 : 0}</strong> a{' '}
+              <strong className="text-slate-700 font-semibold">{endIndex}</strong> de{' '}
+              <strong className="text-slate-700 font-semibold">{totalItems}</strong> residente{totalItems !== 1 ? 's' : ''}
+            </span>
+            <div className="flex items-center gap-1.5 border-l border-slate-200 pl-3">
+              <span className="text-slate-400">Exibir:</span>
+              <select
+                value={itemsPerPage}
+                onChange={(e) => {
+                  setItemsPerPage(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                className="bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+              >
+                <option value={6}>6 por pág.</option>
+                <option value={9}>9 por pág.</option>
+                <option value={12}>12 por pág.</option>
+                <option value={18}>18 por pág.</option>
+                <option value={24}>24 por pág.</option>
+              </select>
+            </div>
+          </div>
+
+          {totalPages > 1 && (
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={safePage <= 1}
+                className="p-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed text-slate-600 transition-colors cursor-pointer"
+                title="Página Anterior"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+
+              <div className="flex items-center gap-1 px-1">
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter(page => {
+                    if (totalPages <= 7) return true;
+                    if (page === 1 || page === totalPages) return true;
+                    return Math.abs(page - safePage) <= 1;
+                  })
+                  .reduce<(number | 'ellipsis')[]>((acc, page, idx, arr) => {
+                    if (idx > 0 && page - (arr[idx - 1] as number) > 1) {
+                      acc.push('ellipsis');
+                    }
+                    acc.push(page);
+                    return acc;
+                  }, [])
+                  .map((item, index) => {
+                    if (item === 'ellipsis') {
+                      return (
+                        <span key={`ellipsis-${index}`} className="px-1.5 text-xs text-slate-400">
+                          ...
+                        </span>
+                      );
+                    }
+                    const isSelected = item === safePage;
+                    return (
+                      <button
+                        key={item}
+                        onClick={() => setCurrentPage(item)}
+                        className={`w-8 h-8 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                          isSelected
+                            ? 'bg-blue-600 text-white shadow-sm'
+                            : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+                        }`}
+                      >
+                        {item}
+                      </button>
+                    );
+                  })}
+              </div>
+
+              <button
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                disabled={safePage >= totalPages}
+                className="p-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed text-slate-600 transition-colors cursor-pointer"
+                title="Próxima Página"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Modal - só abre se o usuário tiver permissão de criar ou editar */}
       {isModalOpen && (canCreate || canEdit) && (
@@ -1034,6 +1269,137 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
                   <div>
                     <label className="block text-xs font-semibold text-slate-650 mb-1.5">Alergias (separadas por vírgula)</label>
                     <textarea rows={2} placeholder="Ex: Dipirona, Penicilina, Glúten..." value={allergiesText} onChange={e => setAllergiesText(e.target.value)} className={inputClass + ' resize-none'} />
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'offboarding' && (
+                <div className="space-y-4">
+                  <div className="p-4 bg-rose-50/70 border border-rose-200 rounded-2xl">
+                    <div className="flex items-center gap-3 mb-3">
+                      <div className="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center text-rose-600 shrink-0">
+                        <UserX className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-bold text-slate-900">Desligamento do Residente</h4>
+                        <p className="text-xs text-slate-500">Ao desligar o residente, ele passará para a seção "Residentes Desligados" com o status Inativo no banco de dados.</p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3 pt-2 border-t border-rose-200/60">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1.5">Status do Residente</label>
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => setFormData(prev => ({ ...prev, status: 'ativo' }))}
+                            className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold border transition-colors flex items-center justify-center gap-2 ${
+                              formData.status !== 'inativo'
+                                ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                            }`}
+                          >
+                            <UserCheck className="w-4 h-4" /> Residente Ativo
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setFormData(prev => ({
+                              ...prev,
+                              status: 'inativo',
+                              dataDesligamento: prev.dataDesligamento || new Date().toISOString().split('T')[0]
+                            }))}
+                            className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold border transition-colors flex items-center justify-center gap-2 ${
+                              formData.status === 'inativo'
+                                ? 'bg-rose-600 text-white border-rose-600 shadow-sm'
+                                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                            }`}
+                          >
+                            <UserX className="w-4 h-4" /> Desligado / Inativo
+                          </button>
+                        </div>
+                      </div>
+
+                      {formData.status === 'inativo' && (
+                        <div className="space-y-3 pt-2">
+                          <div>
+                            <label className="block text-xs font-bold text-slate-700 mb-1">Data do Desligamento *</label>
+                            <input
+                              type="date"
+                              value={formData.dataDesligamento || ''}
+                              onChange={e => setFormData(prev => ({ ...prev, dataDesligamento: e.target.value }))}
+                              className={inputClass}
+                              required={formData.status === 'inativo'}
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-bold text-slate-700 mb-1">Motivo do Desligamento *</label>
+                            <textarea
+                              rows={3}
+                              value={formData.motivoDesligamento || ''}
+                              onChange={e => setFormData(prev => ({ ...prev, motivoDesligamento: e.target.value }))}
+                              placeholder="Descreva o motivo (ex: óbito/certidão de óbito, transferência para outro local, alta médica...)"
+                              className={inputClass + ' resize-none'}
+                              required={formData.status === 'inativo'}
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-bold text-slate-700 mb-1">Anexar Documento (ex: Certidão de Óbito, Termo de Rescisão)</label>
+                            
+                            {formData.documentoDesligamento ? (
+                              <div className="flex items-center justify-between p-3 bg-white border border-slate-200 rounded-xl">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <FileText className="w-4 h-4 text-blue-600 shrink-0" />
+                                  <span className="text-xs font-semibold text-slate-700 truncate">Documento de Desligamento Anexado</span>
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <a
+                                    href={formData.documentoDesligamento}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="px-2.5 py-1 text-xs font-semibold bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors inline-flex items-center gap-1"
+                                  >
+                                    Visualizar <ExternalLink className="w-3 h-3" />
+                                  </a>
+                                  <button
+                                    type="button"
+                                    onClick={() => setFormData(prev => ({ ...prev, documentoDesligamento: '' }))}
+                                    className="px-2.5 py-1 text-xs font-semibold bg-rose-50 text-rose-600 hover:bg-rose-100 rounded-lg transition-colors"
+                                  >
+                                    Remover
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="relative">
+                                <label className="flex flex-col items-center justify-center p-4 border-2 border-dashed border-slate-200 hover:border-blue-400 rounded-xl cursor-pointer bg-white hover:bg-blue-50/30 transition-colors">
+                                  {uploadingOffboardingDoc ? (
+                                    <div className="flex items-center gap-2 text-xs font-semibold text-blue-600">
+                                      <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                                      Enviando documento...
+                                    </div>
+                                  ) : (
+                                    <>
+                                      <UploadCloud className="w-6 h-6 text-slate-400 mb-1" />
+                                      <span className="text-xs font-semibold text-slate-700">Clique para anexar documento (PDF ou Imagem)</span>
+                                      <span className="text-[10px] text-slate-400">Certidão de óbito, termo de desligamento...</span>
+                                    </>
+                                  )}
+                                  <input
+                                    type="file"
+                                    accept="image/*,application/pdf"
+                                    onChange={handleOffboardingDocUpload}
+                                    disabled={uploadingOffboardingDoc}
+                                    className="hidden"
+                                  />
+                                </label>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}

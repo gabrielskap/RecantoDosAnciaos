@@ -19,6 +19,7 @@ import ResidentPortal from './components/ResidentPortal';
 import RoomsModule from './components/RoomsModule';
 import NotificationsModule from './components/NotificationsModule';
 import SettingsModule from './components/SettingsModule';
+import FrigobarModule from './components/FrigobarModule';
 import CheckoutPage from './components/CheckoutPage';
 import PendingPaymentScreen from './components/PendingPaymentScreen';
 import TrialBanner from './components/TrialBanner';
@@ -53,6 +54,9 @@ const pathToView = (path: string): { view: ViewState; residentId?: string } => {
       return { view: ViewState.AGENDA };
     case 'nutrition':
       return { view: ViewState.NUTRITION };
+    case 'frigobar':
+    case 'temperatura-frigobar':
+      return { view: ViewState.FRIGOBAR };
     case 'team':
       return { view: ViewState.TEAM };
     case 'finance':
@@ -88,6 +92,8 @@ const viewToPath = (view: ViewState, residentId?: string): string => {
       return '/agenda';
     case ViewState.NUTRITION:
       return '/nutrition';
+    case ViewState.FRIGOBAR:
+      return '/frigobar';
     case ViewState.TEAM:
       return '/team';
     case ViewState.FINANCE:
@@ -738,7 +744,11 @@ function AppInner() {
           req_hydration: updated.reqHydration ?? null,
           req_mobility: updated.reqMobility ?? null,
           req_dressings: updated.reqDressings ?? null,
-          req_leisure: updated.reqLeisure ?? null
+          req_leisure: updated.reqLeisure ?? null,
+          status: updated.status || 'ativo',
+          data_desligamento: updated.dataDesligamento || null,
+          motivo_desligamento: updated.motivoDesligamento || null,
+          documento_desligamento: updated.documentoDesligamento || null
         })
         .eq('id', updated.id);
 
@@ -1732,6 +1742,8 @@ function AppInner() {
         return <SettingsModule />;
       case ViewState.PROFILE:
         return <UserProfile />;
+      case ViewState.FRIGOBAR:
+        return <FrigobarModule />;
       default:
         return <Dashboard residents={residents} financials={financials} invoices={invoices} employees={employees} onNavigate={navigateTo} isAdmin={currentUser?.profile.type === 'Administrador'} />;
     }
