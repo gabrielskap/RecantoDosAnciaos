@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Users, Calendar, Award, Shield, Plus, X, Search, CheckCircle, AlertOctagon, UserCheck, Edit, Trash2, ShieldAlert, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Employee, TrainingRecord, SystemAccessLog, UserRole, Resident, ViewState } from '../types';
 import ProfileManager from './ProfileManager';
@@ -33,7 +33,25 @@ const TeamModule: React.FC<TeamModuleProps> = ({
   const { currentUser, profiles, addUser, users, hasPermission } = useAuth();
   const isAdmin = currentUser?.profile.type === 'Administrador';
   const showUsersTab = hasPermission(ViewState.USERS, 'view');
-  const [activeTab, setActiveTab] = useState<'employees' | 'users' | 'schedule' | 'training' | 'logs' | 'profiles'>('employees');
+  const [activeTab, setActiveTab] = useState<'employees' | 'users' | 'schedule' | 'training' | 'logs' | 'profiles'>(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const tabParam = urlParams.get('tab') as 'employees' | 'users' | 'schedule' | 'training' | 'logs' | 'profiles' | null;
+    const valid = ['employees', 'users', 'schedule', 'training', 'logs', 'profiles'];
+    if (tabParam && valid.includes(tabParam)) {
+      return tabParam;
+    }
+    const saved = localStorage.getItem('recanto_team_active_tab') as any;
+    return saved && valid.includes(saved) ? saved : 'employees';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('recanto_team_active_tab', activeTab);
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('tab') !== activeTab) {
+      url.searchParams.set('tab', activeTab);
+      window.history.replaceState(null, '', url.pathname + url.search);
+    }
+  }, [activeTab]);
   const [logsPage, setLogsPage] = useState(1);
   const [logsItemsPerPage, setLogsItemsPerPage] = useState(10);
   const [isEmpModalOpen, setIsEmpModalOpen] = useState(() => {

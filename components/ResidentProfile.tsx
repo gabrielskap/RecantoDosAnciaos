@@ -408,6 +408,11 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   });
 
   const [activeTab, setActiveTab] = useState<'info' | 'meds' | 'vitals' | 'glicemia' | 'routine' | 'care_plan' | 'visits' | 'docs' | 'evolution' | 'history'>(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const tabParam = urlParams.get('tab');
+    if (tabParam && visibleTabs.some(t => t.id === tabParam)) {
+      return tabParam as any;
+    }
     const saved = localStorage.getItem(`recanto_resident_profile_active_tab_${resident.id}`);
     const initialTab = (saved as any) || 'vitals';
     const isVisible = visibleTabs.some(t => t.id === initialTab);
@@ -422,6 +427,11 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
 
   React.useEffect(() => {
     localStorage.setItem(`recanto_resident_profile_active_tab_${resident.id}`, activeTab);
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('tab') !== activeTab) {
+      url.searchParams.set('tab', activeTab);
+      window.history.replaceState(null, '', url.pathname + url.search);
+    }
   }, [activeTab, resident.id]);
 
   const [isEditingStatus, setIsEditingStatus] = useState(false);

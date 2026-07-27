@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { AuthUser, Profile, Permission, PermissionAction, ViewState, ProfileType, DigitalCertificate, BoletimModelType } from '../types';
 import { supabase } from '../services/supabaseClient';
 import { toast } from '../services/toast';
@@ -385,6 +385,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // --- Auth State Handlers ---
 
+  const currentUserRef = useRef<AuthUser | null>(currentUser);
+  useEffect(() => {
+    currentUserRef.current = currentUser;
+  }, [currentUser]);
+
   useEffect(() => {
     const checkSession = async () => {
       setLoading(true);
@@ -392,8 +397,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const { data: { session }, error } = await supabase.auth.getSession();
         if (error) {
           console.warn('Erro ao recuperar sessão do Supabase:', error.message);
-          // Se o token de atualização (refresh token) for inválido (HTTP 400 / invalid_grant),
-          // limpamos a sessão local para evitar erros repetidos em cada recarregamento.
           if (error.status === 400 || error.message?.includes('refresh_token') || error.message?.includes('invalid_grant')) {
             await supabase.auth.signOut().catch(() => {});
           }
@@ -415,6 +418,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     checkSession();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      // Se for apenas renovação de token / alternância de aba e o usuário já estiver logado com o mesmo ID,
+      // evitamos disparar re-fetch/loading para não causar reflash no navegador.
+      if (session?.user && currentUserRef.current?.id === session.user.id) {
+        return;
+      }
+
       setLoading(true);
       try {
         if (session?.user) {
@@ -447,7 +456,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setProfiles([]);
       setAccessBlocked(false);
     }
-  }, [currentUser]);  // Sincroniza as configurações da empresa com o localStorage para compatibilidade retroativa e migra do local se necessário
+  }, [currentUser?.id]);  // Sincroniza as configurações da empresa com o localStorage para compatibilidade retroativa e migra do local se necessário
   useEffect(() => {
     const syncCompanySettings = async () => {
       if (!currentUser?.empresaId) { setModeloBoletim('diurno_noturno'); return; }

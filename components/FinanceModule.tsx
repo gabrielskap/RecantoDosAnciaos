@@ -25,7 +25,24 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
   const canEdit   = hasPermission(ViewState.FINANCE, 'edit');
   const canDelete = hasPermission(ViewState.FINANCE, 'delete');
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'contracts' | 'invoices' | 'expenses'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'contracts' | 'invoices' | 'expenses'>(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const tabParam = urlParams.get('tab') as 'overview' | 'contracts' | 'invoices' | 'expenses' | null;
+    if (tabParam && ['overview', 'contracts', 'invoices', 'expenses'].includes(tabParam)) {
+      return tabParam;
+    }
+    const saved = localStorage.getItem('recanto_finance_active_tab') as 'overview' | 'contracts' | 'invoices' | 'expenses' | null;
+    return saved && ['overview', 'contracts', 'invoices', 'expenses'].includes(saved) ? saved : 'overview';
+  });
+
+  React.useEffect(() => {
+    localStorage.setItem('recanto_finance_active_tab', activeTab);
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('tab') !== activeTab) {
+      url.searchParams.set('tab', activeTab);
+      window.history.replaceState(null, '', url.pathname + url.search);
+    }
+  }, [activeTab]);
   const [isRecordModalOpen, setIsRecordModalOpen] = useState(() => {
     return localStorage.getItem('modal_finance_record_open') === 'true';
   });

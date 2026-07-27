@@ -161,7 +161,25 @@ function saveSettings(key: string, settings: SystemSettings) {
 const SettingsModule: React.FC = () => {
   const { currentUser, refreshModeloBoletim } = useAuth();
   const storageKey = getStorageKey(currentUser?.empresaId ?? currentUser?.id);
-  const [activeTab, setActiveTab] = useState<TabId>('institution');
+  const [activeTab, setActiveTab] = useState<TabId>(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const tabParam = urlParams.get('tab') as TabId | null;
+    const valid: TabId[] = ['institution', 'notifications', 'security', 'documents', 'boletim', 'about', 'subscription'];
+    if (tabParam && valid.includes(tabParam)) {
+      return tabParam;
+    }
+    const saved = localStorage.getItem('recanto_settings_active_tab') as TabId | null;
+    return saved && valid.includes(saved) ? saved : 'institution';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('recanto_settings_active_tab', activeTab);
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('tab') !== activeTab) {
+      url.searchParams.set('tab', activeTab);
+      window.history.replaceState(null, '', url.pathname + url.search);
+    }
+  }, [activeTab]);
   const [settings, setSettings] = useState<SystemSettings>(() => loadSettings(storageKey));
   const [saved, setSaved] = useState(false);
   const [dirty, setDirty] = useState(false);

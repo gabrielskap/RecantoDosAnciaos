@@ -15,6 +15,11 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
   const canCreate = hasPermission(ViewState.NUTRITION, 'create');
 
   const [activeTab, setActiveTab] = useState<'dashboard' | 'daily' | 'plans'>(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const tabParam = urlParams.get('tab') as 'dashboard' | 'daily' | 'plans' | null;
+    if (tabParam && ['dashboard', 'daily', 'plans'].includes(tabParam)) {
+      return tabParam;
+    }
     return (localStorage.getItem('recanto_nutrition_active_tab') as any) || 'dashboard';
   });
   const [selectedDate, setSelectedDate] = useState(() => {

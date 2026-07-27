@@ -533,7 +533,25 @@ const ReportsModule: React.FC<ReportsModuleProps> = ({
   const defaultStart = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
   const defaultEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().split('T')[0];
 
-  const [selectedModule, setSelectedModule] = useState<ModuleId>('conformidade');
+  const [selectedModule, setSelectedModule] = useState<ModuleId>(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const tabParam = urlParams.get('tab') as ModuleId | null;
+    const valid: ModuleId[] = ['conformidade', 'residentes', 'financas', 'nutricao', 'estoque', 'equipe', 'agenda'];
+    if (tabParam && valid.includes(tabParam)) {
+      return tabParam;
+    }
+    const saved = localStorage.getItem('recanto_reports_selected_module') as ModuleId | null;
+    return saved && valid.includes(saved) ? saved : 'conformidade';
+  });
+
+  React.useEffect(() => {
+    localStorage.setItem('recanto_reports_selected_module', selectedModule);
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('tab') !== selectedModule) {
+      url.searchParams.set('tab', selectedModule);
+      window.history.replaceState(null, '', url.pathname + url.search);
+    }
+  }, [selectedModule]);
   const [startDate, setStartDate] = useState(defaultStart);
   const [endDate, setEndDate] = useState(defaultEnd);
 

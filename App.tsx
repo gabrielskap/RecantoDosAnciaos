@@ -114,8 +114,25 @@ const viewToPath = (view: ViewState, residentId?: string): string => {
 function AppInner() {
   const { currentUser, loading, logout, accessBlocked, trialInfo } = useAuth();
   const [subscriptionModalOpen, setSubscriptionModalOpen] = useState(false);
-  const [currentView, setCurrentView] = useState<ViewState>(ViewState.DASHBOARD);
-  const [selectedResident, setSelectedResident] = useState<Resident | null>(null);
+  const [currentView, setCurrentView] = useState<ViewState>(() => {
+    const path = window.location.pathname;
+    if (path && path !== '/' && path !== '/login' && path !== '/portal') {
+      return pathToView(path).view;
+    }
+    const savedPath = localStorage.getItem('recanto_last_active_path');
+    if (savedPath && savedPath !== '/' && savedPath !== '/login' && savedPath !== '/portal') {
+      return pathToView(savedPath).view;
+    }
+    return ViewState.DASHBOARD;
+  });
+  const [selectedResident, setSelectedResident] = useState<Resident | null>(() => {
+    try {
+      const saved = localStorage.getItem('recanto_last_selected_resident');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
   // Full clinical history (vitals, checklists, documents, audit trail,
   // visits, prescriptions) for the ONE resident whose profile is currently
   // open. `residents` only carries the lightweight summary now, so this is
@@ -426,20 +443,25 @@ function AppInner() {
       setDataLoaded(false);
       setCompanyName('RecantoCare');
     }
-  }, [currentUser]);
+  }, [currentUser?.id]);
 
   // Navigate function that pushes state
   const navigateTo = (view: ViewState, residentId?: string) => {
     const path = viewToPath(view, residentId);
+    const search = window.location.search;
     if (window.location.pathname !== path) {
-      window.history.pushState(null, '', path);
+      window.history.pushState(null, '', path + search);
     }
     setCurrentView(view);
     if (view === ViewState.RESIDENT_DETAIL && residentId) {
-      const found = residents.find(r => r.id === residentId) || null;
-      setSelectedResident(found);
-    } else {
+      const found = residents.find(r => r.id === residentId) || selectedResident;
+      if (found) {
+        setSelectedResident(found);
+        localStorage.setItem('recanto_last_selected_resident', JSON.stringify(found));
+      }
+    } else if (view !== ViewState.RESIDENT_DETAIL) {
       setSelectedResident(null);
+      localStorage.removeItem('recanto_last_selected_resident');
     }
     if (path !== '/' && path !== '/login' && path !== '/portal') {
       localStorage.setItem('recanto_last_active_path', path);
@@ -452,43 +474,59 @@ function AppInner() {
       // Don't route if not logged in
       if (!currentUser) return;
 
-      const path = window.location.pathname;
-
       // Portal handles its own view internally or we use /portal
       if (currentUser.profile.type === 'Responsável') {
-        if (path !== '/portal') {
+        if (window.location.pathname !== '/portal') {
           window.history.replaceState(null, '', '/portal');
         }
         return;
       }
 
       // If we are at /portal but we are not a Responsável, redirect to /
-      if (path === '/portal') {
+      if (window.location.pathname === '/portal') {
         window.history.replaceState(null, '', '/');
         setCurrentView(ViewState.DASHBOARD);
         setSelectedResident(null);
+        localStorage.removeItem('recanto_last_selected_resident');
         return;
+      }
+
+      let path = window.location.pathname;
+
+      // If at root '/' or '/login', check if there is a saved active path in localStorage
+      if (path === '/' || path === '/login') {
+        const savedPath = localStorage.getItem('recanto_last_active_path');
+        if (savedPath && savedPath !== '/' && savedPath !== '/login' && savedPath !== '/portal') {
+          window.history.replaceState(null, '', savedPath + window.location.search);
+          path = savedPath;
+        }
       }
 
       const { view, residentId } = pathToView(path);
       const expectedPath = viewToPath(view, residentId);
+
       if (path !== expectedPath && view !== ViewState.RESIDENT_DETAIL) {
-        window.history.replaceState(null, '', expectedPath);
+        window.history.replaceState(null, '', expectedPath + window.location.search);
       }
       setCurrentView(view);
+
       if (view === ViewState.RESIDENT_DETAIL && residentId) {
         const found = residents.find(r => r.id === residentId);
         if (found) {
           setSelectedResident(found);
+          localStorage.setItem('recanto_last_selected_resident', JSON.stringify(found));
         } else if (dataLoaded) {
-          // Fallback only if data has finished loading and resident is still not found
+          // Resident not found after data finished loading
           window.history.replaceState(null, '', '/residents');
           setCurrentView(ViewState.RESIDENTS);
           setSelectedResident(null);
+          localStorage.removeItem('recanto_last_selected_resident');
         }
-      } else {
+      } else if (view !== ViewState.RESIDENT_DETAIL) {
         setSelectedResident(null);
+        localStorage.removeItem('recanto_last_selected_resident');
       }
+
       if (path !== '/' && path !== '/login' && path !== '/portal') {
         localStorage.setItem('recanto_last_active_path', path);
       }
@@ -500,34 +538,12 @@ function AppInner() {
     return () => window.removeEventListener('popstate', handleLocationChange);
   }, [currentUser, residents, dataLoaded]);
 
-  // Restore path on login
-  useEffect(() => {
-    if (currentUser && dataLoaded) {
-      const savedPath = localStorage.getItem('recanto_last_active_path');
-      if (savedPath && savedPath !== '/' && savedPath !== '/login' && savedPath !== '/portal' && (window.location.pathname === '/' || window.location.pathname === '/login')) {
-        window.history.replaceState(null, '', savedPath);
-        const { view, residentId } = pathToView(savedPath);
-        setCurrentView(view);
-        if (view === ViewState.RESIDENT_DETAIL && residentId) {
-          const found = residents.find(r => r.id === residentId);
-          if (found) setSelectedResident(found);
-        }
-      }
-    }
-  }, [currentUser, dataLoaded, residents]);
-
   // Sync login/logout path changes
   useEffect(() => {
     if (currentUser) {
       if (currentUser.profile.type === 'Responsável') {
         if (window.location.pathname !== '/portal') {
           window.history.replaceState(null, '', '/portal');
-        }
-      } else {
-        // Just sync view state to URL once logged in
-        const path = viewToPath(currentView, selectedResident?.id);
-        if (window.location.pathname !== path && window.location.pathname === '/') {
-          window.history.replaceState(null, '', path);
         }
       }
     } else {
@@ -1604,15 +1620,25 @@ function AppInner() {
           />
         );
       case ViewState.RESIDENT_DETAIL:
-        if (!selectedResident) return (
-          <ResidentsList
-            residents={residents}
-            rooms={rooms}
-            onSelectResident={handleSelectResident}
-            onAddResident={handleAddResident}
-            onUpdateResident={handleUpdateResident}
-          />
-        );
+        if (!selectedResident) {
+          if (!dataLoaded) {
+            return (
+              <div className="flex flex-col items-center justify-center py-20">
+                <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-4" />
+                <p className="text-slate-500 font-medium text-sm">Carregando prontuário do residente...</p>
+              </div>
+            );
+          }
+          return (
+            <ResidentsList
+              residents={residents}
+              rooms={rooms}
+              onSelectResident={handleSelectResident}
+              onAddResident={handleAddResident}
+              onUpdateResident={handleUpdateResident}
+            />
+          );
+        }
         return (
           <ResidentProfile
             resident={residentForProfile}

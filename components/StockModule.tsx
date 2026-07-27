@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { AlertTriangle, CheckCircle2, Package, Plus, Minus, X, History, ArrowDownCircle, ArrowUpCircle, PackageSearch, Search, User, ChevronRight } from 'lucide-react';
 import { StockItem, Resident, ViewState } from '../types';
 import CustomSelect from './CustomSelect';
@@ -29,7 +29,24 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
   const canCreate = hasPermission(ViewState.STOCK, 'create');
   const canEdit   = hasPermission(ViewState.STOCK, 'edit');
 
-  const [activeTab, setActiveTab] = useState<'general' | 'residents'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'residents'>(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const tabParam = urlParams.get('tab') as 'general' | 'residents' | null;
+    if (tabParam && ['general', 'residents'].includes(tabParam)) {
+      return tabParam;
+    }
+    const saved = localStorage.getItem('recanto_stock_active_tab') as 'general' | 'residents' | null;
+    return saved && ['general', 'residents'].includes(saved) ? saved : 'general';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('recanto_stock_active_tab', activeTab);
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('tab') !== activeTab) {
+      url.searchParams.set('tab', activeTab);
+      window.history.replaceState(null, '', url.pathname + url.search);
+    }
+  }, [activeTab]);
   const [selectedResident, setSelectedResident] = useState<Resident | null>(null);
   const [residentSearch, setResidentSearch] = useState('');
   
