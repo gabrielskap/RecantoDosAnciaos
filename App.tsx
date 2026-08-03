@@ -1438,6 +1438,40 @@ function AppInner() {
     }
   };
 
+  const handleEditStockItem = async (updatedItem: StockItem) => {
+    try {
+      const { error } = await supabase
+        .from('Recanto_Estoque')
+        .update({
+          name: updatedItem.name,
+          category: updatedItem.category,
+          unit: updatedItem.unit,
+          min_threshold: updatedItem.minThreshold,
+          expiration_date: updatedItem.expirationDate || null,
+        })
+        .eq('id', updatedItem.id);
+      if (error) throw error;
+      await fetchStockItems();
+    } catch (err: any) {
+      console.error('Error updating stock item:', err);
+      toast.error(err.message || 'Erro ao atualizar o item de estoque.');
+    }
+  };
+
+  const handleDeleteStockItem = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from('Recanto_Estoque')
+        .update({ status: 'inativo' })
+        .eq('id', id);
+      if (error) throw error;
+      await fetchStockItems();
+    } catch (err: any) {
+      console.error('Error deleting stock item:', err);
+      toast.error(err.message || 'Erro ao excluir o item de estoque.');
+    }
+  };
+
   const handleAddEmployee = async (newEmployee: Omit<Employee, 'id'>): Promise<Employee> => {
     try {
       const { data, error } = await supabase
@@ -1812,6 +1846,8 @@ function AppInner() {
             residents={residents}
             onUpdateStock={handleUpdateStock}
             onAddItem={handleAddStockItem}
+            onEditItem={handleEditStockItem}
+            onDeleteItem={handleDeleteStockItem}
           />
         );
       case ViewState.ROOMS:

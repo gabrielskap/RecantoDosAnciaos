@@ -489,7 +489,8 @@ export async function fetchStockItems(empresaId: string): Promise<StockItem[]> {
   const { data, error } = await supabase
     .from('Recanto_Estoque')
     .select(`*, history:Recanto_MovimentacoesEstoque(*)`)
-    .eq('empresa_id', empresaId);
+    .eq('empresa_id', empresaId)
+    .eq('status', 'ativo');
 
   if (error) throw error;
 

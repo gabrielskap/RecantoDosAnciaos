@@ -112,6 +112,14 @@ const DemoLayoutInner: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
     setStockItems(prev => [...prev, { ...item, id: `s-demo-${Date.now()}` }]);
   };
 
+  const handleEditStockItem = async (updatedItem: StockItem) => {
+    setStockItems(prev => prev.map(i => i.id === updatedItem.id ? updatedItem : i));
+  };
+
+  const handleDeleteStockItem = async (id: string) => {
+    setStockItems(prev => prev.filter(i => i.id !== id));
+  };
+
   const handleAddEmployee = async (emp: Omit<Employee, 'id'>): Promise<Employee> => {
     const newEmp = { ...emp, id: `e-demo-${Date.now()}` } as Employee;
     setEmployees(prev => [...prev, newEmp]);
@@ -264,6 +272,8 @@ const DemoLayoutInner: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
             residents={residents}
             onUpdateStock={handleUpdateStock}
             onAddItem={handleAddStockItem}
+            onEditItem={handleEditStockItem}
+            onDeleteItem={handleDeleteStockItem}
           />
         );
 

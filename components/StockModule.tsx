@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { AlertTriangle, CheckCircle2, Package, Plus, Minus, X, History, ArrowDownCircle, ArrowUpCircle, PackageSearch, Search, User, ChevronRight, Pill } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Package, Plus, Minus, X, History, ArrowDownCircle, ArrowUpCircle, PackageSearch, Search, User, ChevronRight, Pill, Pencil, Trash2 } from 'lucide-react';
 import { StockItem, Resident, ViewState } from '../types';
 import CustomSelect from './CustomSelect';
 import { residentAvatarSrc } from '../lib/avatar';
@@ -11,6 +11,8 @@ interface StockModuleProps {
   residents: Resident[];
   onUpdateStock: (id: string, quantity: number) => void;
   onAddItem: (item: StockItem) => void;
+  onEditItem: (item: StockItem) => void;
+  onDeleteItem: (id: string) => void;
 }
 
 const categoryConfig: Record<string, { bg: string; text: string; label: string }> = {
@@ -25,10 +27,11 @@ const careLevelConfig = {
   III: { label: 'Grau III', bg: 'bg-rose-50', text: 'text-rose-700', dot: 'bg-rose-400' },
 };
 
-const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpdateStock, onAddItem }) => {
+const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpdateStock, onAddItem, onEditItem, onDeleteItem }) => {
   const { hasPermission } = useAuth();
   const canCreate = hasPermission(ViewState.STOCK, 'create');
   const canEdit   = hasPermission(ViewState.STOCK, 'edit');
+  const canDelete = hasPermission(ViewState.STOCK, 'delete');
 
   const [activeTab, setActiveTab] = useState<'general' | 'residents' | 'medicamentos'>(() => {
     const validTabs = ['general', 'residents', 'medicamentos'];
@@ -65,6 +68,9 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
     const saved = localStorage.getItem('modal_stock_new_item');
     return saved ? JSON.parse(saved) : { name: '', category: 'medicamento', quantity: '', unit: '', minThreshold: '10', expirationDate: '', residentId: undefined };
   });
+
+  const [editingItem, setEditingItem] = useState<StockItem | null>(null);
+  const [editForm, setEditForm] = useState({ name: '', category: 'medicamento', unit: '', minThreshold: '10', expirationDate: '' });
 
   React.useEffect(() => {
     if (isModalOpen) {
@@ -113,6 +119,38 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
       history: [],
     });
     setNewItem({ name: '', category: 'medicamento', quantity: '', unit: '', minThreshold: '10', expirationDate: '', residentId: undefined });
+  };
+
+  const handleOpenEditModal = (item: StockItem) => {
+    setEditForm({
+      name: item.name,
+      category: item.category,
+      unit: item.unit,
+      minThreshold: String(item.minThreshold),
+      expirationDate: item.expirationDate || '',
+    });
+    setEditingItem(item);
+  };
+
+  const handleEditSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingItem || !editForm.name) return;
+    if (editForm.category === 'medicamento' && !editForm.expirationDate) return;
+    onEditItem({
+      ...editingItem,
+      name: editForm.name,
+      category: editForm.category as any,
+      unit: editForm.unit || 'unid',
+      minThreshold: parseInt(editForm.minThreshold) || 10,
+      expirationDate: editForm.category === 'medicamento' ? editForm.expirationDate : undefined,
+    });
+    setEditingItem(null);
+  };
+
+  const handleDeleteItem = (item: StockItem) => {
+    if (window.confirm(`Tem certeza que deseja excluir "${item.name}" do estoque geral?`)) {
+      onDeleteItem(item.id);
+    }
   };
 
   // Filter items for general stock (residentId is null or undefined)
@@ -261,6 +299,21 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
                   <button onClick={() => setSelectedHistoryItem(item)} className="w-full flex items-center justify-center gap-2 py-2.5 text-xs font-semibold text-slate-600 bg-slate-50 hover:bg-slate-100 border border-slate-100 rounded-xl transition-colors">
                     <History className="h-3.5 w-3.5" /> Ver Histórico
                   </button>
+
+                  {(canEdit || canDelete) && (
+                    <div className="flex items-center gap-2 mt-2">
+                      {canEdit && (
+                        <button onClick={() => handleOpenEditModal(item)} className="flex-1 flex items-center justify-center gap-2 py-2.5 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-100 rounded-xl transition-colors">
+                          <Pencil className="h-3.5 w-3.5" /> Editar
+                        </button>
+                      )}
+                      {canDelete && (
+                        <button onClick={() => handleDeleteItem(item)} className="flex-1 flex items-center justify-center gap-2 py-2.5 text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-100 rounded-xl transition-colors">
+                          <Trash2 className="h-3.5 w-3.5" /> Excluir
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -283,6 +336,7 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
                   <th className="text-center px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wide">Ajustar</th>
                   <th className="text-center px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wide">Histórico</th>
                   <th className="text-center px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wide">Status</th>
+                  <th className="text-center px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wide">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
@@ -328,6 +382,21 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
                         {isLow
                           ? <span className="inline-flex items-center gap-1.5 text-xs font-semibold bg-rose-50 text-rose-600 border border-rose-100 px-2.5 py-1 rounded-full"><AlertTriangle className="h-3 w-3" /> Repor</span>
                           : <span className="inline-flex items-center gap-1.5 text-xs font-semibold bg-emerald-50 text-emerald-600 border border-emerald-100 px-2.5 py-1 rounded-full"><CheckCircle2 className="h-3 w-3" /> Regular</span>}
+                      </td>
+                      <td className="px-6 py-4 text-center">
+                        <div className="flex items-center justify-center gap-2">
+                          {canEdit && (
+                            <button onClick={() => handleOpenEditModal(item)} title="Editar item" className="w-9 h-9 rounded-xl hover:bg-blue-50 flex items-center justify-center transition-colors">
+                              <Pencil className="h-4 w-4 text-slate-400 hover:text-blue-600" />
+                            </button>
+                          )}
+                          {canDelete && (
+                            <button onClick={() => handleDeleteItem(item)} title="Excluir item" className="w-9 h-9 rounded-xl hover:bg-rose-50 flex items-center justify-center transition-colors">
+                              <Trash2 className="h-4 w-4 text-slate-400 hover:text-rose-600" />
+                            </button>
+                          )}
+                          {!canEdit && !canDelete && <span className="block text-slate-300">—</span>}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -681,6 +750,72 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
               <div className="flex gap-3 pt-2">
                 <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 py-2.5 border border-slate-200 rounded-xl text-slate-600 font-semibold text-sm hover:bg-slate-50 transition-colors">Cancelar</button>
                 <button type="submit" className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold text-sm transition-colors">Adicionar</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Item Modal */}
+      {editingItem && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+          onMouseDown={() => { modalMouseDown.current = false; }}
+          onMouseUp={(e) => { if (!modalMouseDown.current && e.target === e.currentTarget) setEditingItem(null); }}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden"
+            onMouseDown={(e) => { modalMouseDown.current = true; e.stopPropagation(); }}
+          >
+            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-white">
+              <div>
+                <h3 className="font-bold text-slate-900">Editar Item de Estoque</h3>
+                <p className="text-xs text-slate-500 mt-0.5">{editingItem.name}</p>
+              </div>
+              <button onClick={() => setEditingItem(null)} className="w-9 h-9 rounded-xl hover:bg-slate-100 flex items-center justify-center transition-colors">
+                <X className="h-5 w-5 text-slate-400" />
+              </button>
+            </div>
+            <form onSubmit={handleEditSubmit} className="p-5 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1.5">Nome do Item</label>
+                <input required type="text" value={editForm.name} onChange={e => setEditForm({ ...editForm, name: e.target.value })} className={inputClass} placeholder="Ex: Dipirona 500mg" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1.5">Categoria</label>
+                <CustomSelect
+                  value={editForm.category}
+                  onChange={v => setEditForm({ ...editForm, category: v })}
+                  options={[
+                    { value: 'medicamento', label: 'Medicamento', badge: { label: 'Medicamento', bg: 'bg-blue-50', text: 'text-blue-700' } },
+                    { value: 'insumo', label: 'Insumo', badge: { label: 'Insumo', bg: 'bg-blue-50', text: 'text-blue-700' } },
+                    { value: 'alimento', label: 'Alimento', badge: { label: 'Alimento', bg: 'bg-amber-50', text: 'text-amber-700' } },
+                  ]}
+                />
+              </div>
+              {editForm.category === 'medicamento' && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">Data de Validade</label>
+                  <input
+                    required
+                    type="date"
+                    value={editForm.expirationDate || ''}
+                    onChange={e => setEditForm({ ...editForm, expirationDate: e.target.value })}
+                    className={inputClass}
+                  />
+                </div>
+              )}
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1.5">Unidade</label>
+                <input type="text" placeholder="cx, un, kg" value={editForm.unit} onChange={e => setEditForm({ ...editForm, unit: e.target.value })} className={inputClass} />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1.5">Alerta Mínimo (Gatilho Crítico)</label>
+                <input type="number" placeholder="Notificar quando atingir..." value={editForm.minThreshold} onChange={e => setEditForm({ ...editForm, minThreshold: e.target.value })} className={inputClass} min="0" />
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button type="button" onClick={() => setEditingItem(null)} className="flex-1 py-2.5 border border-slate-200 rounded-xl text-slate-600 font-semibold text-sm hover:bg-slate-50 transition-colors">Cancelar</button>
+                <button type="submit" className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold text-sm transition-colors">Salvar Alterações</button>
               </div>
             </form>
           </div>

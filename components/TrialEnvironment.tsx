@@ -403,6 +403,14 @@ const TrialEnvironment: React.FC = () => {
     setStockItems(prev => [...prev, { ...newItem, id: `demo-s${Date.now()}` }]);
   };
 
+  const handleEditStockItem = async (updatedItem: StockItem) => {
+    setStockItems(prev => prev.map(item => item.id === updatedItem.id ? updatedItem : item));
+  };
+
+  const handleDeleteStockItem = async (id: string) => {
+    setStockItems(prev => prev.filter(item => item.id !== id));
+  };
+
   const handleAddEmployee = async (newEmployee: Omit<Employee, 'id'>): Promise<Employee> => {
     const emp: Employee = { ...newEmployee, id: `demo-e${Date.now()}` };
     setEmployees(prev => [...prev, emp]);
@@ -507,6 +515,8 @@ const TrialEnvironment: React.FC = () => {
             residents={residents}
             onUpdateStock={handleUpdateStock}
             onAddItem={handleAddStockItem}
+            onEditItem={handleEditStockItem}
+            onDeleteItem={handleDeleteStockItem}
           />
         );
       case ViewState.ROOMS:
