@@ -9,7 +9,7 @@ interface CtaBandProps {
 
 const CtaBand: React.FC<CtaBandProps> = ({
   title = 'Pronto para transformar sua ILPI?',
-  subtitle = 'Junte-se a mais de 500 ILPIs que já modernizaram sua gestão com o RecantoCare.',
+  subtitle = 'Prontuário, controle de medicação, relatórios para a vigilância sanitária e toda a gestão da sua instituição — comece hoje, sem instalação.',
 }) => (
   <section className="bg-gradient-to-br from-[#1e40af] to-[#1e3a8a] py-20 px-4">
     <div className="max-w-3xl mx-auto text-center">

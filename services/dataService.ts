@@ -583,7 +583,8 @@ export async function fetchEvents(empresaId: string): Promise<CalendarEvent[]> {
   const { data, error } = await supabase
     .from('Recanto_Eventos')
     .select('*')
-    .eq('empresa_id', empresaId);
+    .eq('empresa_id', empresaId)
+    .eq('status', 'ativo');
 
   if (error) throw error;
 
@@ -596,7 +597,9 @@ export async function fetchEvents(empresaId: string): Promise<CalendarEvent[]> {
     residentId: ev.resident_id || undefined,
     description: ev.description || undefined,
     location: ev.location || undefined,
-    createdBy: ev.created_by
+    createdBy: ev.created_by,
+    status: ev.status || undefined,
+    motivoCancelamento: ev.motivo_cancelamento || undefined
   }));
 }
 

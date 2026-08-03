@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { CalendarDays, Clock, MapPin, User, Plus, X, ChevronLeft, ChevronRight, Stethoscope, Users, Music, Activity } from 'lucide-react';
+import { CalendarDays, Clock, MapPin, User, Plus, X, ChevronLeft, ChevronRight, Stethoscope, Users, Music, Activity, Edit3, Trash2, ShieldAlert } from 'lucide-react';
 import { CalendarEvent, EventType, Resident, ViewState } from '../types';
 import CustomSelect from './CustomSelect';
 import { useAuth } from '../contexts/AuthContext';
@@ -7,7 +7,9 @@ import { useAuth } from '../contexts/AuthContext';
 interface AgendaModuleProps {
   events: CalendarEvent[];
   residents: Resident[];
-  onAddEvent: (event: CalendarEvent) => void;
+  onAddEvent: (event: CalendarEvent) => Promise<void>;
+  onUpdateEvent: (event: CalendarEvent) => Promise<void>;
+  onCancelEvent: (eventId: string, motivo: string) => Promise<void>;
 }
 
 const eventConfig: Record<EventType | 'outro', { label: string; bg: string; text: string; dot: string }> = {
@@ -22,14 +24,25 @@ const eventConfig: Record<EventType | 'outro', { label: string; bg: string; text
 const monthNames = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 const weekDays  = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
 
-const AgendaModule: React.FC<AgendaModuleProps> = ({ events, residents, onAddEvent }) => {
+// Converte um ISO datetime salvo de volta para o formato local exigido por
+// <input type="datetime-local">. Mesmo truque de locale 'sv-SE' já usado em
+// ResidentProfile.tsx (handleOpenGlicemiaModal).
+const toDatetimeLocalValue = (iso: string): string =>
+  new Date(iso).toLocaleString('sv-SE').replace(' ', 'T').slice(0, 16);
+
+const AgendaModule: React.FC<AgendaModuleProps> = ({ events, residents, onAddEvent, onUpdateEvent, onCancelEvent }) => {
   const { hasPermission } = useAuth();
   const canCreate = hasPermission(ViewState.AGENDA, 'create');
+  const canEdit   = hasPermission(ViewState.AGENDA, 'edit');
+  const canDelete = hasPermission(ViewState.AGENDA, 'delete');
 
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [isModalOpen, setIsModalOpen] = useState(() => {
     return localStorage.getItem('modal_agenda_open') === 'true';
+  });
+  const [editingEventId, setEditingEventId] = useState<string | null>(() => {
+    return localStorage.getItem('modal_agenda_editing_id') || null;
   });
   const [filterType, setFilterType] = useState<EventType | 'all'>('all');
   const modalMouseDown = useRef(false);
@@ -41,15 +54,27 @@ const AgendaModule: React.FC<AgendaModuleProps> = ({ events, residents, onAddEve
     };
   });
 
+  // Estado de confirmação de cancelamento — não persistido no localStorage
+  // (mesmo padrão de `empToDelete` no TeamModule: uma confirmação destrutiva
+  // não deve reaparecer sozinha depois de um reload).
+  const [eventToCancel, setEventToCancel] = useState<CalendarEvent | null>(null);
+  const [cancelMotivo, setCancelMotivo] = useState('');
+
   React.useEffect(() => {
     if (isModalOpen) {
       localStorage.setItem('modal_agenda_open', 'true');
       localStorage.setItem('modal_agenda_new_event', JSON.stringify(newEvent));
+      if (editingEventId) {
+        localStorage.setItem('modal_agenda_editing_id', editingEventId);
+      } else {
+        localStorage.removeItem('modal_agenda_editing_id');
+      }
     } else {
       localStorage.removeItem('modal_agenda_open');
       localStorage.removeItem('modal_agenda_new_event');
+      localStorage.removeItem('modal_agenda_editing_id');
     }
-  }, [isModalOpen, newEvent]);
+  }, [isModalOpen, newEvent, editingEventId]);
 
   const daysInMonth  = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate();
   const firstDayOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1).getDay();
@@ -60,19 +85,66 @@ const AgendaModule: React.FC<AgendaModuleProps> = ({ events, residents, onAddEve
       return d.getDate() === day && d.getMonth() === currentDate.getMonth() && d.getFullYear() === currentDate.getFullYear();
     });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleCreateEventClick = () => {
+    setEditingEventId(null);
+    setNewEvent({ title: '', type: 'atividade', start: '', end: '', residentId: '', location: '', description: '' });
+    setIsModalOpen(true);
+  };
+
+  const handleEditEventClick = (ev: CalendarEvent) => {
+    setEditingEventId(ev.id);
+    setNewEvent({
+      title: ev.title,
+      type: ev.type,
+      start: toDatetimeLocalValue(ev.start),
+      end: ev.end ? toDatetimeLocalValue(ev.end) : '',
+      residentId: ev.residentId || '',
+      location: ev.location || '',
+      description: ev.description || '',
+    });
+    setIsModalOpen(true);
+  };
+
+  const handleCloseEventModal = () => {
+    setIsModalOpen(false);
+    setEditingEventId(null);
+    setNewEvent({ title: '', type: 'atividade', start: '', end: '', residentId: '', location: '', description: '' });
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newEvent.title || !newEvent.start) return;
-    onAddEvent({
-      id: Math.random().toString(36).substr(2, 9),
+    const payload: CalendarEvent = {
+      id: editingEventId || Math.random().toString(36).substr(2, 9),
       title: newEvent.title!,
       start: new Date(newEvent.start).toISOString(),
       end: newEvent.end ? new Date(newEvent.end).toISOString() : undefined,
       type: newEvent.type as EventType,
       residentId: newEvent.residentId, location: newEvent.location,
       description: newEvent.description, createdBy: 'Usuário Atual',
-    });
-    setNewEvent({ title: '', type: 'atividade', start: '', end: '', residentId: '', location: '', description: '' });
+    };
+    try {
+      if (editingEventId) {
+        await onUpdateEvent(payload);
+      } else {
+        await onAddEvent(payload);
+      }
+      handleCloseEventModal();
+    } catch (err) {
+      console.error('Error saving event:', err);
+    }
+  };
+
+  const handleConfirmCancel = async () => {
+    if (!eventToCancel || !cancelMotivo.trim()) return;
+    try {
+      await onCancelEvent(eventToCancel.id, cancelMotivo.trim());
+    } catch (err) {
+      console.error('Error cancelling event:', err);
+    } finally {
+      setEventToCancel(null);
+      setCancelMotivo('');
+    }
   };
 
   const selectedEvents = events
@@ -96,7 +168,7 @@ const AgendaModule: React.FC<AgendaModuleProps> = ({ events, residents, onAddEve
         </div>
         {canCreate && (
           <button
-            onClick={() => setIsModalOpen(true)}
+            onClick={handleCreateEventClick}
             className="flex items-center gap-2 bg-amber-400 hover:bg-amber-300 text-slate-900 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors shadow-sm"
           >
             <Plus className="h-4 w-4" /> Novo Evento
@@ -209,6 +281,28 @@ const AgendaModule: React.FC<AgendaModuleProps> = ({ events, residents, onAddEve
                       </div>
                     )}
                   </div>
+                  {(canEdit || canDelete) && (
+                    <div className="mt-3 pt-3 border-t border-black/5 flex items-center justify-end gap-1.5">
+                      {canEdit && (
+                        <button
+                          onClick={() => handleEditEventClick(ev)}
+                          className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-white/60 rounded-lg transition-colors border border-transparent hover:border-blue-100"
+                          title="Editar Evento"
+                        >
+                          <Edit3 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                      {canDelete && (
+                        <button
+                          onClick={() => setEventToCancel(ev)}
+                          className="p-1.5 text-slate-500 hover:text-rose-600 hover:bg-white/60 rounded-lg transition-colors border border-transparent hover:border-rose-100"
+                          title="Cancelar Evento"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             }) : (
@@ -227,7 +321,7 @@ const AgendaModule: React.FC<AgendaModuleProps> = ({ events, residents, onAddEve
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
           onMouseDown={() => { modalMouseDown.current = false; }}
-          onMouseUp={(e) => { if (!modalMouseDown.current && e.target === e.currentTarget) setIsModalOpen(false); }}
+          onMouseUp={(e) => { if (!modalMouseDown.current && e.target === e.currentTarget) handleCloseEventModal(); }}
         >
           <div
             className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden"
@@ -235,10 +329,10 @@ const AgendaModule: React.FC<AgendaModuleProps> = ({ events, residents, onAddEve
           >
             <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-white">
               <div>
-                <h3 className="font-bold text-slate-900">Novo Agendamento</h3>
-                <p className="text-xs text-slate-500 mt-0.5">Preencha os dados do evento</p>
+                <h3 className="font-bold text-slate-900">{editingEventId ? 'Editar Agendamento' : 'Novo Agendamento'}</h3>
+                <p className="text-xs text-slate-500 mt-0.5">{editingEventId ? 'Atualize os dados do evento' : 'Preencha os dados do evento'}</p>
               </div>
-              <button onClick={() => setIsModalOpen(false)} className="w-9 h-9 rounded-xl hover:bg-slate-100 flex items-center justify-center transition-colors">
+              <button onClick={handleCloseEventModal} className="w-9 h-9 rounded-xl hover:bg-slate-100 flex items-center justify-center transition-colors">
                 <X className="h-5 w-5 text-slate-400" />
               </button>
             </div>
@@ -288,14 +382,67 @@ const AgendaModule: React.FC<AgendaModuleProps> = ({ events, residents, onAddEve
                 <textarea rows={2} value={newEvent.description} onChange={e => setNewEvent({ ...newEvent, description: e.target.value })} className={inputClass + ' resize-none'} />
               </div>
               <div className="pt-2 flex gap-3">
-                <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 py-2.5 border border-slate-200 rounded-xl text-slate-600 font-semibold text-sm hover:bg-slate-50 transition-colors">
+                <button type="button" onClick={handleCloseEventModal} className="flex-1 py-2.5 border border-slate-200 rounded-xl text-slate-600 font-semibold text-sm hover:bg-slate-50 transition-colors">
                   Cancelar
                 </button>
                 <button type="submit" className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold text-sm transition-colors">
-                  Salvar
+                  {editingEventId ? 'Salvar Alterações' : 'Salvar'}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {eventToCancel && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/50 backdrop-blur-sm"
+          onMouseDown={() => { modalMouseDown.current = false; }}
+          onMouseUp={(e) => { if (!modalMouseDown.current && e.target === e.currentTarget) { setEventToCancel(null); setCancelMotivo(''); } }}
+        >
+          <div
+            className="bg-white sm:rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4"
+            onMouseDown={(e) => { modalMouseDown.current = true; e.stopPropagation(); }}
+          >
+            <div className="flex items-center gap-3 text-rose-600">
+              <div className="p-2 bg-rose-100 rounded-xl shrink-0">
+                <ShieldAlert className="h-6 w-6" />
+              </div>
+              <h3 className="text-lg font-bold">Cancelar Evento</h3>
+            </div>
+            <p className="text-sm text-slate-600">
+              Tem certeza que deseja cancelar o evento{' '}
+              <span className="font-semibold text-slate-800">{eventToCancel.title}</span>?
+            </p>
+            <p className="text-xs text-slate-400 italic">
+              O evento deixará de aparecer na agenda. O registro é mantido internamente para histórico.
+            </p>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">Motivo do Cancelamento *</label>
+              <textarea
+                required
+                rows={3}
+                value={cancelMotivo}
+                onChange={e => setCancelMotivo(e.target.value)}
+                className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 resize-none"
+                placeholder="Descreva o motivo do cancelamento..."
+              />
+            </div>
+            <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
+              <button
+                onClick={() => { setEventToCancel(null); setCancelMotivo(''); }}
+                className="px-5 py-2.5 border border-slate-200 rounded-xl text-slate-600 font-semibold text-sm hover:bg-slate-50 transition-colors"
+              >
+                Voltar
+              </button>
+              <button
+                onClick={handleConfirmCancel}
+                disabled={!cancelMotivo.trim()}
+                className="px-6 py-2.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl font-semibold text-sm transition-colors shadow-sm"
+              >
+                Confirmar Cancelamento
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -31,9 +31,10 @@ import NotificationsPanel from './components/NotificationsPanel';
 import type { AlertItem } from './components/NotificationsPanel';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { Menu, HeartPulse, Bell, ChevronDown, UserCircle, LogOut, Building2 } from 'lucide-react';
-import { ViewState, Resident, FinancialRecord, StockItem, Employee, TrainingRecord, SystemAccessLog, Contract, Invoice, CalendarEvent, StockTransaction, Room } from './types';
+import { ViewState, Resident, FinancialRecord, StockItem, Employee, TrainingRecord, SystemAccessLog, Contract, Invoice, CalendarEvent, StockTransaction, Room, MedicamentoInventarioItem } from './types';
 import { supabase } from './services/supabaseClient';
 import * as dataService from './services/dataService';
+import { fetchInventario, fetchInventarioParaMedicacao, debitarPorBoletim, unidadesPorTomada } from './services/medicationInventoryService';
 import UserProfile from './components/UserProfile';
 
 // Path name to ViewState conversion
@@ -186,6 +187,7 @@ function AppInner() {
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [stockItems, setStockItems] = useState<StockItem[]>([]);
+  const [medicationInventory, setMedicationInventory] = useState<MedicamentoInventarioItem[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [trainingRecords, setTrainingRecords] = useState<TrainingRecord[]>([]);
   const [accessLogs, setAccessLogs] = useState<SystemAccessLog[]>([]);
@@ -279,6 +281,15 @@ function AppInner() {
       setStockItems(await dataService.fetchStockItems(currentUser.empresaId));
     } catch (err) {
       console.error('Erro ao buscar estoque:', err);
+    }
+  };
+
+  const fetchMedicationInventory = async () => {
+    if (!currentUser?.empresaId) return;
+    try {
+      setMedicationInventory(await fetchInventario(currentUser.empresaId));
+    } catch (err) {
+      console.error('Erro ao buscar inventário de medicamentos:', err);
     }
   };
 
@@ -413,6 +424,7 @@ function AppInner() {
       fetchContracts();
       fetchInvoices();
       fetchStockItems();
+      fetchMedicationInventory();
       fetchEmployees();
       fetchAccessLogs();
       fetchTrainingRecords();
@@ -441,6 +453,7 @@ function AppInner() {
       setContracts([]);
       setInvoices([]);
       setStockItems([]);
+      setMedicationInventory([]);
       setEmployees([]);
       setTrainingRecords([]);
       setAccessLogs([]);
@@ -916,6 +929,7 @@ function AppInner() {
       }
 
       // 7. Checklist Diário
+      let didDebitMedication = false;
       if (updated.dailyChecklists) {
         for (const chk of updated.dailyChecklists) {
           const { data: chkData, error: chkErr } = await supabase
@@ -986,7 +1000,43 @@ function AppInner() {
                 );
             }
           }
+
+          // 7b. Baixa do inventário de medicamentos a partir do boletim.
+          // Cada item marcado como "tomou" debita as unidades calculadas pela
+          // posologia do inventário vinculado. A baixa é idempotente (UNIQUE
+          // origem_checklist_id + origem_item_id), então re-salvar o boletim
+          // não duplica o débito. Itens sem inventário vinculado são ignorados.
+          if (!chkErr && chkData && chk.medicacoesAdministradas) {
+            try {
+              const parsedMeds = JSON.parse(chk.medicacoesAdministradas);
+              if (Array.isArray(parsedMeds)) {
+                for (const medItem of parsedMeds) {
+                  if (!medItem || medItem.status !== 'tomou' || !medItem.id) continue;
+                  const medicacaoId = String(medItem.id).split('__')[0];
+                  const inv = await fetchInventarioParaMedicacao(medicacaoId, updated.id, medItem.name);
+                  if (!inv) continue;
+                  const qtd = unidadesPorTomada(inv);
+                  if (qtd == null) {
+                    console.warn(`Posologia ausente no inventário para "${medItem.name}"; baixa via boletim não realizada.`);
+                    continue;
+                  }
+                  await debitarPorBoletim(inv.id, qtd, chkData.id, String(medItem.id), currentUser?.name);
+                  didDebitMedication = true;
+                }
+              }
+            } catch (medErr) {
+              // medicacoesAdministradas em texto livre (não-JSON) ou falha de rede
+              // não devem interromper o salvamento do boletim.
+              console.error('Erro ao debitar inventário de medicamentos pelo boletim:', medErr);
+            }
+          }
         }
+      }
+
+      // Atualiza o inventário de medicamentos em memória (alerta do Dashboard)
+      // quando o boletim debitou alguma dose.
+      if (didDebitMedication) {
+        fetchMedicationInventory();
       }
 
       // 8. Pastas de Documentos (persistir antes dos documentos p/ resolver folder_id)
@@ -1574,6 +1624,42 @@ function AppInner() {
     }
   };
 
+  const handleUpdateEvent = async (updatedEvent: CalendarEvent) => {
+    try {
+      const { error } = await supabase
+        .from('Recanto_Eventos')
+        .update({
+          title: updatedEvent.title,
+          start_time: updatedEvent.start,
+          end_time: updatedEvent.end || null,
+          type: updatedEvent.type,
+          resident_id: updatedEvent.residentId || null,
+          description: updatedEvent.description || null,
+          location: updatedEvent.location || null,
+        })
+        .eq('id', updatedEvent.id);
+      if (error) throw error;
+      await fetchEvents();
+    } catch (err: any) {
+      console.error('Error updating event:', err);
+      toast.error(err.message || 'Erro ao atualizar o evento.');
+    }
+  };
+
+  const handleCancelEvent = async (eventId: string, motivo: string) => {
+    try {
+      const { error } = await supabase
+        .from('Recanto_Eventos')
+        .update({ status: 'inativo', motivo_cancelamento: motivo })
+        .eq('id', eventId);
+      if (error) throw error;
+      await fetchEvents();
+    } catch (err: any) {
+      console.error('Error cancelling event:', err);
+      toast.error(err.message || 'Erro ao cancelar o evento.');
+    }
+  };
+
   // Derived State
   const lowStockItems = stockItems.filter(item => item.quantity < item.minThreshold);
 
@@ -1614,6 +1700,7 @@ function AppInner() {
             financials={financials}
             events={events}
             stockAlerts={lowStockItems}
+            medicationInventory={medicationInventory}
             invoices={invoices}
             employees={employees}
             onNavigate={navigateTo}
@@ -1668,6 +1755,8 @@ function AppInner() {
             events={events}
             residents={residents}
             onAddEvent={handleAddEvent}
+            onUpdateEvent={handleUpdateEvent}
+            onCancelEvent={handleCancelEvent}
           />
         );
       case ViewState.FINANCE:
@@ -1745,7 +1834,7 @@ function AppInner() {
       case ViewState.FRIGOBAR:
         return <FrigobarModule />;
       default:
-        return <Dashboard residents={residents} financials={financials} invoices={invoices} employees={employees} onNavigate={navigateTo} isAdmin={currentUser?.profile.type === 'Administrador'} />;
+        return <Dashboard residents={residents} financials={financials} invoices={invoices} employees={employees} medicationInventory={medicationInventory} onNavigate={navigateTo} isAdmin={currentUser?.profile.type === 'Administrador'} />;
     }
   };
 

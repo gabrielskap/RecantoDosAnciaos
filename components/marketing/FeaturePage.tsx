@@ -26,7 +26,7 @@ const FeaturePage: React.FC<{ content: FeatureContent }> = ({ content }) => {
       <SolutionSection solution={content.solution} accent={content.accent} />
       <BenefitCards benefits={content.benefits} accent={content.accent} />
       <ComparisonTable rows={content.comparison} />
-      <SavingsBand savings={content.savings} />
+      {content.savings && content.savings.length > 0 && <SavingsBand savings={content.savings} />}
       {content.testimonial && <FeatureTestimonial t={content.testimonial} />}
       <CtaBand title={`Pronto para transformar a gestão de ${content.eyebrow.toLowerCase()}?`} />
       <MarketingFooter />

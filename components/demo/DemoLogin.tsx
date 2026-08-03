@@ -44,7 +44,7 @@ const DemoLogin: React.FC<{ onLogin: () => void }> = ({ onLogin }) => {
             ))}
           </ul>
         </div>
-        <p className="text-blue-300 text-sm">© 2026 RecantoCare · Plataforma #1 para ILPIs no Brasil</p>
+        <p className="text-blue-300 text-sm">© 2026 RecantoCare · Gestão e conformidade para ILPIs</p>
       </div>
 
       {/* Lado direito — formulário */}

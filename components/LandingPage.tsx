@@ -7,22 +7,28 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { getConteudoSite, getImagensSite, getPlanosPublicos, type ImagemSite } from '../services/siteContentService';
+import { trackBeginCheckout, trackLead } from '../services/analytics';
+import { createLead } from '../services/leadService';
 import type { PlanoView } from '../types';
+
+// WhatsApp de vendas para o funil consultivo (só dígitos, ex. "5562999999999").
+// Sem valor, os CTAs de venda caem no fluxo de demonstração (comportamento atual).
+const SALES_WHATSAPP = process.env.VITE_SALES_WHATSAPP || '';
 
 // ─── Conteúdo padrão (fallback enquanto carrega do banco / caso a seção não exista) ──
 const DEFAULT_NAV = { marca: 'RecantoCare' };
 
 const DEFAULT_HERO = {
-  eyebrow: 'Plataforma #1 para ILPIs no Brasil',
+  eyebrow: 'Conformidade RDC 283/2005 + gestão completa',
   titulo_prefixo: 'A gestão completa para o seu',
   titulo_destaque: 'Lar de Idosos',
-  subtitulo: 'Controle residentes, saúde, finanças, equipe e estoque em uma única plataforma. Tecnologia de ponta a serviço do cuidado humano.',
+  subtitulo: 'Prontuário eletrônico, controle de medicação e relatórios exigidos pela vigilância sanitária — evite autuações e cuide melhor. Toda a gestão da sua ILPI (saúde, financeiro, equipe e estoque) em uma só plataforma.',
   cta_primario: 'Saiba mais',
   cta_secundario: 'Ver funcionalidades',
   stats: [
-    { valor: '500+', label: 'ILPIs atendidas' },
-    { valor: '15.000+', label: 'Residentes gerenciados' },
-    { valor: '99.9%', label: 'Uptime garantido' },
+    { valor: 'RDC 283', label: 'Documentação em conformidade' },
+    { valor: 'LGPD', label: 'Dados protegidos' },
+    { valor: 'Nuvem', label: '100% online, sem instalação' },
   ],
 };
 
@@ -33,13 +39,13 @@ const DEFAULT_SOBRE = {
   paragrafo1: 'O RecantoCare é uma plataforma SaaS completa que centraliza toda a gestão de Instituições de Longa Permanência para Idosos (ILPIs). Da admissão do residente ao faturamento mensal, passando pelo controle de saúde e equipe — tudo em um só lugar.',
   paragrafo2: 'Desenvolvida especificamente para a realidade das ILPIs brasileiras, com conformidade com a RDC 283/2005 da ANVISA e suporte à documentação exigida pelos órgãos fiscalizadores.',
   destaques: ['Conformidade ANVISA', 'Dados em tempo real', 'Prontuário digital', 'Multi-unidade'],
-  reconhecimento_label: 'Reconhecido pelo setor',
-  badges: ['Melhor Plataforma ILPI 2024', 'Inovação em Saúde', 'Escolha do Gestor', 'Suporte 5 Estrelas'],
+  reconhecimento_label: 'Feito para a realidade das ILPIs',
+  badges: ['Conformidade ANVISA RDC 283', 'Segurança LGPD', 'Backup automático', 'Suporte humano'],
   stat_tiles: [
-    { valor: '98%', label: 'de satisfação dos clientes' },
-    { valor: '4h', label: 'economizadas por dia em média' },
+    { valor: 'RDC 283', label: 'conformidade documental' },
     { valor: '100%', label: 'na nuvem, sem instalação' },
-    { valor: '24/7', label: 'disponibilidade da plataforma' },
+    { valor: '24/7', label: 'acesso de qualquer lugar' },
+    { valor: 'IA', label: 'resumos e insights clínicos' },
   ],
 };
 
@@ -108,26 +114,24 @@ interface TestimonialContent {
   rating: number; avatar: string; avatarColor: string;
 }
 
+// Sem depoimentos fictícios: a seção só aparece quando houver depoimentos reais
+// e consentidos (via CMS). Enquanto `itens` estiver vazio, a seção fica oculta.
 const DEFAULT_TESTIMONIALS: { titulo: string; subtitulo: string; itens: TestimonialContent[] } = {
   titulo: 'Quem usa, recomenda',
-  subtitulo: 'Gestores e equipes de ILPIs em todo o Brasil confiam no RecantoCare.',
-  itens: [
-    { name: 'Maria Silva', role: 'Diretora Administrativa', institution: 'Lar Esperança — São Paulo, SP', text: 'O RecantoCare transformou nossa operação. Antes perdíamos horas com planilhas. Hoje tudo é automatizado e a qualidade do cuidado melhorou visivelmente.', rating: 5, avatar: 'MS', avatarColor: 'bg-pink-500' },
-    { name: 'Dr. Carlos Mendes', role: 'Médico Coordenador', institution: 'Residencial Vida Nova — Rio de Janeiro, RJ', text: 'O controle de medicações e sinais vitais é excepcional. Consigo acompanhar todos os residentes em tempo real de qualquer lugar. Indispensável.', rating: 5, avatar: 'CM', avatarColor: 'bg-blue-600' },
-    { name: 'Ana Rodrigues', role: 'Enfermeira Chefe', institution: 'Casa de Repouso Harmonia — Belo Horizonte, MG', text: 'Os checklists diários são muito intuitivos. Nossa equipe adotou em dias e a organização dos cuidados ficou muito melhor. Recomendo a todos.', rating: 5, avatar: 'AR', avatarColor: 'bg-emerald-600' },
-  ],
+  subtitulo: 'Gestores e equipes de ILPIs que confiam no RecantoCare.',
+  itens: [],
 };
 
 const DEFAULT_CTA_FINAL = {
-  titulo: 'Pronto para transformar sua ILPI?',
-  subtitulo: 'Junte-se a mais de 500 ILPIs que já modernizaram sua gestão com o RecantoCare.',
+  titulo: 'Coloque sua ILPI em conformidade e no controle',
+  subtitulo: 'Prontuário, controle de medicação, relatórios para a vigilância sanitária e toda a gestão da sua instituição — comece hoje, sem instalação.',
   cta_primario: 'Assinar agora',
   cta_secundario: 'Já tenho conta',
   rodape: 'Ativação imediata · Cancele quando quiser · Suporte humano',
 };
 
 const DEFAULT_FOOTER = {
-  tagline: 'A plataforma líder em gestão de ILPIs no Brasil.',
+  tagline: 'Gestão e conformidade para Instituições de Longa Permanência para Idosos.',
   copyright: '© 2026 RecantoCare. Todos os direitos reservados.',
   lgpd: 'Dados protegidos conforme LGPD',
 };
@@ -252,6 +256,31 @@ const LandingPage: React.FC = () => {
     window.location.reload();
   };
 
+  // Funil consultivo: leva o lead ao WhatsApp de vendas quando configurado;
+  // caso contrário, cai no fluxo de demonstração (sem regressão).
+  const openSalesContact = (source: string) => {
+    trackLead(source);
+    if (SALES_WHATSAPP) {
+      const msg = encodeURIComponent(
+        'Olá! Tenho interesse no RecantoCare para minha ILPI e gostaria de falar com um especialista.'
+      );
+      window.open(`https://wa.me/${SALES_WHATSAPP}?text=${msg}`, '_blank', 'noopener');
+    } else {
+      navigateToDemo();
+    }
+  };
+
+  // Barra de demo: persiste o lead (best-effort) e leva ao checkout com o e-mail
+  // pré-preenchido — antes o e-mail informado era descartado.
+  const handleDemoSubmit = () => {
+    const email = demoEmail.trim();
+    if (email) {
+      createLead({ email, origem: 'demo_bar' });
+      trackLead('demo_bar');
+    }
+    navigateToCheckout(undefined, undefined, email || undefined);
+  };
+
   const navigateToFeatures = () => {
     window.history.pushState(null, '', '/recursos');
     window.location.reload();
@@ -262,10 +291,12 @@ const LandingPage: React.FC = () => {
     window.location.reload();
   };
 
-  const navigateToCheckout = (planoId?: string, periodo?: string) => {
+  const navigateToCheckout = (planoId?: string, periodo?: string, email?: string) => {
+    trackBeginCheckout(planoId, periodo);
     const params = new URLSearchParams();
     if (planoId) params.set('plano', planoId);
     if (periodo) params.set('periodo', periodo);
+    if (email) params.set('email', email);
     const qs = params.toString();
     window.history.pushState(null, '', `/assinar${qs ? '?' + qs : ''}`);
     window.location.reload();
@@ -312,7 +343,8 @@ const LandingPage: React.FC = () => {
     features: p.features,
   }));
 
-  const testimonials: TestimonialContent[] = testimonialsContent.itens;
+  const testimonials: TestimonialContent[] = testimonialsContent.itens ?? [];
+  const hasTestimonials = testimonials.length > 0;
 
   return (
     <div className="min-h-screen bg-white font-sans">
@@ -336,7 +368,9 @@ const LandingPage: React.FC = () => {
             <div className="hidden md:flex items-center space-x-8">
               <a href="#features" className="text-blue-100 hover:text-white text-sm font-medium transition-colors">Funcionalidades</a>
               <a href="#pricing" className="text-blue-100 hover:text-white text-sm font-medium transition-colors">Preços</a>
-              <a href="#testimonials" className="text-blue-100 hover:text-white text-sm font-medium transition-colors">Depoimentos</a>
+              {hasTestimonials && (
+                <a href="#testimonials" className="text-blue-100 hover:text-white text-sm font-medium transition-colors">Depoimentos</a>
+              )}
               <button
                 onClick={() => setShowLoginModal(true)}
                 className="text-white border border-white/40 hover:border-white hover:bg-white/10 text-sm font-medium px-4 py-2 rounded-lg transition-all"
@@ -372,7 +406,9 @@ const LandingPage: React.FC = () => {
           <div className="md:hidden bg-blue-900 border-t border-blue-700 px-4 py-4 space-y-3">
             <a href="#features" className="block text-blue-100 text-sm font-medium py-2" onClick={() => setMobileMenuOpen(false)}>Funcionalidades</a>
             <a href="#pricing" className="block text-blue-100 text-sm font-medium py-2" onClick={() => setMobileMenuOpen(false)}>Preços</a>
-            <a href="#testimonials" className="block text-blue-100 text-sm font-medium py-2" onClick={() => setMobileMenuOpen(false)}>Depoimentos</a>
+            {hasTestimonials && (
+              <a href="#testimonials" className="block text-blue-100 text-sm font-medium py-2" onClick={() => setMobileMenuOpen(false)}>Depoimentos</a>
+            )}
             <button
               onClick={() => { setMobileMenuOpen(false); navigateToCheckout(); }}
               className="w-full bg-white text-blue-700 font-semibold py-3 rounded-lg text-sm mt-2 border border-blue-200"
@@ -501,7 +537,7 @@ const LandingPage: React.FC = () => {
               className="flex-1 border border-slate-200 rounded-xl px-4 py-3.5 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
             />
             <button
-              onClick={() => navigateToCheckout()}
+              onClick={handleDemoSubmit}
               className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-8 py-3.5 rounded-xl transition-all text-sm whitespace-nowrap shadow"
             >
               Quero assinar
@@ -687,7 +723,7 @@ const LandingPage: React.FC = () => {
                   ))}
                 </ul>
                 <button
-                  onClick={navigateToDemo}
+                  onClick={() => openSalesContact('grupos')}
                   className="mt-8 inline-flex items-center bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-3 rounded-xl transition-all text-sm"
                 >
                   {featTabs.grupos_cta}
@@ -797,7 +833,7 @@ const LandingPage: React.FC = () => {
                 <button
                   onClick={() =>
                     plan.planoId === 'enterprise'
-                      ? navigateToDemo()
+                      ? openSalesContact('enterprise')
                       : navigateToCheckout(plan.planoId, pricingPeriod)
                   }
                   className={`w-full py-3 rounded-xl font-semibold text-sm transition-all mb-6 ${plan.ctaStyle}`}
@@ -818,7 +854,8 @@ const LandingPage: React.FC = () => {
         </div>
       </section>
 
-      {/* ——— TESTIMONIALS ——— */}
+      {/* ——— TESTIMONIALS (só quando houver depoimentos reais) ——— */}
+      {hasTestimonials && (
       <section id="testimonials" className="bg-slate-50 py-20 px-4">
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-12">
@@ -849,6 +886,7 @@ const LandingPage: React.FC = () => {
           </div>
         </div>
       </section>
+      )}
 
       {/* ——— FINAL CTA ——— */}
       <section className="bg-gradient-to-br from-[#1e40af] to-[#1e3a8a] py-20 px-4">

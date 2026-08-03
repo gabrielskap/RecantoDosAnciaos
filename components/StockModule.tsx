@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { AlertTriangle, CheckCircle2, Package, Plus, Minus, X, History, ArrowDownCircle, ArrowUpCircle, PackageSearch, Search, User, ChevronRight } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Package, Plus, Minus, X, History, ArrowDownCircle, ArrowUpCircle, PackageSearch, Search, User, ChevronRight, Pill } from 'lucide-react';
 import { StockItem, Resident, ViewState } from '../types';
 import CustomSelect from './CustomSelect';
 import { residentAvatarSrc } from '../lib/avatar';
 import { useAuth } from '../contexts/AuthContext';
+import MedicationInventoryTab from './MedicationInventoryTab';
 
 interface StockModuleProps {
   items: StockItem[];
@@ -29,14 +30,15 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
   const canCreate = hasPermission(ViewState.STOCK, 'create');
   const canEdit   = hasPermission(ViewState.STOCK, 'edit');
 
-  const [activeTab, setActiveTab] = useState<'general' | 'residents'>(() => {
+  const [activeTab, setActiveTab] = useState<'general' | 'residents' | 'medicamentos'>(() => {
+    const validTabs = ['general', 'residents', 'medicamentos'];
     const urlParams = new URLSearchParams(window.location.search);
-    const tabParam = urlParams.get('tab') as 'general' | 'residents' | null;
-    if (tabParam && ['general', 'residents'].includes(tabParam)) {
+    const tabParam = urlParams.get('tab') as 'general' | 'residents' | 'medicamentos' | null;
+    if (tabParam && validTabs.includes(tabParam)) {
       return tabParam;
     }
-    const saved = localStorage.getItem('recanto_stock_active_tab') as 'general' | 'residents' | null;
-    return saved && ['general', 'residents'].includes(saved) ? saved : 'general';
+    const saved = localStorage.getItem('recanto_stock_active_tab') as 'general' | 'residents' | 'medicamentos' | null;
+    return saved && validTabs.includes(saved) ? saved : 'general';
   });
 
   useEffect(() => {
@@ -171,7 +173,22 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
         >
           <User className="h-4 w-4" /> Estoque por Residente
         </button>
+        <button
+          onClick={() => setActiveTab('medicamentos')}
+          className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-sm font-bold transition-all ${
+            activeTab === 'medicamentos'
+              ? 'bg-blue-600 text-white shadow-sm shadow-blue-200'
+              : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+          }`}
+        >
+          <Pill className="h-4 w-4" /> Inventário de Medicamentos
+        </button>
       </div>
+
+      {/* MEDICATION INVENTORY TAB */}
+      {activeTab === 'medicamentos' && (
+        <MedicationInventoryTab residents={residents} />
+      )}
 
       {/* GENERAL STOCK TAB */}
       {activeTab === 'general' && (

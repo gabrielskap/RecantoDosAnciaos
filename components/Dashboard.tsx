@@ -3,18 +3,20 @@ import {
   Users, AlertTriangle, TrendingUp, Calendar, Activity,
   PackageX, ShieldAlert, Wallet, Package, BedDouble,
   UserCog, Cake, ChevronRight, ArrowUpRight, ArrowDownRight,
-  Clock, HeartPulse, Stethoscope,
+  Clock, HeartPulse, Stethoscope, Pill,
 } from 'lucide-react';
 import {
   Resident, FinancialRecord, StockItem, CalendarEvent,
-  Invoice, Employee, ViewState,
+  Invoice, Employee, ViewState, MedicamentoInventarioItem,
 } from '../types';
+import { precisaReposicao, motivoReposicao, LIMITE_DIAS_REPOSICAO } from '../services/medicationInventoryService';
 
 interface DashboardProps {
   residents: Resident[];
   financials: FinancialRecord[];
   events?: CalendarEvent[];
   stockAlerts?: StockItem[];
+  medicationInventory?: MedicamentoInventarioItem[];
   invoices?: Invoice[];
   employees?: Employee[];
   onNavigate?: (view: ViewState, residentId?: string) => void;
@@ -41,7 +43,7 @@ const CARE_GRADE = {
 
 const Dashboard: React.FC<DashboardProps> = ({
   residents, financials, events = [], stockAlerts = [],
-  invoices = [], employees = [], onNavigate, isAdmin = false,
+  medicationInventory = [], invoices = [], employees = [], onNavigate, isAdmin = false,
 }) => {
   const now = new Date();
   const todayStr = now.toISOString().split('T')[0];
@@ -128,6 +130,17 @@ const Dashboard: React.FC<DashboardProps> = ({
   };
 
   const nav = (view: ViewState, residentId?: string) => onNavigate?.(view, residentId);
+
+  // Medicamentos próximos de acabar (esgotado, cobertura ≤ limiar, ou abaixo do mínimo)
+  const medAlerts = medicationInventory
+    .filter(precisaReposicao)
+    .map(m => ({ item: m, motivo: motivoReposicao(m)! }))
+    .sort((a, b) => Number(b.motivo.critico) - Number(a.motivo.critico) || a.item.saldoUnidades - b.item.saldoUnidades);
+
+  const goToMedicationInventory = () => {
+    try { localStorage.setItem('recanto_stock_active_tab', 'medicamentos'); } catch {}
+    nav(ViewState.STOCK);
+  };
 
   const allKpis = [
     {
@@ -234,6 +247,38 @@ const Dashboard: React.FC<DashboardProps> = ({
           </div>
           {onNavigate && (
             <button onClick={() => nav(ViewState.STOCK)} className="shrink-0 text-xs font-semibold text-rose-700 hover:text-rose-900 flex items-center gap-1">
+              Ver tudo <ChevronRight className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* ── Medication depletion alert ────────────────────────────────── */}
+      {medAlerts.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-4">
+          <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
+            <Pill className="h-5 w-5 text-amber-600" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="font-bold text-amber-900 text-sm">Medicamentos próximos de acabar</h3>
+              <span className="text-xs font-semibold bg-amber-200 text-amber-900 px-2 py-0.5 rounded-full">{medAlerts.length}</span>
+            </div>
+            <p className="text-amber-700 text-xs mt-1 mb-2">Cobertura de até {LIMITE_DIAS_REPOSICAO} dias, abaixo do mínimo ou esgotado.</p>
+            <div className="flex flex-wrap gap-2">
+              {medAlerts.slice(0, 3).map(({ item, motivo }) => (
+                <span key={item.id} className={`inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full border ${motivo.critico ? 'bg-rose-100 text-rose-700 border-rose-200' : 'bg-amber-100 text-amber-800 border-amber-200'}`}>
+                  <Pill className="h-3 w-3" />
+                  {item.nome}: {motivo.label}
+                </span>
+              ))}
+              {medAlerts.length > 3 && (
+                <span className="text-xs text-amber-700 font-medium self-center">+{medAlerts.length - 3} outros</span>
+              )}
+            </div>
+          </div>
+          {onNavigate && (
+            <button onClick={goToMedicationInventory} className="shrink-0 text-xs font-semibold text-amber-700 hover:text-amber-900 flex items-center gap-1">
               Ver tudo <ChevronRight className="h-3.5 w-3.5" />
             </button>
           )}

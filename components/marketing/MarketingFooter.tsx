@@ -13,7 +13,7 @@ const MarketingFooter: React.FC = () => (
             </div>
             <span className="text-white font-bold text-lg">RecantoCare</span>
           </div>
-          <p className="text-sm leading-relaxed">A plataforma líder em gestão de ILPIs no Brasil.</p>
+          <p className="text-sm leading-relaxed">Gestão e conformidade para Instituições de Longa Permanência para Idosos.</p>
         </div>
         <div>
           <p className="text-white font-semibold text-sm mb-3">Produto</p>

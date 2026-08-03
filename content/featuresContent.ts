@@ -59,15 +59,6 @@ export const FEATURES: Record<string, FeatureContent> = {
       { manual: 'Documentos soltos e desatualizados', sistema: 'Documentos digitalizados e versionados' },
       { manual: 'Sem rastreio de alterações', sistema: 'Log de auditoria de cada mudança' },
     ],
-    savings: [
-      { value: '−75%', label: 'tempo para localizar um prontuário' },
-      { value: '100%', label: 'dos dados centralizados' },
-      { value: '24/7', label: 'acesso seguro de qualquer lugar' },
-    ],
-    testimonial: {
-      text: 'Antes levávamos minutos procurando uma ficha. Hoje abrimos o prontuário completo em segundos — mudou a rotina da equipe.',
-      name: 'Ana Rodrigues', role: 'Enfermeira Chefe', institution: 'Casa de Repouso Harmonia', avatar: 'AR', color: 'bg-emerald-600',
-    },
   },
 
   saude: {
@@ -116,15 +107,6 @@ export const FEATURES: Record<string, FeatureContent> = {
       { manual: 'Intercorrências sem registro', sistema: 'Registro rastreável de cada evento' },
       { manual: 'Plano de cuidado genérico', sistema: 'Plano individual com adesão monitorada' },
     ],
-    savings: [
-      { value: '−90%', label: 'de doses esquecidas com alertas' },
-      { value: '+100%', label: 'de cuidados registrados' },
-      { value: '3x', label: 'mais rápido para evoluir o residente' },
-    ],
-    testimonial: {
-      text: 'O controle de medicações e sinais vitais é excepcional. Acompanho todos os residentes em tempo real, de qualquer lugar.',
-      name: 'Dr. Carlos Mendes', role: 'Médico Coordenador', institution: 'Residencial Vida Nova', avatar: 'CM', color: 'bg-blue-600',
-    },
   },
 
   financeiro: {
@@ -173,15 +155,6 @@ export const FEATURES: Record<string, FeatureContent> = {
       { manual: 'Despesas sem categorização', sistema: 'Receitas e despesas organizadas por categoria' },
       { manual: 'Sem visão de fluxo de caixa', sistema: 'Saldo líquido e tendências sempre visíveis' },
     ],
-    savings: [
-      { value: '−40%', label: 'de inadimplência' },
-      { value: '−80%', label: 'tempo no fechamento mensal' },
-      { value: 'Tempo real', label: 'visão do resultado do mês' },
-    ],
-    testimonial: {
-      text: 'Reduzimos a inadimplência de forma drástica e fechamos o mês em minutos. A diretoria enfim enxerga o resultado em tempo real.',
-      name: 'Maria Silva', role: 'Diretora Administrativa', institution: 'Lar Esperança', avatar: 'MS', color: 'bg-pink-500',
-    },
   },
 
   estoque: {
@@ -230,15 +203,6 @@ export const FEATURES: Record<string, FeatureContent> = {
       { manual: 'Itens misturados entre residentes', sistema: 'Estoque individual por residente' },
       { manual: 'Sem histórico de movimentação', sistema: 'Entradas e saídas totalmente rastreadas' },
     ],
-    savings: [
-      { value: '−30%', label: 'de desperdício por validade' },
-      { value: '0', label: 'rupturas de itens críticos' },
-      { value: '−60%', label: 'tempo gasto em inventário' },
-    ],
-    testimonial: {
-      text: 'Nunca mais fomos pegos de surpresa com falta de medicação. Os alertas mudaram completamente nossa rotina de compras.',
-      name: 'Juliana Alves', role: 'Coordenadora de Enfermagem', institution: 'Lar São Francisco', avatar: 'JA', color: 'bg-amber-500',
-    },
   },
 
   equipe: {
@@ -287,15 +251,6 @@ export const FEATURES: Record<string, FeatureContent> = {
       { manual: 'Sem rastreio de acessos', sistema: 'Log de auditoria por usuário' },
       { manual: 'Permissões abertas a todos', sistema: 'Acesso por perfil e função' },
     ],
-    savings: [
-      { value: '100%', label: 'dos treinamentos comprovados' },
-      { value: '−50%', label: 'tempo na gestão de escalas' },
-      { value: 'Total', label: 'rastreabilidade de acessos' },
-    ],
-    testimonial: {
-      text: 'Passamos a comprovar treinamentos e organizar escalas sem esforço. Na fiscalização, estava tudo documentado.',
-      name: 'Fernanda Lima', role: 'Administradora', institution: 'Lar São Francisco', avatar: 'FL', color: 'bg-violet-600',
-    },
   },
 
   relatorios: {
@@ -344,15 +299,6 @@ export const FEATURES: Record<string, FeatureContent> = {
       { manual: 'Decisão por intuição', sistema: 'Decisão baseada em dados' },
       { manual: 'Exportação trabalhosa', sistema: 'PDF gerado em poucos cliques' },
     ],
-    savings: [
-      { value: '−95%', label: 'tempo para gerar relatórios' },
-      { value: 'Tempo real', label: 'visão dos indicadores' },
-      { value: '100%', label: 'pronto para fiscalização' },
-    ],
-    testimonial: {
-      text: 'Na hora da fiscalização, gerei o relatório de conformidade em segundos. O que antes levava dias hoje é um clique.',
-      name: 'Roberto Nunes', role: 'Diretor Técnico', institution: 'Residencial Cuidar', avatar: 'RN', color: 'bg-cyan-600',
-    },
   },
 
   nutricao: {
@@ -401,15 +347,6 @@ export const FEATURES: Record<string, FeatureContent> = {
       { manual: 'Cardápio genérico para todos', sistema: 'Refeições individualizadas' },
       { manual: 'Sem visão nutricional do todo', sistema: 'Indicadores de dieta consolidados' },
     ],
-    savings: [
-      { value: '+100%', label: 'das restrições respeitadas' },
-      { value: 'Precoce', label: 'detecção de baixa ingestão' },
-      { value: '−70%', label: 'retrabalho na cozinha' },
-    ],
-    testimonial: {
-      text: 'Identificamos rapidamente quem estava comendo pouco e agimos a tempo. A nutricionista trabalha com dados, não suposições.',
-      name: 'Patrícia Gomes', role: 'Nutricionista', institution: 'Residencial Harmonia', avatar: 'PG', color: 'bg-orange-500',
-    },
   },
 
   agenda: {
@@ -458,15 +395,6 @@ export const FEATURES: Record<string, FeatureContent> = {
       { manual: 'Atividades sem planejamento', sistema: 'Rotina de lazer planejada' },
       { manual: 'Sem vínculo com o residente', sistema: 'Eventos ligados a cada residente' },
     ],
-    savings: [
-      { value: '0', label: 'consultas esquecidas' },
-      { value: '−65%', label: 'tempo organizando a rotina' },
-      { value: '1', label: 'agenda para toda a equipe' },
-    ],
-    testimonial: {
-      text: 'Acabaram os conflitos de horário e os esquecimentos de consulta. A equipe inteira trabalha com a mesma agenda.',
-      name: 'Paulo Souza', role: 'Enfermeiro', institution: 'Lar do Sossego', avatar: 'PS', color: 'bg-indigo-600',
-    },
   },
 
   ia: {
@@ -515,15 +443,6 @@ export const FEATURES: Record<string, FeatureContent> = {
       { manual: 'Análise de dados inviável', sistema: 'Análise automática e contínua' },
       { manual: 'Dúvidas sem resposta rápida', sistema: 'Pergunte em linguagem natural' },
     ],
-    savings: [
-      { value: 'Segundos', label: 'para um resumo clínico' },
-      { value: '+3h', label: 'liberadas por dia da equipe' },
-      { value: '24/7', label: 'assistente sempre disponível' },
-    ],
-    testimonial: {
-      text: 'A IA sugere todos os dias quem precisa de mais atenção. É como ter um analista dedicado lendo todos os prontuários por nós.',
-      name: 'Dra. Carla Mendes', role: 'Médica Responsável', institution: 'Lar Esperança', avatar: 'CM', color: 'bg-violet-600',
-    },
   },
 };
 

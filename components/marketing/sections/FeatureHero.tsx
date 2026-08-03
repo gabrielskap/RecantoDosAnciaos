@@ -71,7 +71,7 @@ const FeatureHero: React.FC<{ content: FeatureContent }> = ({ content }) => {
                 </div>
               ))}
             </div>
-            {content.savings[0] && (
+            {content.savings?.[0] && (
               <div className="mt-4 bg-amber-400 text-slate-900 rounded-xl p-4 text-center">
                 <p className="text-2xl font-extrabold">{content.savings[0].value}</p>
                 <p className="text-xs font-medium">{content.savings[0].label}</p>

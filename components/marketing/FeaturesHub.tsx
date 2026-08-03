@@ -23,8 +23,8 @@ const FeaturesHub: React.FC = () => {
         <div className="max-w-3xl mx-auto text-center">
           <h1 className="text-4xl lg:text-5xl font-extrabold tracking-tight mb-5">Conheça cada módulo do RecantoCare</h1>
           <p className="text-lg text-blue-100 mb-8">
-            Uma plataforma completa para a gestão da sua ILPI. Explore o que cada módulo resolve e
-            veja por que mais de 500 instituições já confiam na nossa solução.
+            Uma plataforma completa para a gestão da sua ILPI. Explore o que cada módulo resolve —
+            do prontuário e controle de medicação aos relatórios exigidos pela vigilância sanitária (RDC 283/2005).
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <button onClick={() => go(ROUTES.subscribe)} className="bg-amber-400 hover:bg-amber-300 text-slate-900 font-bold px-7 py-3.5 rounded-xl shadow-lg transition-all">

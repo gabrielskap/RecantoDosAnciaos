@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { trackPurchase, trackLead } from '../services/analytics';
 import {
   HeartPulse, ArrowLeft, ArrowRight, Check, Building2, User, CreditCard,
   ClipboardList, XCircle, Clock, Eye, EyeOff, Shield, Lock,
@@ -183,7 +184,23 @@ const CheckoutPage: React.FC = () => {
     if (period && ['mensal', 'anual'].includes(period)) {
       setForm(f => ({ ...f, periodicidade: period }));
     }
+    // E-mail vindo da barra de demo da landing (captura de lead)
+    const email = params.get('email');
+    if (email && /\S+@\S+\.\S+/.test(email)) {
+      setForm(f => ({ ...f, emailComercial: email }));
+    }
   }, []);
+
+  // ── Conversão: dispara na tela de sucesso ──
+  useEffect(() => {
+    if (step === 'resultado') {
+      const plano = planos.find(p => p.id === form.planoId);
+      trackPurchase(form.planoId, plano?.precoMensal);
+    } else if (step === 'resultado_trial') {
+      trackLead('trial');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
 
   // ── hCaptcha: renderiza ao entrar na etapa de pagamento ──
   useEffect(() => {

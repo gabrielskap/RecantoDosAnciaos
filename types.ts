@@ -347,6 +347,47 @@ export interface StockItem {
   expirationDate?: string;
 }
 
+// --- INVENTÁRIO DE MEDICAMENTOS (baixa por posologia) ---
+// Modela o medicamento em unidades farmacêuticas (comprimidos/ml/gotas) com
+// concentração por unidade e posologia, para calcular consumo e debitar o
+// saldo quando o residente toma (via boletim ou baixa manual).
+
+export type MedicamentoForma = 'comprimido' | 'capsula' | 'ml' | 'gota' | 'ampola' | 'sache' | 'outro';
+
+export type MedicamentoMovTipo = 'entrada' | 'administracao' | 'ajuste' | 'perda' | 'vencido';
+
+export interface MedicamentoMovimentacao {
+  id: string;
+  tipo: MedicamentoMovTipo;
+  quantidadeUnidades: number;
+  data: string; // ISO
+  userName?: string;
+  notas?: string;
+  origemChecklistId?: string; // preenchido quando a baixa veio do boletim
+  origemItemId?: string;      // `${medicacaoId}__HH:MM` do item do boletim
+}
+
+export interface MedicamentoInventarioItem {
+  id: string;
+  empresaId?: string;
+  residentId?: string;   // null = uso geral
+  medicacaoId?: string;  // vínculo à prescrição (Recanto_Medicacoes) que dirige o consumo
+  nome: string;
+  principioAtivo?: string;
+  forma: MedicamentoForma;
+  concentracaoValor: number;      // ex.: 10 (mg por comprimido)
+  concentracaoUnidade: string;    // ex.: 'mg', 'mcg', 'mg/ml'
+  unidadesPorEmbalagem?: number;  // ex.: 12 comprimidos por cartela
+  saldoUnidades: number;          // comprimidos/ml em mãos (mantido por trigger)
+  estoqueMinimoUnidades: number;
+  dosePorTomada?: number;         // ex.: 20 (mg por administração)
+  tomadasPorDia?: number;         // ex.: 1
+  validade?: string;              // YYYY-MM-DD
+  lote?: string;
+  observacoes?: string;
+  movimentacoes?: MedicamentoMovimentacao[];
+}
+
 // --- TEAM MANAGEMENT TYPES ---
 
 export type UserRole = 'Admin' | 'Enfermeiro' | 'Cuidador' | 'Médico' | 'Nutricionista' | 'Fisioterapeuta';
@@ -407,6 +448,7 @@ export interface SystemAccessLog {
 // --- AGENDA / CALENDAR TYPES ---
 
 export type EventType = 'medico' | 'visita' | 'terapia' | 'atividade' | 'reuniao' | 'outro';
+export type EventStatus = 'ativo' | 'inativo';
 
 export interface CalendarEvent {
   id: string;
@@ -418,6 +460,8 @@ export interface CalendarEvent {
   description?: string;
   location?: string; // e.g., "Sala 3" or "Hospital X"
   createdBy: string;
+  status?: EventStatus; // 'ativo' (default) | 'inativo' (cancelado)
+  motivoCancelamento?: string; // Preenchido quando status = 'inativo'
 }
 
 export enum ViewState {

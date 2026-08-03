@@ -29,6 +29,8 @@ export interface FeatureContent {
   solution: { title: string; description: string; highlights: Highlight[] };
   benefits: Benefit[];
   comparison: ComparisonRow[];
-  savings: SavingStat[];
+  /** Métricas de economia. Opcional — só exibir com números reais/defensáveis. */
+  savings?: SavingStat[];
+  /** Depoimento. Opcional — só exibir com depoimento real e consentido. */
   testimonial?: FeatureTestimonialData;
 }
