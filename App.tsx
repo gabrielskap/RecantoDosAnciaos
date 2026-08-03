@@ -150,7 +150,14 @@ function AppInner() {
   const [dataLoaded, setDataLoaded] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
-  const [dismissedAlertIds, setDismissedAlertIds] = useState<Set<string>>(new Set());
+  const [dismissedAlertIds, setDismissedAlertIds] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem('recanto_dismissed_alert_ids');
+      return saved ? new Set(JSON.parse(saved)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
 
   // Profile dropdown and Company Name states
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
@@ -1722,7 +1729,9 @@ function AppInner() {
   const visibleAlerts = allAlerts.filter(a => !dismissedAlertIds.has(a.id));
 
   const handleClearAllAlerts = () => {
-    setDismissedAlertIds(new Set(allAlerts.map(a => a.id)));
+    const dismissed = new Set(allAlerts.map(a => a.id));
+    setDismissedAlertIds(dismissed);
+    localStorage.setItem('recanto_dismissed_alert_ids', JSON.stringify(Array.from(dismissed)));
   };
 
   const renderContent = () => {
