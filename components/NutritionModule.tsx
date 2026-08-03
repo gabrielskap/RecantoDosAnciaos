@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { Utensils, AlertTriangle, CheckCircle2, PieChart as PieIcon, FileText, Droplets, Plus, X } from 'lucide-react';
+import { Utensils, AlertTriangle, CheckCircle2, PieChart as PieIcon, FileText, Droplets, Plus, X, Pencil, Trash2, Search } from 'lucide-react';
 import { Resident, DietPlan, DietConsistency, DietType, MealTime, NutritionalLog, ViewState } from '../types';
 import { PieChart as RechartPie, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 import { residentAvatarSrc } from '../lib/avatar';
 import { useAuth } from '../contexts/AuthContext';
+import { toast } from '../services/toast';
 
 interface NutritionModuleProps {
   residents: Resident[];
-  onUpdateResident: (resident: Resident) => void;
+  onUpdateResident: (resident: Resident) => Promise<void> | void;
 }
 
 const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateResident }) => {
@@ -59,6 +60,11 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
   const [newPlanObservations, setNewPlanObservations] = useState(() => {
     return localStorage.getItem('recanto_nutrition_new_plan_observations') || '';
   });
+  const [isSaving, setIsSaving] = useState(false);
+  const [editingResidentId, setEditingResidentId] = useState<string | null>(null);
+  const [deletingResident, setDeletingResident] = useState<Resident | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [planSearchQuery, setPlanSearchQuery] = useState('');
 
   useEffect(() => {
     localStorage.setItem('recanto_nutrition_active_tab', activeTab);
@@ -103,6 +109,7 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
     localStorage.removeItem('recanto_nutrition_new_plan_observations');
 
     setShowNewPlanModal(false);
+    setEditingResidentId(null);
     setNewPlanResidentId('');
     setNewPlanConsistency('Geral');
     setNewPlanType('Livre');
@@ -110,6 +117,17 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
     setNewPlanRestrictions([]);
     setNewPlanRestrictionInput('');
     setNewPlanObservations('');
+  };
+
+  const openEditPlanModal = (resident: Resident) => {
+    setEditingResidentId(resident.id);
+    setNewPlanResidentId(resident.id);
+    setNewPlanConsistency(resident.dietPlan?.consistency || 'Geral');
+    setNewPlanType(resident.dietPlan?.type || 'Livre');
+    setNewPlanFluidRestriction(resident.dietPlan?.fluidRestriction || '');
+    setNewPlanRestrictions(resident.dietPlan?.restrictions || []);
+    setNewPlanObservations(resident.dietPlan?.observations || '');
+    setShowNewPlanModal(true);
   };
 
   const dietsCount = residents.reduce((acc, r) => {
@@ -138,23 +156,32 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
     onUpdateResident({ ...resident, nutritionalLogs: logs });
   };
 
-  const handleCreatePlan = () => {
-    if (!newPlanResidentId) return;
+  const handleCreatePlan = async () => {
+    if (!newPlanResidentId || isSaving) return;
     const resident = residents.find(r => r.id === newPlanResidentId);
     if (!resident) return;
-    const plan: DietPlan = {
-      consistency: newPlanConsistency,
-      type: newPlanType,
-      restrictions: newPlanRestrictions,
-      fluidRestriction: newPlanFluidRestriction || undefined,
-      observations: newPlanObservations || undefined,
-      updatedAt: new Date().toISOString(),
-    };
-    onUpdateResident({ ...resident, dietPlan: plan });
-    clearNewPlanForm();
+    setIsSaving(true);
+    try {
+      const plan: DietPlan = {
+        consistency: newPlanConsistency,
+        type: newPlanType,
+        restrictions: newPlanRestrictions,
+        fluidRestriction: newPlanFluidRestriction || undefined,
+        observations: newPlanObservations || undefined,
+        updatedAt: new Date().toISOString(),
+      };
+      await onUpdateResident({ ...resident, dietPlan: plan });
+      clearNewPlanForm();
+      toast.success('Plano alimentar salvo com sucesso!');
+    } catch (err: any) {
+      console.error('Erro ao salvar plano alimentar:', err);
+      toast.error(err?.message || 'Erro ao salvar plano alimentar.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const handleDietUpdate = (residentId: string, newPlan: Partial<DietPlan>) => {
+  const handleDietUpdate = async (residentId: string, newPlan: Partial<DietPlan>) => {
     const resident = residents.find(r => r.id === residentId);
     if (!resident) return;
     const updated: DietPlan = {
@@ -165,7 +192,28 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
       observations: newPlan.observations || resident.dietPlan?.observations,
       updatedAt: new Date().toISOString(),
     };
-    onUpdateResident({ ...resident, dietPlan: updated });
+    try {
+      await onUpdateResident({ ...resident, dietPlan: updated });
+      toast.success('Plano alimentar atualizado com sucesso!');
+    } catch (err: any) {
+      console.error('Erro ao atualizar plano alimentar:', err);
+      toast.error(err?.message || 'Erro ao atualizar plano alimentar.');
+    }
+  };
+
+  const handleDeletePlan = async () => {
+    if (!deletingResident || isDeleting) return;
+    setIsDeleting(true);
+    try {
+      await onUpdateResident({ ...deletingResident, dietPlan: null as any });
+      toast.success(`Plano alimentar de ${deletingResident.name} apagado com sucesso.`);
+      setDeletingResident(null);
+    } catch (err: any) {
+      console.error('Erro ao apagar plano alimentar:', err);
+      toast.error(err?.message || 'Erro ao apagar plano alimentar.');
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const inputClass = 'w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500';
@@ -261,160 +309,251 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
       )}
 
       {/* DAILY RECORD */}
-      {activeTab === 'daily' && (
-        <div className="bg-white rounded-2xl shadow-sm shadow-blue-100/40 overflow-hidden">
-          <div className="px-5 py-4 border-b border-slate-100 flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
-            <div className="flex gap-3 flex-wrap">
-              <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className={inputClass + ' w-auto'} />
-              <select value={selectedMeal} onChange={e => setSelectedMeal(e.target.value as MealTime)} className={inputClass + ' w-auto'}>
-                {['Café da Manhã', 'Colação', 'Almoço', 'Lanche da Tarde', 'Jantar', 'Ceia'].map(m => <option key={m} value={m}>{m}</option>)}
-              </select>
+      {activeTab === 'daily' && (() => {
+        const sarcopeniaResidents = residents.filter(r => r.sarcopenia === 'sim');
+
+        return (
+          <div className="bg-white rounded-2xl shadow-sm shadow-blue-100/40 overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-100 flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+              <div className="flex gap-3 flex-wrap items-center">
+                <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className={inputClass + ' w-auto'} />
+                <select value={selectedMeal} onChange={e => setSelectedMeal(e.target.value as MealTime)} className={inputClass + ' w-auto'}>
+                  {['Café da Manhã', 'Colação', 'Almoço', 'Lanche da Tarde', 'Jantar', 'Ceia'].map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs font-bold">
+                  Sarcopenia ({sarcopeniaResidents.length})
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 flex items-center gap-1.5"><Utensils className="h-3.5 w-3.5 text-blue-400" /> Registro em lote (Sarcopenia)</p>
             </div>
-            <p className="text-xs text-slate-400 flex items-center gap-1.5"><Utensils className="h-3.5 w-3.5 text-blue-400" /> Registro em lote</p>
-          </div>
 
-          {/* Mobile cards */}
-          <div className="block md:hidden divide-y divide-slate-50 p-4 space-y-4">
-            {residents.map(r => {
-              const log = r.nutritionalLogs?.find(l => l.date === selectedDate && l.meal === selectedMeal);
-              const acceptance = log ? log.acceptance : -1;
-              return (
-                <div key={r.id} className="bg-slate-50/60 rounded-2xl border border-slate-100 p-4 space-y-3">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <h4 className="font-bold text-slate-800 text-sm">{r.name}</h4>
-                      <p className="text-xs text-slate-400">Quarto {r.room}</p>
-                    </div>
-                    {acceptance !== -1
-                      ? <span className="text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-100 px-2.5 py-1 rounded-full flex items-center gap-1"><CheckCircle2 className="h-3 w-3" /> Salvo</span>
-                      : <span className="text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-100 px-2.5 py-1 rounded-full">Pendente</span>}
-                  </div>
-                  {r.dietPlan && (
-                    <div className="flex flex-wrap gap-1.5">
-                      <span className="text-xs font-semibold bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">{r.dietPlan.consistency}</span>
-                      <span className="text-xs font-semibold bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">{r.dietPlan.type}</span>
-                      {r.dietPlan.fluidRestriction && <span className="text-xs font-semibold bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full flex items-center gap-1"><Droplets className="h-3 w-3" /> Restrição Hídrica</span>}
-                    </div>
-                  )}
-                  <div className="grid grid-cols-5 gap-1.5">
-                    {[0, 25, 50, 75, 100].map(val => (
-                      <button key={val} onClick={() => handleBatchUpdate(r.id, val)} className={`min-h-[44px] rounded-xl text-xs font-bold border transition-all ${acceptance === val ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'}`}>
-                        {val}%
-                      </button>
-                    ))}
-                  </div>
+            {sarcopeniaResidents.length === 0 ? (
+              <div className="p-12 text-center">
+                <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-3">
+                  <Utensils className="h-6 w-6" />
                 </div>
-              );
-            })}
-          </div>
-
-          {/* Desktop table */}
-          <div className="hidden md:block overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="border-b border-slate-100">
-                <tr>{['Residente', 'Dieta Prescrita', 'Aceitação (%)', 'Status'].map(h => (
-                  <th key={h} className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">{h}</th>
-                ))}</tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {residents.map(r => {
-                  const log = r.nutritionalLogs?.find(l => l.date === selectedDate && l.meal === selectedMeal);
-                  const acceptance = log ? log.acceptance : -1;
-                  return (
-                    <tr key={r.id} className="hover:bg-slate-50/60 transition-colors">
-                      <td className="px-6 py-4 font-semibold text-slate-800">{r.name}</td>
-                      <td className="px-6 py-4">
-                        {r.dietPlan ? (
+                <h3 className="font-bold text-slate-800 text-base mb-1">Nenhum residente com sarcopenia</h3>
+                <p className="text-slate-500 text-xs max-w-sm mx-auto">
+                  Não há residentes cadastrados com a opção "Sarcopenia: Sim" selecionada no momento.
+                </p>
+              </div>
+            ) : (
+              <>
+                {/* Mobile cards */}
+                <div className="block md:hidden divide-y divide-slate-50 p-4 space-y-4">
+                  {sarcopeniaResidents.map(r => {
+                    const log = r.nutritionalLogs?.find(l => l.date === selectedDate && l.meal === selectedMeal);
+                    const acceptance = log ? log.acceptance : -1;
+                    return (
+                      <div key={r.id} className="bg-slate-50/60 rounded-2xl border border-slate-100 p-4 space-y-3">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <h4 className="font-bold text-slate-800 text-sm">{r.name}</h4>
+                            <p className="text-xs text-slate-400">Quarto {r.room}</p>
+                          </div>
+                          {acceptance !== -1
+                            ? <span className="text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-100 px-2.5 py-1 rounded-full flex items-center gap-1"><CheckCircle2 className="h-3 w-3" /> Salvo</span>
+                            : <span className="text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-100 px-2.5 py-1 rounded-full">Pendente</span>}
+                        </div>
+                        {r.dietPlan && (
                           <div className="flex flex-wrap gap-1.5">
                             <span className="text-xs font-semibold bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">{r.dietPlan.consistency}</span>
                             <span className="text-xs font-semibold bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">{r.dietPlan.type}</span>
-                            {r.dietPlan.fluidRestriction && <span className="text-xs font-semibold bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full flex items-center gap-1"><Droplets className="h-3 w-3" /> Restrição</span>}
+                            {r.dietPlan.fluidRestriction && <span className="text-xs font-semibold bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full flex items-center gap-1"><Droplets className="h-3 w-3" /> Restrição Hídrica</span>}
                           </div>
-                        ) : <span className="text-slate-400 italic text-xs">Não definida</span>}
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex gap-1.5">
+                        )}
+                        <div className="grid grid-cols-5 gap-1.5">
                           {[0, 25, 50, 75, 100].map(val => (
-                            <button key={val} onClick={() => handleBatchUpdate(r.id, val)} className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${acceptance === val ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'}`}>
+                            <button key={val} onClick={() => handleBatchUpdate(r.id, val)} className={`min-h-[44px] rounded-xl text-xs font-bold border transition-all ${acceptance === val ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'}`}>
                               {val}%
                             </button>
                           ))}
                         </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        {acceptance !== -1
-                          ? <span className="inline-flex items-center gap-1 text-xs font-semibold bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full"><CheckCircle2 className="h-3 w-3" /> Registrado</span>
-                          : <span className="text-xs text-slate-400">Pendente</span>}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+                      </div>
+                    );
+                  })}
+                </div>
 
-      {/* DIET PLANS */}
-      {activeTab === 'plans' && (
-        <div className="space-y-4">
-          <div className="flex justify-end">
-            {canCreate && (
-              <button
-                onClick={() => setShowNewPlanModal(true)}
-                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors shadow-sm shadow-blue-200"
-              >
-                <Plus className="h-4 w-4" /> Novo Plano Alimentar
-              </button>
+                {/* Desktop table */}
+                <div className="hidden md:block overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="border-b border-slate-100">
+                      <tr>{['Residente', 'Dieta Prescrita', 'Aceitação (%)', 'Status'].map(h => (
+                        <th key={h} className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">{h}</th>
+                      ))}</tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {sarcopeniaResidents.map(r => {
+                        const log = r.nutritionalLogs?.find(l => l.date === selectedDate && l.meal === selectedMeal);
+                        const acceptance = log ? log.acceptance : -1;
+                        return (
+                          <tr key={r.id} className="hover:bg-slate-50/60 transition-colors">
+                            <td className="px-6 py-4 font-semibold text-slate-800">{r.name}</td>
+                            <td className="px-6 py-4">
+                              {r.dietPlan ? (
+                                <div className="flex flex-wrap gap-1.5">
+                                  <span className="text-xs font-semibold bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">{r.dietPlan.consistency}</span>
+                                  <span className="text-xs font-semibold bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">{r.dietPlan.type}</span>
+                                  {r.dietPlan.fluidRestriction && <span className="text-xs font-semibold bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full flex items-center gap-1"><Droplets className="h-3 w-3" /> Restrição</span>}
+                                </div>
+                              ) : <span className="text-slate-400 italic text-xs">Não definida</span>}
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="flex gap-1.5">
+                                {[0, 25, 50, 75, 100].map(val => (
+                                  <button key={val} onClick={() => handleBatchUpdate(r.id, val)} className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${acceptance === val ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'}`}>
+                                    {val}%
+                                  </button>
+                                ))}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4">
+                              {acceptance !== -1
+                                ? <span className="inline-flex items-center gap-1 text-xs font-semibold bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full"><CheckCircle2 className="h-3 w-3" /> Registrado</span>
+                                : <span className="text-xs text-slate-400">Pendente</span>}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {residents.map(r => (
-            <div key={r.id} className="bg-white rounded-2xl shadow-sm shadow-blue-100/40 p-5">
-              <div className="flex items-center gap-3 mb-4">
-                <img src={residentAvatarSrc(r.name, r.photoUrl)} alt="" className="w-10 h-10 rounded-xl object-cover border-2 border-blue-100" />
-                <div className="min-w-0">
-                  <h3 className="font-bold text-slate-800 text-sm truncate">{r.name}</h3>
-                  <p className="text-xs text-slate-400">Quarto {r.room}</p>
-                </div>
+        );
+      })()}
+
+      {/* DIET PLANS */}
+      {activeTab === 'plans' && (() => {
+        const filteredResidents = residents.filter(r => {
+          if (!planSearchQuery.trim()) return true;
+          const query = planSearchQuery.toLowerCase().trim();
+          return r.name.toLowerCase().includes(query) || (r.room && String(r.room).toLowerCase().includes(query));
+        });
+
+        return (
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
+              <div className="relative flex-1 max-w-md">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Buscar residente por nome ou quarto..."
+                  value={planSearchQuery}
+                  onChange={e => setPlanSearchQuery(e.target.value)}
+                  className="w-full pl-10 pr-9 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm"
+                />
+                {planSearchQuery && (
+                  <button
+                    onClick={() => setPlanSearchQuery('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-full hover:bg-slate-100 transition-colors"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
               </div>
 
-              <div className="grid grid-cols-2 gap-3 mb-4">
-                <div>
-                  <label className="text-xs font-semibold text-slate-500 mb-1 block">Consistência</label>
-                  <select value={r.dietPlan?.consistency || 'Geral'} onChange={e => handleDietUpdate(r.id, { consistency: e.target.value as any })} className={inputClass}>
-                    {['Geral', 'Branda', 'Pastosa', 'Líquida'].map(o => <option key={o}>{o}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs font-semibold text-slate-500 mb-1 block">Tipo</label>
-                  <select value={r.dietPlan?.type || 'Livre'} onChange={e => handleDietUpdate(r.id, { type: e.target.value as any })} className={inputClass}>
-                    {['Livre', 'Hipossódica', 'Diabética', 'Hipolipídica', 'Hiperproteica'].map(o => <option key={o}>{o}</option>)}
-                  </select>
-                </div>
-              </div>
-
-              {r.dietPlan?.fluidRestriction && (
-                <div className="bg-amber-50 border border-amber-100 rounded-xl px-3 py-2 mb-3 flex items-center gap-2 text-xs text-amber-800 font-medium">
-                  <Droplets className="h-3.5 w-3.5 text-amber-500" /> {r.dietPlan.fluidRestriction}
-                </div>
+              {canCreate && (
+                <button
+                  onClick={() => setShowNewPlanModal(true)}
+                  className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors shadow-sm shadow-blue-200 whitespace-nowrap"
+                >
+                  <Plus className="h-4 w-4" /> Novo Plano Alimentar
+                </button>
               )}
-
-              <div>
-                <label className="text-xs font-semibold text-slate-500 mb-2 block">Alergias e Restrições</label>
-                <div className="flex flex-wrap gap-1.5">
-                  {[...r.allergies, ...(r.dietPlan?.restrictions || [])].length > 0
-                    ? [...r.allergies.map(a => ({ label: a, cls: 'bg-rose-50 text-rose-700' })), ...(r.dietPlan?.restrictions || []).map(x => ({ label: x, cls: 'bg-orange-50 text-orange-700' }))].map((tag, i) => (
-                      <span key={i} className={`text-xs font-semibold px-2 py-0.5 rounded-full ${tag.cls}`}>{tag.label}</span>
-                    ))
-                    : <span className="text-xs text-slate-400 italic">Nenhuma restrição.</span>}
-                </div>
-              </div>
             </div>
-          ))}
+
+            {filteredResidents.length === 0 ? (
+              <div className="bg-white rounded-2xl p-12 text-center border border-slate-100 shadow-sm shadow-blue-100/40">
+                <Search className="h-10 w-10 text-slate-300 mx-auto mb-3" />
+                <h3 className="font-bold text-slate-800 text-base mb-1">Nenhum residente encontrado</h3>
+                <p className="text-slate-500 text-xs max-w-sm mx-auto mb-4">
+                  Não encontramos nenhum residente correspondente a "{planSearchQuery}".
+                </p>
+                <button
+                  onClick={() => setPlanSearchQuery('')}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition-colors"
+                >
+                  Limpar busca
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {filteredResidents.map(r => (
+                  <div key={r.id} className="bg-white rounded-2xl shadow-sm shadow-blue-100/40 p-5">
+                    <div className="flex items-center justify-between gap-3 mb-4">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <img src={residentAvatarSrc(r.name, r.photoUrl)} alt="" className="w-10 h-10 rounded-xl object-cover border-2 border-blue-100 flex-shrink-0" />
+                        <div className="min-w-0">
+                          <h3 className="font-bold text-slate-800 text-sm truncate">{r.name}</h3>
+                          <p className="text-xs text-slate-400">Quarto {r.room}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <button
+                          onClick={() => openEditPlanModal(r)}
+                          title="Editar Plano Alimentar"
+                          className="p-1.5 rounded-xl text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors border border-transparent hover:border-blue-100"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </button>
+                        {r.dietPlan && (
+                          <button
+                            onClick={() => setDeletingResident(r)}
+                            title="Apagar Plano Alimentar"
+                            className="p-1.5 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors border border-transparent hover:border-rose-100"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3 mb-4">
+                      <div>
+                        <label className="text-xs font-semibold text-slate-500 mb-1 block">Consistência</label>
+                        <select value={r.dietPlan?.consistency || 'Geral'} onChange={e => handleDietUpdate(r.id, { consistency: e.target.value as any })} className={inputClass}>
+                          {['Geral', 'Branda', 'Pastosa', 'Líquida', 'Líquida-Pastosa'].map(o => <option key={o}>{o}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold text-slate-500 mb-1 block">Tipo</label>
+                        <select value={r.dietPlan?.type || 'Livre'} onChange={e => handleDietUpdate(r.id, { type: e.target.value as any })} className={inputClass}>
+                          {['Livre', 'Hipossódica', 'Diabética', 'Hipolipídica', 'Hiperproteica'].map(o => <option key={o}>{o}</option>)}
+                        </select>
+                      </div>
+                    </div>
+
+                    {r.dietPlan?.fluidRestriction && (
+                      <div className="bg-amber-50 border border-amber-100 rounded-xl px-3 py-2 mb-3 flex items-center gap-2 text-xs text-amber-800 font-medium">
+                        <Droplets className="h-3.5 w-3.5 text-amber-500" /> {r.dietPlan.fluidRestriction}
+                      </div>
+                    )}
+
+                    {r.dietPlan?.observations && (
+                      <div className="bg-slate-50 border border-slate-100 rounded-xl p-2.5 mb-3 text-xs text-slate-600 italic">
+                        "{r.dietPlan.observations}"
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="text-xs font-semibold text-slate-500 mb-2 block">Alergias e Restrições</label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {[...r.allergies, ...(r.dietPlan?.restrictions || [])].length > 0
+                          ? [...r.allergies.map(a => ({ label: a, cls: 'bg-rose-50 text-rose-700' })), ...(r.dietPlan?.restrictions || []).map(x => ({ label: x, cls: 'bg-orange-50 text-orange-700' }))].map((tag, i) => (
+                            <span key={i} className={`text-xs font-semibold px-2 py-0.5 rounded-full ${tag.cls}`}>{tag.label}</span>
+                          ))
+                          : <span className="text-xs text-slate-400 italic">Nenhuma restrição.</span>}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* NEW PLAN MODAL */}
       {showNewPlanModal && (
@@ -426,7 +565,9 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
                   <FileText className="h-5 w-5 text-white" />
                 </div>
                 <div>
-                  <h2 className="font-bold text-slate-800">Novo Plano Alimentar</h2>
+                  <h2 className="font-bold text-slate-800">
+                    {editingResidentId ? 'Editar Plano Alimentar' : 'Novo Plano Alimentar'}
+                  </h2>
                   <p className="text-xs text-slate-400">Preencha os dados e vincule a um residente</p>
                 </div>
               </div>
@@ -441,7 +582,8 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
                 <select
                   value={newPlanResidentId}
                   onChange={e => setNewPlanResidentId(e.target.value)}
-                  className={inputClass}
+                  disabled={!!editingResidentId}
+                  className={inputClass + (editingResidentId ? ' bg-slate-100 cursor-not-allowed text-slate-600' : '')}
                 >
                   <option value="">Selecione um residente...</option>
                   {residents.map(r => (
@@ -541,10 +683,45 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
               </button>
               <button
                 onClick={handleCreatePlan}
-                disabled={!newPlanResidentId}
-                className="flex-1 py-2.5 px-4 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                disabled={!newPlanResidentId || isSaving}
+                className="flex-1 py-2.5 px-4 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
-                Salvar Plano
+                {isSaving ? 'Salvando...' : 'Salvar Plano'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DELETE CONFIRMATION MODAL */}
+      {deletingResident && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 space-y-4">
+            <div className="flex items-center gap-3 text-rose-600">
+              <div className="w-10 h-10 rounded-2xl bg-rose-50 flex items-center justify-center">
+                <AlertTriangle className="h-5 w-5" />
+              </div>
+              <h3 className="font-bold text-slate-800 text-lg">Apagar Plano Alimentar</h3>
+            </div>
+
+            <p className="text-sm text-slate-600">
+              Tem certeza que deseja apagar o plano alimentar do residente <strong>{deletingResident.name}</strong>? Esta ação removerá a consistência, tipo de dieta, restrições e observações cadastradas.
+            </p>
+
+            <div className="flex gap-3 pt-2">
+              <button
+                onClick={() => setDeletingResident(null)}
+                disabled={isDeleting}
+                className="flex-1 py-2.5 px-4 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleDeletePlan}
+                disabled={isDeleting}
+                className="flex-1 py-2.5 px-4 rounded-xl bg-rose-600 text-white text-sm font-semibold hover:bg-rose-700 transition-colors disabled:opacity-40 flex items-center justify-center gap-2"
+              >
+                {isDeleting ? 'Apagando...' : 'Apagar Plano'}
               </button>
             </div>
           </div>

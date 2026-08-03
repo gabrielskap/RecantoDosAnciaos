@@ -635,6 +635,7 @@ function AppInner() {
           clinical_condition: newResident.clinicalCondition || null,
           functional_condition: newResident.functionalCondition || null,
           social_history: newResident.socialHistory || null,
+          sarcopenia: newResident.sarcopenia || 'nao',
           address_cep: newResident.addressCep || null,
           address_state: newResident.addressState || null,
           address_city: newResident.addressCity || null,
@@ -747,6 +748,7 @@ function AppInner() {
           clinical_condition: updated.clinicalCondition,
           functional_condition: updated.functionalCondition,
           social_history: updated.socialHistory,
+          sarcopenia: updated.sarcopenia || 'nao',
           address_cep: updated.addressCep || null,
           address_state: updated.addressState || null,
           address_city: updated.addressCity || null,
@@ -1100,28 +1102,77 @@ function AppInner() {
       }
 
       // 9. Diet Plan
-      if (updated.dietPlan) {
-        const { data: dpData } = await supabase
+      if (updated.dietPlan === null) {
+        const { error: delDpErr } = await supabase
           .from('Recanto_PlanosDieta')
-          .upsert({
-            resident_id: updated.id,
-            consistency: updated.dietPlan.consistency,
-            type: updated.dietPlan.type,
-            fluid_restriction: updated.dietPlan.fluidRestriction || null,
-            observations: updated.dietPlan.observations || null
-          }, { onConflict: 'resident_id' })
-          .select()
-          .single();
+          .delete()
+          .eq('resident_id', updated.id);
+        if (delDpErr) throw delDpErr;
+      } else if (updated.dietPlan) {
+        const { data: existingDps } = await supabase
+          .from('Recanto_PlanosDieta')
+          .select('id, updated_at')
+          .eq('resident_id', updated.id)
+          .order('updated_at', { ascending: false });
+
+        let targetDpId: string | null = null;
+        if (existingDps && existingDps.length > 0) {
+          targetDpId = existingDps[0].id;
+          if (existingDps.length > 1) {
+            const dupes = existingDps.slice(1).map(d => d.id);
+            await supabase.from('Recanto_PlanosDieta').delete().in('id', dupes);
+          }
+        }
+
+        let dpData: any = null;
+        let dpError: any = null;
+
+        if (targetDpId) {
+          const res = await supabase
+            .from('Recanto_PlanosDieta')
+            .update({
+              consistency: updated.dietPlan.consistency,
+              type: updated.dietPlan.type,
+              fluid_restriction: updated.dietPlan.fluidRestriction || null,
+              observations: updated.dietPlan.observations || null,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', targetDpId)
+            .select()
+            .single();
+          dpData = res.data;
+          dpError = res.error;
+        } else {
+          const res = await supabase
+            .from('Recanto_PlanosDieta')
+            .insert({
+              resident_id: updated.id,
+              consistency: updated.dietPlan.consistency,
+              type: updated.dietPlan.type,
+              fluid_restriction: updated.dietPlan.fluidRestriction || null,
+              observations: updated.dietPlan.observations || null,
+              updated_at: new Date().toISOString()
+            })
+            .select()
+            .single();
+          dpData = res.data;
+          dpError = res.error;
+        }
+
+        if (dpError) throw dpError;
 
         if (dpData && updated.dietPlan.restrictions) {
-          await supabase.from('Recanto_RestricoesDieta').delete().eq('diet_plan_id', dpData.id);
+          const { error: delError } = await supabase.from('Recanto_RestricoesDieta').delete().eq('diet_plan_id', dpData.id);
+          if (delError) throw delError;
+
           if (updated.dietPlan.restrictions.length > 0) {
-            await supabase.from('Recanto_RestricoesDieta').insert(
+            const { error: insError } = await supabase.from('Recanto_RestricoesDieta').insert(
               updated.dietPlan.restrictions.map(r => ({
                 diet_plan_id: dpData.id,
                 description: r
               }))
             );
+            if (insError) throw insError;
           }
         }
       }
@@ -1255,6 +1306,7 @@ function AppInner() {
         }
       }
 
+      setResidents(prev => prev.map(r => r.id === updated.id ? updated : r));
       await fetchResidents();
       // The summary refresh above doesn't carry the heavy fields, so
       // re-hydrate this resident's full detail explicitly if their profile
@@ -1263,9 +1315,10 @@ function AppInner() {
       if (selectedResident?.id === updated.id) {
         await refreshSelectedResidentDetail(updated.id);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error updating resident:', err);
-      toast.error('Erro ao atualizar dados do residente no servidor.');
+      toast.error(err.message || 'Erro ao atualizar dados do residente no servidor.');
+      throw err;
     }
   };
 

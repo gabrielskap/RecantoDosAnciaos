@@ -11,7 +11,7 @@ const RESIDENT_BASE_SELECT = `
   allergies:Recanto_Alergias(*),
   carePlan:Recanto_PlanosAssistencia(*),
   documentFolders:Recanto_DocumentosPastas(*),
-  dietPlan:Recanto_PlanosDieta(*)
+  dietPlan:Recanto_PlanosDieta(*, restrictions:Recanto_RestricoesDieta(*))
 `;
 
 interface ResidentHeavyData {
@@ -76,6 +76,7 @@ function mapResidentRow(r: any, heavy: ResidentHeavyData): Resident {
       clinicalCondition: r.clinical_condition || '',
       functionalCondition: r.functional_condition || '',
       socialHistory: r.social_history || '',
+      sarcopenia: r.sarcopenia || 'nao',
       usoFraldas: r.uso_fraldas || 'nao',
       mobilidadeSet: r.mobilidade_usual || 'independente',
       higieneCorporal: r.higiene_corporal_usual || 'independente',
@@ -239,14 +240,28 @@ function mapResidentRow(r: any, heavy: ResidentHeavyData): Resident {
         details: al.details || '',
         data: al.dados || undefined
       })),
-      dietPlan: r.dietPlan && r.dietPlan.length > 0 ? {
-        consistency: r.dietPlan[0].consistency,
-        type: r.dietPlan[0].type,
-        restrictions: [],
-        fluidRestriction: r.dietPlan[0].fluid_restriction || undefined,
-        observations: r.dietPlan[0].observations || undefined,
-        updatedAt: r.dietPlan[0].updated_at
-      } : undefined,
+      dietPlan: (() => {
+        if (!r.dietPlan) return undefined;
+        let dp: any = null;
+        if (Array.isArray(r.dietPlan)) {
+          if (r.dietPlan.length === 0) return undefined;
+          const sorted = [...r.dietPlan].sort((a: any, b: any) =>
+            new Date(b.updated_at || b.created_at || 0).getTime() - new Date(a.updated_at || a.created_at || 0).getTime()
+          );
+          dp = sorted[0];
+        } else if (typeof r.dietPlan === 'object') {
+          dp = r.dietPlan;
+        }
+        if (!dp) return undefined;
+        return {
+          consistency: dp.consistency,
+          type: dp.type,
+          restrictions: (dp.restrictions || []).map((res: any) => res.description || res),
+          fluidRestriction: dp.fluid_restriction || undefined,
+          observations: dp.observations || undefined,
+          updatedAt: dp.updated_at
+        };
+      })(),
       nutritionalLogs: rNutritionalLogs.map((n: any) => ({
         id: n.id,
         date: n.date,

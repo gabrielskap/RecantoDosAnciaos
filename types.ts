@@ -247,6 +247,8 @@ export interface Resident {
   clinicalCondition: string; // Diagnósticos
   functionalCondition: string; // Mobilidade, cognição
   socialHistory: string; // Histórico familiar/social
+  sarcopenia?: 'sim' | 'nao'; // Presença de sarcopenia
+
   
   medications: Medication[];
   prescriptions?: ResidentPrescriptionRecord[];

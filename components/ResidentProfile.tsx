@@ -834,6 +834,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
       clinicalCondition: resident.clinicalCondition || '',
       functionalCondition: resident.functionalCondition || '',
       socialHistory: resident.socialHistory || '',
+      sarcopenia: resident.sarcopenia || 'nao',
       usoFraldas: resident.usoFraldas || 'nao',
       mobilidadeSet: resident.mobilidadeSet || 'independente',
       higieneCorporal: resident.higieneCorporal || 'independente',
@@ -991,6 +992,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
       clinicalCondition: formData.clinicalCondition || '',
       functionalCondition: formData.functionalCondition || '',
       socialHistory: formData.socialHistory || '',
+      sarcopenia: formData.sarcopenia || 'nao',
       allergies: allergiesText ? allergiesText.split(',').map(a => a.trim()).filter(Boolean) : [],
       usoFraldas: formData.usoFraldas || 'nao',
       mobilidadeSet: formData.mobilidadeSet || 'independente',
@@ -7773,6 +7775,35 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                       <textarea rows={3} placeholder={f.placeholder} value={(formData as any)[f.key] || ''} onChange={e => setFormData({ ...formData, [f.key]: e.target.value })} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white resize-none" />
                     </div>
                   ))}
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                      O Residente apresenta sarcopenia ?
+                    </label>
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setFormData(prev => ({ ...prev, sarcopenia: 'sim' }))}
+                        className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold border transition-colors flex items-center justify-center gap-2 ${
+                          formData.sarcopenia === 'sim'
+                            ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
+                            : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                        }`}
+                      >
+                        Sim
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFormData(prev => ({ ...prev, sarcopenia: 'nao' }))}
+                        className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold border transition-colors flex items-center justify-center gap-2 ${
+                          formData.sarcopenia !== 'sim'
+                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                            : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                        }`}
+                      >
+                        Não
+                      </button>
+                    </div>
+                  </div>
                   <div>
                     <label className="block text-xs font-semibold text-slate-650 mb-1.5">Alergias (separadas por vírgula)</label>
                     <textarea rows={2} placeholder="Ex: Dipirona, Penicilina, Glúten..." value={allergiesText} onChange={e => setAllergiesText(e.target.value)} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white resize-none" />
