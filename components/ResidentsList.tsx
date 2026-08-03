@@ -351,33 +351,54 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name || !formData.room) return;
+    if (!formData.name || !formData.room) {
+      // Nome/Quarto ficam na aba "Dados Pessoais" — se estiverem vazios
+      // enquanto o usuário está em outra aba (ex.: Desligamento), o submit
+      // falhava aqui sem nenhum feedback visível, parecendo que o botão
+      // "Salvar Alterações" simplesmente não fazia nada.
+      toast.error(!formData.name ? 'Informe o nome do residente para salvar.' : 'Informe o quarto do residente para salvar.');
+      setActiveTab('personal');
+      return;
+    }
 
-    if (formData.cpf) {
+    const originalResident = editingResidentId ? residents.find(r => r.id === editingResidentId) : undefined;
+
+    // Só valida CPF/RG quando o valor foi de fato alterado nesta edição. Sem
+    // essa checagem, um residente antigo com CPF/RG de placeholder (dado legado
+    // ou de demonstração) fica com o cadastro travado para sempre — nenhuma
+    // outra aba (ex.: Desligamento) consegue salvar, e o único aviso é um toast
+    // discreto que não indica qual aba/campo tem o problema.
+    const cpfChanged = (formData.cpf || '') !== (originalResident?.cpf || '');
+    if (formData.cpf && cpfChanged) {
       if (!validateCPF(formData.cpf)) {
         toast.error('O CPF informado é inválido.');
+        setActiveTab('personal');
         return;
       }
     }
 
-    if (formData.rg) {
+    const rgChanged = (formData.rg || '') !== (originalResident?.rg || '');
+    if (formData.rg && rgChanged) {
       const cleanRG = formData.rg.replace(/[^a-zA-Z0-9]/g, '');
       if (cleanRG.length < 5 || cleanRG.length > 14) {
         toast.error('O RG informado deve conter entre 5 e 14 caracteres.');
+        setActiveTab('personal');
         return;
       }
     }
 
-    if (formData.legalGuardian?.cpf) {
+    const guardianCpfChanged = (formData.legalGuardian?.cpf || '') !== (originalResident?.legalGuardian?.cpf || '');
+    if (formData.legalGuardian?.cpf && guardianCpfChanged) {
       if (!validateCPF(formData.legalGuardian.cpf)) {
         toast.error('O CPF do Responsável Legal informado é inválido.');
+        setActiveTab('contacts');
         return;
       }
     }
 
     if (editingResidentId) {
       if (onUpdateResident) {
-        const original = residents.find(r => r.id === editingResidentId);
+        const original = originalResident;
         if (original) {
           const updated: Resident = {
             ...original,
