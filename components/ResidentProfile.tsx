@@ -14,6 +14,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import CustomSelect from './CustomSelect';
 import { useAuth } from '../contexts/AuthContext';
 import { compressImage, uploadResidentPhoto, uploadPrescriptionDocument, uploadResidentDocument, supabase } from '../services/supabaseClient';
+import { openPrintWindow } from '../services/pdfPrint';
 
 interface ChecklistMedication {
   id: string;
@@ -361,6 +362,66 @@ const formatFrequency = (frequency: string): string => {
   return frequency;
 };
 
+const CARE_PLAN_STATUS_LABELS: Record<CarePlan['status'], string> = {
+  ativo: 'Ativo',
+  concluido: 'Concluído',
+  suspenso: 'Suspenso'
+};
+
+const buildCarePlanPDF = (resident: Resident, plan: CarePlan): string => {
+  const daysMap: { id: string; label: string }[] = [
+    { id: 'segunda', label: 'Segunda' },
+    { id: 'terca', label: 'Terça' },
+    { id: 'quarta', label: 'Quarta' },
+    { id: 'quinta', label: 'Quinta' },
+    { id: 'sexta', label: 'Sexta' },
+    { id: 'sabado', label: 'Sábado' },
+    { id: 'domingo', label: 'Domingo' }
+  ];
+
+  let freqObj: Record<string, number> = {};
+  try {
+    const parsed = JSON.parse(plan.frequency);
+    if (typeof parsed === 'object' && parsed !== null) freqObj = parsed;
+  } catch (e) {
+    // Legacy free-text frequency, handled below via fallback row
+  }
+
+  const freqRows = daysMap.map(day => {
+    const times = Number(freqObj[day.id] || 0);
+    return `<tr>
+      <td>${day.label}</td>
+      <td>${times > 0 ? `<span class="badge g">${times}x</span>` : '<span class="badge r">Inativo</span>'}</td>
+    </tr>`;
+  }).join('');
+
+  return `
+    <h1>Plano Individual de Cuidados</h1>
+    <div class="meta">${resident.name} · Quarto: ${resident.room} · ${resident.age} anos · Grau ${resident.careLevel}</div>
+
+    <h2>${plan.title}</h2>
+    <table>
+      <tbody>
+        <tr><td style="width:35%;font-weight:700;color:#475569;">Responsável</td><td>${plan.assignedTo}</td></tr>
+        <tr><td style="font-weight:700;color:#475569;">Status</td><td><span class="badge ${plan.status === 'ativo' ? 'g' : 'y'}">${CARE_PLAN_STATUS_LABELS[plan.status]}</span></td></tr>
+        <tr><td style="font-weight:700;color:#475569;">Criado em</td><td>${new Date(plan.createdAt).toLocaleDateString('pt-BR')}</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Descrição / Intervenção</h2>
+    <table>
+      <tbody>
+        <tr><td>${plan.description || '-'}</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Frequência Semanal</h2>
+    <table>
+      <thead><tr><th>Dia</th><th>Frequência</th></tr></thead>
+      <tbody>${freqRows}</tbody>
+    </table>
+  `;
+};
 
 interface ResidentProfileProps {
   resident: Resident;
@@ -3337,6 +3398,12 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
       carePlan: [plan, ...(resident.carePlan || [])],
       auditLogs: [newLog, ...(resident.auditLogs || [])]
     });
+
+    openPrintWindow(
+      `Plano de Cuidados — ${resident.name}`,
+      buildCarePlanPDF(resident, plan),
+      currentUser?.empresaId ?? currentUser?.id ?? 'anon'
+    );
 
     setNewPlan({ title: '', description: '', frequency: '', assignedTo: '' });
     setFrequencyDays({
@@ -6858,7 +6925,19 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
               <div className="grid grid-cols-1 gap-4">
                 {(resident.carePlan || []).map((plan) => (
                   <div key={plan.id} className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm hover:shadow-md transition-shadow relative">
-                     <div className="absolute top-4 right-4">
+                     <div className="absolute top-4 right-4 flex items-center gap-2">
+                       <button
+                         type="button"
+                         onClick={() => openPrintWindow(
+                           `Plano de Cuidados — ${resident.name}`,
+                           buildCarePlanPDF(resident, plan),
+                           currentUser?.empresaId ?? currentUser?.id ?? 'anon'
+                         )}
+                         title="Gerar PDF do plano"
+                         className="p-1 rounded-md text-slate-400 hover:text-primary-600 hover:bg-primary-50 transition-colors"
+                       >
+                         <Printer className="h-4 w-4" />
+                       </button>
                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${plan.status === 'ativo' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-600'}`}>{plan.status.toUpperCase()}</span>
                      </div>
                      <h4 className="font-semibold text-slate-800 mb-1">{plan.title}</h4>
