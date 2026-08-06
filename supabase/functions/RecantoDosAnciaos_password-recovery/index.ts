@@ -82,11 +82,11 @@ Deno.serve(async (req: Request) => {
 
     const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
     const secrets = await loadSecrets(admin, ['RESEND_API_KEY', 'PASSWORD_RESET_FROM_EMAIL', 'PASSWORD_RESET_CODE_PEPPER']);
-    const pepper = secrets.PASSWORD_RESET_CODE_PEPPER;
-    if (!pepper) {
-      console.error('[RecantoDosAnciaos_password-recovery] PASSWORD_RESET_CODE_PEPPER ausente.');
-      return json({ error: 'Recuperação de senha temporariamente indisponível.' }, 503);
-    }
+    // O pepper dedicado é preferível, mas não deve derrubar a recuperação.
+    // Como fallback, derivamos um valor estável da service_role, que existe
+    // somente no servidor e nunca é enviado ao cliente ou persistido na tabela.
+    const pepper = secrets.PASSWORD_RESET_CODE_PEPPER
+      || await hashCode('RecantoDosAnciaos', 'password-recovery', SERVICE_ROLE_KEY);
 
     if (action === 'request') {
       const oneMinuteAgo = new Date(Date.now() - 60_000).toISOString();
