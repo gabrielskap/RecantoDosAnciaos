@@ -44,6 +44,7 @@ export const DemoAuthProvider: React.FC<DemoAuthProviderProps> = ({ onLogout, ch
     addProfile: noop,
     addUser: async () => undefined,
     deleteUser: noop,
+    resetUserPassword: noop,
     updateUser: noop,
     updateUserCertificate: noop,
     accessBlocked: false,

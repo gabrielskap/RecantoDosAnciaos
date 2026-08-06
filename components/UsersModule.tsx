@@ -130,7 +130,7 @@ const CertBadge: React.FC<{ cert?: DigitalCertificate }> = ({ cert }) => {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEmployee, onAddAccessLog, autoOpenCreate, onAutoOpenDone }) => {
-  const { users, profiles, addUser, deleteUser, currentUser, updateUser, updateUserCertificate } = useAuth();
+  const { users, profiles, addUser, deleteUser, resetUserPassword, currentUser, updateUser, updateUserCertificate } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [certFilter, setCertFilter] = useState('all');
   const [isModalOpen, setIsModalOpen] = useState(() => {
@@ -140,6 +140,11 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
     const saved = localStorage.getItem('modal_users_delete_user');
     return saved ? JSON.parse(saved) : null;
   });
+  const [passwordResetUser, setPasswordResetUser] = useState<AuthUser | null>(null);
+  const [newUserPassword, setNewUserPassword] = useState('');
+  const [confirmUserPassword, setConfirmUserPassword] = useState('');
+  const [passwordResetError, setPasswordResetError] = useState('');
+  const [passwordResetLoading, setPasswordResetLoading] = useState(false);
 
   const [editingUserId, setEditingUserId] = useState<string | null>(() => {
     return localStorage.getItem('modal_users_editing_user_id') || null;
@@ -461,6 +466,51 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
     setUserToDelete(null);
   };
 
+  const closePasswordReset = (force = false) => {
+    if (passwordResetLoading && !force) return;
+    setPasswordResetUser(null);
+    setNewUserPassword('');
+    setConfirmUserPassword('');
+    setPasswordResetError('');
+  };
+
+  const handleResetUserPassword = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!passwordResetUser) return;
+    setPasswordResetError('');
+    if (newUserPassword.length < 8) {
+      setPasswordResetError('A senha deve ter no mínimo 8 caracteres.');
+      return;
+    }
+    if (newUserPassword !== confirmUserPassword) {
+      setPasswordResetError('As senhas não coincidem.');
+      return;
+    }
+
+    setPasswordResetLoading(true);
+    try {
+      await resetUserPassword(passwordResetUser.id, newUserPassword);
+      if (currentUser) {
+        onAddAccessLog({
+          id: Math.random().toString(36).substr(2, 9),
+          timestamp: new Date().toISOString(),
+          userId: currentUser.id,
+          userName: currentUser.name,
+          role: currentUser.profile.type as any || 'Admin',
+          action: 'Redefinição de Senha de Usuário' as any,
+          resource: `Usuário: ${passwordResetUser.name} (${passwordResetUser.email})`,
+          ipAddress: '192.168.1.50',
+        });
+      }
+      toast.success(`Senha de ${passwordResetUser.name} redefinida com sucesso.`);
+      setPasswordResetLoading(false);
+      closePasswordReset(true);
+    } catch (error: any) {
+      setPasswordResetError(error.message || 'Não foi possível redefinir a senha.');
+      setPasswordResetLoading(false);
+    }
+  };
+
   const getProfileBadgeClass = (type: string) => {
     switch (type) {
       case 'Administrador': return 'bg-rose-50 text-rose-700 border border-rose-200';
@@ -652,6 +702,15 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
                         >
                           <Key className="h-4 w-4" />
                         </button>
+                        {currentUser?.profile.type === 'Administrador' && currentUser.id !== user.id && (
+                          <button
+                            onClick={() => setPasswordResetUser(user)}
+                            className="p-1.5 rounded-lg border border-amber-200 text-amber-600 hover:bg-amber-50 hover:text-amber-700 transition-colors"
+                            title="Redefinir senha"
+                          >
+                            <Lock className="h-4 w-4" />
+                          </button>
+                        )}
                         <button
                           onClick={() => handleEditUser(user)}
                           className="p-1.5 rounded-lg border border-slate-200 text-slate-650 hover:bg-slate-100 hover:text-slate-800 transition-colors"
@@ -730,11 +789,20 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
 
                 <div className="flex items-center justify-between border-t border-slate-200 pt-3">
                   <span className="text-[10px] text-slate-400 font-medium">Status: Ativo</span>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap justify-end gap-2">
                     {currentUser?.id === user.id ? (
                       <span className="text-[10px] bg-slate-150 text-slate-500 px-2 py-0.5 rounded font-medium border border-slate-200 shadow-sm">Você (Logado)</span>
                     ) : (
                       <>
+                        {currentUser?.profile.type === 'Administrador' && (
+                          <button
+                            onClick={() => setPasswordResetUser(user)}
+                            className="flex items-center gap-1.5 text-xs text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2.5 py-1.5 rounded-lg font-medium transition-colors"
+                          >
+                            <Lock className="h-3.5 w-3.5" />
+                            Senha
+                          </button>
+                        )}
                         <button
                           onClick={() => setCertModalUserId(user.id)}
                           className={`flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg font-medium transition-colors border ${
@@ -1074,6 +1142,78 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
       )}
 
       {/* ── Delete Confirmation Modal ──────────────────────────────────────── */}
+      {/* Redefinição administrativa de senha */}
+      {passwordResetUser && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/50 backdrop-blur-sm"
+          onMouseDown={() => { modalMouseDown.current = false; }}
+          onMouseUp={(event) => {
+            if (!modalMouseDown.current && event.target === event.currentTarget) closePasswordReset();
+          }}
+        >
+          <div
+            className="bg-white sm:rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-5"
+            onMouseDown={(event) => { modalMouseDown.current = true; event.stopPropagation(); }}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-amber-100 rounded-xl shrink-0">
+                  <Lock className="h-5 w-5 text-amber-700" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-slate-800">Redefinir senha</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">{passwordResetUser.name}</p>
+                </div>
+              </div>
+              <button type="button" onClick={() => closePasswordReset()} disabled={passwordResetLoading}
+                className="w-9 h-9 rounded-xl hover:bg-slate-100 flex items-center justify-center disabled:opacity-50"
+                aria-label="Fechar">
+                <X className="h-5 w-5 text-slate-500" />
+              </button>
+            </div>
+
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800">
+              Informe uma senha temporária e comunique-a ao usuário por um canal seguro. A senha não será exibida novamente.
+            </div>
+
+            <form onSubmit={handleResetUserPassword} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1.5">Nova senha</label>
+                <input type="password" autoComplete="new-password" value={newUserPassword}
+                  onChange={event => setNewUserPassword(event.target.value)} placeholder="Mínimo 8 caracteres"
+                  required autoFocus
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1.5">Confirmar nova senha</label>
+                <input type="password" autoComplete="new-password" value={confirmUserPassword}
+                  onChange={event => setConfirmUserPassword(event.target.value)} placeholder="Repita a nova senha"
+                  required
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500" />
+              </div>
+
+              {passwordResetError && (
+                <div className="flex items-start gap-2 bg-rose-50 border border-rose-200 rounded-xl px-4 py-3">
+                  <AlertCircle className="h-4 w-4 text-rose-500 mt-0.5 shrink-0" />
+                  <p className="text-sm text-rose-700">{passwordResetError}</p>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
+                <button type="button" onClick={() => closePasswordReset()} disabled={passwordResetLoading}
+                  className="px-5 py-2.5 border border-slate-200 rounded-xl text-slate-600 font-semibold text-sm hover:bg-slate-50 disabled:opacity-50">
+                  Cancelar
+                </button>
+                <button type="submit" disabled={passwordResetLoading}
+                  className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-60 text-white rounded-xl font-semibold text-sm shadow-sm">
+                  {passwordResetLoading ? 'Redefinindo...' : 'Redefinir senha'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {userToDelete && (
         <div
           className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/50 backdrop-blur-sm"
