@@ -5,6 +5,7 @@ import CustomSelect from './CustomSelect';
 import { residentAvatarSrc } from '../lib/avatar';
 import { useAuth } from '../contexts/AuthContext';
 import MedicationInventoryTab from './MedicationInventoryTab';
+import MedicationAutocomplete from './MedicationAutocomplete';
 
 interface StockModuleProps {
   items: StockItem[];
@@ -707,7 +708,11 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
             <form onSubmit={handleSubmit} className="p-5 space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1.5">Nome do Item</label>
-                <input required type="text" value={newItem.name} onChange={e => setNewItem({ ...newItem, name: e.target.value })} className={inputClass} placeholder="Ex: Dipirona 500mg" />
+                {newItem.category === 'medicamento' ? (
+                  <MedicationAutocomplete required value={newItem.name} onChange={name => setNewItem({ ...newItem, name })} placeholder="Busque pelo nome na ANVISA" />
+                ) : (
+                  <input required type="text" value={newItem.name} onChange={e => setNewItem({ ...newItem, name: e.target.value })} className={inputClass} placeholder="Ex: Luvas descartáveis" />
+                )}
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1.5">Categoria</label>
@@ -779,7 +784,11 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
             <form onSubmit={handleEditSubmit} className="p-5 space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1.5">Nome do Item</label>
-                <input required type="text" value={editForm.name} onChange={e => setEditForm({ ...editForm, name: e.target.value })} className={inputClass} placeholder="Ex: Dipirona 500mg" />
+                {editForm.category === 'medicamento' ? (
+                  <MedicationAutocomplete required value={editForm.name} onChange={name => setEditForm({ ...editForm, name })} placeholder="Busque pelo nome na ANVISA" />
+                ) : (
+                  <input required type="text" value={editForm.name} onChange={e => setEditForm({ ...editForm, name: e.target.value })} className={inputClass} placeholder="Nome do item" />
+                )}
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1.5">Categoria</label>

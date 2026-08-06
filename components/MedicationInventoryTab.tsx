@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { MedicamentoInventarioItem, MedicamentoForma, Resident, ViewState } from '../types';
 import CustomSelect from './CustomSelect';
+import MedicationAutocomplete from './MedicationAutocomplete';
 import { residentAvatarSrc } from '../lib/avatar';
 import { useAuth } from '../contexts/AuthContext';
 import {
@@ -416,7 +417,17 @@ const MedicationInventoryTab: React.FC<Props> = ({ residents = [] }) => {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="sm:col-span-2">
                   <label className="block text-xs font-semibold text-slate-600 mb-1.5">Nome do Medicamento</label>
-                  <input required type="text" value={form.nome} onChange={e => setForm({ ...form, nome: e.target.value })} className={inputClass} placeholder="Ex: Losartana" />
+                  <MedicationAutocomplete
+                    required
+                    value={form.nome}
+                    onChange={nome => setForm(current => ({ ...current, nome }))}
+                    onSelect={medication => setForm(current => ({
+                      ...current,
+                      nome: medication.nomeProduto,
+                      principioAtivo: medication.principioAtivo || current.principioAtivo,
+                    }))}
+                    placeholder="Busque pelo nome na ANVISA"
+                  />
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1.5">Princípio ativo (opcional)</label>

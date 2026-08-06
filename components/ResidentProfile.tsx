@@ -12,6 +12,7 @@ import { residentAvatarSrc } from '../lib/avatar';
 import { toast } from '../services/toast';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import CustomSelect from './CustomSelect';
+import MedicationAutocomplete from './MedicationAutocomplete';
 import { useAuth } from '../contexts/AuthContext';
 import { compressImage, uploadResidentPhoto, uploadPrescriptionDocument, uploadResidentDocument, supabase } from '../services/supabaseClient';
 import { openPrintWindow } from '../services/pdfPrint';
@@ -8287,13 +8288,11 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
             <form onSubmit={handleSavePrescription} className="p-6 overflow-y-auto flex-1 space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1.5">Nome do Medicamento</label>
-                <input 
-                  required 
-                  type="text" 
-                  value={prescriptionData.name} 
-                  onChange={e => setPrescriptionData({ ...prescriptionData, name: e.target.value })} 
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                  placeholder="Ex: Dipirona Gotas, Losartana Potássica" 
+                <MedicationAutocomplete
+                  required
+                  value={prescriptionData.name}
+                  onChange={name => setPrescriptionData({ ...prescriptionData, name })}
+                  placeholder="Busque pelo nome na ANVISA"
                 />
               </div>
 
