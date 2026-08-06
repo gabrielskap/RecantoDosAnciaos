@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useRef } from 'r
 import { AuthUser, Profile, Permission, PermissionAction, ViewState, ProfileType, DigitalCertificate, BoletimModelType } from '../types';
 import { supabase } from '../services/supabaseClient';
 import { toast } from '../services/toast';
+import { confirmPasswordRecovery, requestPasswordRecovery } from '../services/passwordRecoveryService';
 
 // --- Context ---
 
@@ -20,6 +21,7 @@ export interface AuthContextValue {
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
+  confirmPasswordReset: (email: string, code: string, password: string) => Promise<void>;
   hasPermission: (module: ViewState, action: PermissionAction) => boolean;
   updateProfile: (profile: Profile) => Promise<void>;
   addProfile: (profile: Profile) => Promise<void>;
@@ -604,10 +606,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const resetPassword = async (email: string) => {
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/reset-password`,
-    });
-    if (error) throw new Error(error.message || 'Erro ao enviar e-mail de redefinição.');
+    await requestPasswordRecovery(email);
+  };
+
+  const confirmPasswordReset = async (email: string, code: string, password: string) => {
+    await confirmPasswordRecovery(email, code, password);
   };
 
   const hasPermission = (module: ViewState, action: PermissionAction): boolean => {
@@ -943,7 +946,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ currentUser, users, profiles, loading, login, logout, resetPassword, hasPermission, updateProfile, addProfile, deleteProfile, addUser, deleteUser, updateUser, updateUserCertificate, accessBlocked, trialInfo, refreshAccessStatus, modeloBoletim, refreshModeloBoletim }}>
+    <AuthContext.Provider value={{ currentUser, users, profiles, loading, login, logout, resetPassword, confirmPasswordReset, hasPermission, updateProfile, addProfile, deleteProfile, addUser, deleteUser, updateUser, updateUserCertificate, accessBlocked, trialInfo, refreshAccessStatus, modeloBoletim, refreshModeloBoletim }}>
       {children}
     </AuthContext.Provider>
   );

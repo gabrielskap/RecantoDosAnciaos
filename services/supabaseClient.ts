@@ -202,6 +202,36 @@ export const uploadResidentDocument = async (file: File, residentId: string): Pr
   return data.publicUrl;
 };
 
+// Contratos ficam em um bucket privado. Persistimos somente o caminho do
+// objeto e geramos uma URL temporaria quando o usuario solicita a abertura.
+export const uploadContractDocument = async (file: File, residentId: string): Promise<string> => {
+  const fileExt = file.name.split('.').pop()?.toLowerCase() || 'pdf';
+  const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}.${fileExt}`;
+  const filePath = `${residentId}/${fileName}`;
+
+  const { error } = await supabase.storage
+    .from('contract-documents')
+    .upload(filePath, file, {
+      contentType: file.type || 'application/octet-stream',
+      upsert: false,
+    });
+
+  if (error) throw error;
+  return filePath;
+};
+
+export const getContractDocumentUrl = async (fileUrl: string): Promise<string> => {
+  // Compatibilidade com contratos antigos que ja guardavam uma URL completa.
+  if (/^(https?:|data:|blob:)/i.test(fileUrl)) return fileUrl;
+
+  const { data, error } = await supabase.storage
+    .from('contract-documents')
+    .createSignedUrl(fileUrl, 60 * 10);
+
+  if (error) throw error;
+  return data.signedUrl;
+};
+
 // Helper to upload an institutional compliance document (PDF/image) to Supabase storage
 export const uploadComplianceDocument = async (file: File): Promise<string> => {
   const fileExt = file.name.split('.').pop() || 'pdf';

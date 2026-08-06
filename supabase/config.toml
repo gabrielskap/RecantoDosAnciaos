@@ -17,3 +17,8 @@ verify_jwt = false
 
 [functions.asaas-webhook]
 verify_jwt = false
+
+# Recuperação pública por código de uso único. A função aplica rate limit,
+# valida o código no servidor e nunca expõe service_role ao navegador.
+[functions.password-recovery]
+verify_jwt = false

@@ -29,6 +29,10 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
   const [selectedMeal, setSelectedMeal] = useState<MealTime>(() => {
     return (localStorage.getItem('recanto_nutrition_selected_meal') as MealTime) || 'Almoço';
   });
+  const [dailyGroup, setDailyGroup] = useState<'all' | 'general' | 'sarcopenia'>(() => {
+    const saved = localStorage.getItem('recanto_nutrition_daily_group');
+    return saved === 'general' || saved === 'sarcopenia' || saved === 'all' ? saved : 'all';
+  });
 
   // New plan modal state
   const [showNewPlanModal, setShowNewPlanModal] = useState(() => {
@@ -77,6 +81,10 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
   useEffect(() => {
     localStorage.setItem('recanto_nutrition_selected_meal', selectedMeal);
   }, [selectedMeal]);
+
+  useEffect(() => {
+    localStorage.setItem('recanto_nutrition_daily_group', dailyGroup);
+  }, [dailyGroup]);
 
   useEffect(() => {
     localStorage.setItem('recanto_nutrition_show_modal', showNewPlanModal.toString());
@@ -311,6 +319,17 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
       {/* DAILY RECORD */}
       {activeTab === 'daily' && (() => {
         const sarcopeniaResidents = residents.filter(r => r.sarcopenia === 'sim');
+        const generalResidents = residents.filter(r => r.sarcopenia !== 'sim');
+        const displayedResidents = dailyGroup === 'sarcopenia'
+          ? sarcopeniaResidents
+          : dailyGroup === 'general'
+            ? generalResidents
+            : residents;
+        const groupLabel = dailyGroup === 'sarcopenia'
+          ? 'Sarcopenia'
+          : dailyGroup === 'general'
+            ? 'Alimentação geral'
+            : 'Todos os residentes';
 
         return (
           <div className="bg-white rounded-2xl shadow-sm shadow-blue-100/40 overflow-hidden">
@@ -320,28 +339,35 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
                 <select value={selectedMeal} onChange={e => setSelectedMeal(e.target.value as MealTime)} className={inputClass + ' w-auto'}>
                   {['Café da Manhã', 'Colação', 'Almoço', 'Lanche da Tarde', 'Jantar', 'Ceia'].map(m => <option key={m} value={m}>{m}</option>)}
                 </select>
-                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs font-bold">
-                  Sarcopenia ({sarcopeniaResidents.length})
-                </span>
+                <select
+                  value={dailyGroup}
+                  onChange={e => setDailyGroup(e.target.value as 'all' | 'general' | 'sarcopenia')}
+                  className={inputClass + ' w-auto'}
+                  aria-label="Grupo de residentes"
+                >
+                  <option value="all">Todos os residentes ({residents.length})</option>
+                  <option value="general">Alimentação geral ({generalResidents.length})</option>
+                  <option value="sarcopenia">Sarcopenia ({sarcopeniaResidents.length})</option>
+                </select>
               </div>
-              <p className="text-xs text-slate-400 flex items-center gap-1.5"><Utensils className="h-3.5 w-3.5 text-blue-400" /> Registro em lote (Sarcopenia)</p>
+              <p className="text-xs text-slate-400 flex items-center gap-1.5"><Utensils className="h-3.5 w-3.5 text-blue-400" /> Registro em lote · {groupLabel}</p>
             </div>
 
-            {sarcopeniaResidents.length === 0 ? (
+            {displayedResidents.length === 0 ? (
               <div className="p-12 text-center">
                 <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-3">
                   <Utensils className="h-6 w-6" />
                 </div>
-                <h3 className="font-bold text-slate-800 text-base mb-1">Nenhum residente com sarcopenia</h3>
+                <h3 className="font-bold text-slate-800 text-base mb-1">Nenhum residente neste grupo</h3>
                 <p className="text-slate-500 text-xs max-w-sm mx-auto">
-                  Não há residentes cadastrados com a opção "Sarcopenia: Sim" selecionada no momento.
+                  Não há residentes cadastrados em “{groupLabel}” no momento.
                 </p>
               </div>
             ) : (
               <>
                 {/* Mobile cards */}
                 <div className="block md:hidden divide-y divide-slate-50 p-4 space-y-4">
-                  {sarcopeniaResidents.map(r => {
+                  {displayedResidents.map(r => {
                     const log = r.nutritionalLogs?.find(l => l.date === selectedDate && l.meal === selectedMeal);
                     const acceptance = log ? log.acceptance : -1;
                     return (
@@ -350,6 +376,9 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
                           <div>
                             <h4 className="font-bold text-slate-800 text-sm">{r.name}</h4>
                             <p className="text-xs text-slate-400">Quarto {r.room}</p>
+                            <span className={`inline-flex mt-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold ${r.sarcopenia === 'sim' ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'}`}>
+                              {r.sarcopenia === 'sim' ? 'Sarcopenia' : 'Alimentação geral'}
+                            </span>
                           </div>
                           {acceptance !== -1
                             ? <span className="text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-100 px-2.5 py-1 rounded-full flex items-center gap-1"><CheckCircle2 className="h-3 w-3" /> Salvo</span>
@@ -383,12 +412,17 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
                       ))}</tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
-                      {sarcopeniaResidents.map(r => {
+                      {displayedResidents.map(r => {
                         const log = r.nutritionalLogs?.find(l => l.date === selectedDate && l.meal === selectedMeal);
                         const acceptance = log ? log.acceptance : -1;
                         return (
                           <tr key={r.id} className="hover:bg-slate-50/60 transition-colors">
-                            <td className="px-6 py-4 font-semibold text-slate-800">{r.name}</td>
+                            <td className="px-6 py-4">
+                              <p className="font-semibold text-slate-800">{r.name}</p>
+                              <p className={`text-[11px] mt-0.5 font-medium ${r.sarcopenia === 'sim' ? 'text-amber-700' : 'text-emerald-700'}`}>
+                                {r.sarcopenia === 'sim' ? 'Sarcopenia' : 'Alimentação geral'}
+                              </p>
+                            </td>
                             <td className="px-6 py-4">
                               {r.dietPlan ? (
                                 <div className="flex flex-wrap gap-1.5">

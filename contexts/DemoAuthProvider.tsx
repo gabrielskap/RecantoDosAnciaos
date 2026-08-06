@@ -38,6 +38,7 @@ export const DemoAuthProvider: React.FC<DemoAuthProviderProps> = ({ onLogout, ch
     login: noop,
     logout: async () => { onLogout(); },
     resetPassword: noop,
+    confirmPasswordReset: noop,
     hasPermission: (_module: ViewState, _action: PermissionAction): boolean => true,
     updateProfile: noop,
     addProfile: noop,
