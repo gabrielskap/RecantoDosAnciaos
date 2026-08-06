@@ -27,6 +27,7 @@ const MedicationAutocomplete: React.FC<Props> = ({
   const inputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const requestRef = useRef(0);
+  const skipNextSearchRef = useRef(false);
   const [options, setOptions] = useState<AnvisaMedication[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -35,6 +36,10 @@ const MedicationAutocomplete: React.FC<Props> = ({
   const [coords, setCoords] = useState({ top: 0, left: 0, width: 0, openUp: false });
 
   useEffect(() => {
+    if (skipNextSearchRef.current) {
+      skipNextSearchRef.current = false;
+      return;
+    }
     const term = value.trim();
     const request = ++requestRef.current;
     setFailed(false);
@@ -99,6 +104,7 @@ const MedicationAutocomplete: React.FC<Props> = ({
   }, [open, options.length]);
 
   const selectOption = (option: AnvisaMedication) => {
+    skipNextSearchRef.current = option.nomeProduto !== value;
     onChange(option.nomeProduto);
     onSelect?.(option);
     setOpen(false);
