@@ -847,7 +847,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const deleteUser = async (id: string) => {
     try {
-      const { data, error } = await supabase.functions.invoke('delete-user', {
+      const { data, error } = await supabase.functions.invoke('RecantoDosAnciaos_delete-user', {
         body: { targetUserId: id },
       });
       if (error) throw error;
@@ -868,7 +868,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Se o e-mail mudou, atualiza em auth.users via Edge Function (requer service_role)
       const existingUser = users.find(u => u.id === updatedUser.id);
       if (existingUser && existingUser.email !== updatedUser.email) {
-        const { data: fnData, error: fnError } = await supabase.functions.invoke('update-user-email', {
+        const { data: fnData, error: fnError } = await supabase.functions.invoke('RecantoDosAnciaos_update-user-email', {
           body: { targetUserId: updatedUser.id, newEmail: updatedUser.email },
         });
         if (fnError) throw fnError;

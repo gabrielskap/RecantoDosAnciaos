@@ -1,5 +1,5 @@
 // ===========================================================================
-// Edge Function: asaas-activate-subscription
+// Edge Function: RecantoDosAnciaos_asaas-activate-subscription
 // ---------------------------------------------------------------------------
 // Ativa o pagamento para usuários já cadastrados (em trial ou pendentes).
 // Requer autenticação JWT — o chamador deve estar logado.

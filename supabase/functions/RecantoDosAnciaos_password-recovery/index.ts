@@ -64,7 +64,7 @@ async function sendCode(apiKey: string, from: string, email: string, code: strin
   });
 
   if (!response.ok) {
-    console.error('[password-recovery] Falha no envio:', response.status, (await response.text()).slice(0, 300));
+    console.error('[RecantoDosAnciaos_password-recovery] Falha no envio:', response.status, (await response.text()).slice(0, 300));
     throw new Error('Não foi possível enviar o e-mail.');
   }
 }
@@ -84,7 +84,7 @@ Deno.serve(async (req: Request) => {
     const secrets = await loadSecrets(admin, ['RESEND_API_KEY', 'PASSWORD_RESET_FROM_EMAIL', 'PASSWORD_RESET_CODE_PEPPER']);
     const pepper = secrets.PASSWORD_RESET_CODE_PEPPER;
     if (!pepper) {
-      console.error('[password-recovery] PASSWORD_RESET_CODE_PEPPER ausente.');
+      console.error('[RecantoDosAnciaos_password-recovery] PASSWORD_RESET_CODE_PEPPER ausente.');
       return json({ error: 'Recuperação de senha temporariamente indisponível.' }, 503);
     }
 
@@ -106,7 +106,7 @@ Deno.serve(async (req: Request) => {
       // Não revela se o e-mail está ou não cadastrado.
       if (!profile?.auth_user_id) return json({ ok: true });
       if (!secrets.RESEND_API_KEY || !secrets.PASSWORD_RESET_FROM_EMAIL) {
-        console.error('[password-recovery] Configuração do Resend ausente.');
+        console.error('[RecantoDosAnciaos_password-recovery] Configuração do Resend ausente.');
         return json({ error: 'Envio de e-mail temporariamente indisponível.' }, 503);
       }
 
@@ -164,7 +164,7 @@ Deno.serve(async (req: Request) => {
 
     return json({ error: 'Ação inválida.' }, 400);
   } catch (error) {
-    console.error('[password-recovery]', error instanceof Error ? error.message : error);
+    console.error('[RecantoDosAnciaos_password-recovery]', error instanceof Error ? error.message : error);
     return json({ error: 'Não foi possível concluir a recuperação. Tente novamente.' }, 500);
   }
 });

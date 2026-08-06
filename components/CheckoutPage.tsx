@@ -548,7 +548,7 @@ const CheckoutPage: React.FC = () => {
     }
 
     try {
-      const { data, error } = await supabase.functions.invoke('asaas-create-subscription', { body });
+      const { data, error } = await supabase.functions.invoke('RecantoDosAnciaos_asaas-create-subscription', { body });
 
       if (error) {
         let msg = 'Não foi possível concluir o cadastro. Tente novamente.';

@@ -247,7 +247,7 @@ export async function getWhatsappInstance(): Promise<WhatsappInstance> {
 }
 
 async function invokeInstance(action: 'connect' | 'status' | 'disconnect'): Promise<WhatsappInstance> {
-  const { data, error } = await supabase.functions.invoke('whatsapp-instance', { body: { action } });
+  const { data, error } = await supabase.functions.invoke('RecantoDosAnciaos_whatsapp-instance', { body: { action } });
   if (error) {
     // FunctionsHttpError: o corpo (com a mensagem real do 500) fica em error.context.
     let msg = error.message;

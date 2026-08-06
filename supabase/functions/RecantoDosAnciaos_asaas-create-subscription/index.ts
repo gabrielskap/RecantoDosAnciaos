@@ -1,5 +1,5 @@
 // ===========================================================================
-// Edge Function: asaas-create-subscription
+// Edge Function: RecantoDosAnciaos_asaas-create-subscription
 // ---------------------------------------------------------------------------
 // Checkout público da assinatura SaaS. Cria empresa + assinatura + usuário admin
 // (status pendente) e a cobrança real no Asaas (cartão / PIX / boleto).

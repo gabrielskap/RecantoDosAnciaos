@@ -1,5 +1,5 @@
 // ===========================================================================
-// Edge Function: dispatch-notifications
+// Edge Function: RecantoDosAnciaos_dispatch-notifications
 // ---------------------------------------------------------------------------
 // Dispatcher do padrão Outbox. Chamado periodicamente (pg_cron) para enviar as
 // mensagens pendentes em Recanto_Notificacao_Fila via UAZAPI.

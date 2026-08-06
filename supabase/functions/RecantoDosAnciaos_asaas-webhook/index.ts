@@ -1,5 +1,5 @@
 // ===========================================================================
-// Edge Function: asaas-webhook
+// Edge Function: RecantoDosAnciaos_asaas-webhook
 // ---------------------------------------------------------------------------
 // Recebe os eventos de cobrança do Asaas e sincroniza o status da assinatura/
 // empresa. O webhook é a ÚNICA origem autorizada a ativar empresa e assinatura.
@@ -29,7 +29,7 @@ async function loadWebhookToken(admin: any): Promise<string> {
       .maybeSingle();
     if (data?.valor) return String(data.valor).trim();
   } catch (err) {
-    console.error('[asaas-webhook] Erro ao ler token do banco:', (err as Error).message);
+    console.error('[RecantoDosAnciaos_asaas-webhook] Erro ao ler token do banco:', (err as Error).message);
   }
   return (Deno.env.get('ASAAS_WEBHOOK_TOKEN') ?? '').trim();
 }
@@ -57,7 +57,7 @@ Deno.serve(async (req: Request) => {
   }
 
   if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
-    console.error('[asaas-webhook] Variáveis de ambiente do Supabase ausentes.');
+    console.error('[RecantoDosAnciaos_asaas-webhook] Variáveis de ambiente do Supabase ausentes.');
     return ok({ error: 'Configuração ausente.' }, 500);
   }
 
@@ -117,7 +117,7 @@ Deno.serve(async (req: Request) => {
     p_asaas_event_id: eventId,
   });
   if (claimErr) {
-    console.error('[asaas-webhook] Erro no claim:', claimErr.message);
+    console.error('[RecantoDosAnciaos_asaas-webhook] Erro no claim:', claimErr.message);
     return ok({ error: 'Erro ao processar evento.' }, 500);
   }
   if (!claimed || !claimed.id) {
@@ -295,7 +295,7 @@ Deno.serve(async (req: Request) => {
     return ok({ received: true }, 200);
   } catch (err) {
     const msg = (err as Error).message ?? 'Erro desconhecido';
-    console.error('[asaas-webhook] Erro ao processar evento:', msg);
+    console.error('[RecantoDosAnciaos_asaas-webhook] Erro ao processar evento:', msg);
     await markErro(msg);
     return ok({ error: 'Erro recuperável ao processar evento.' }, 500);
   }

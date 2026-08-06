@@ -1,5 +1,5 @@
 // ===========================================================================
-// Edge Function: whatsapp-instance
+// Edge Function: RecantoDosAnciaos_whatsapp-instance
 // ---------------------------------------------------------------------------
 // Gerencia a conexão da instância UAZAPI da empresa (criar/conectar/status/
 // desconectar). Invocada pelo frontend com o JWT do usuário
@@ -45,7 +45,7 @@ async function loadSecrets(admin: any, keys: string[]): Promise<Record<string, s
     const { data, error } = await admin.from(SECRETS_TABLE).select('chave, valor').in('chave', keys);
     if (!error) for (const r of data ?? []) out[r.chave] = String(r.valor ?? '').trim();
   } catch (err) {
-    console.error('[whatsapp-instance] Erro ao ler segredos:', (err as Error).message);
+    console.error('[RecantoDosAnciaos_whatsapp-instance] Erro ao ler segredos:', (err as Error).message);
   }
   for (const k of keys) if (!out[k]) out[k] = (Deno.env.get(k) ?? '').trim();
   return out;
@@ -219,7 +219,7 @@ Deno.serve(async (req: Request) => {
 
     return json({ error: 'Ação inválida.' }, 400);
   } catch (err) {
-    console.error('[whatsapp-instance]', (err as Error).message);
+    console.error('[RecantoDosAnciaos_whatsapp-instance]', (err as Error).message);
     return json({ error: (err as Error).message ?? 'Erro interno.' }, 500);
   }
 });
