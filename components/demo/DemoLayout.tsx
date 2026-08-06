@@ -100,8 +100,8 @@ const DemoLayoutInner: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
     setContracts(prev => [...prev, { ...c, id: `c-demo-${Date.now()}` }]);
   };
 
-  const handleUpdateContractFile = async (contractId: string, fileUrl: string) => {
-    setContracts(prev => prev.map(contract => contract.id === contractId ? { ...contract, fileUrl } : contract));
+  const handleUpdateContractFile = async (contractId: string, fileUrl: string | null) => {
+    setContracts(prev => prev.map(contract => contract.id === contractId ? { ...contract, fileUrl: fileUrl || undefined } : contract));
   };
 
   const handleUpdateInvoice = async (updated: Invoice) => {

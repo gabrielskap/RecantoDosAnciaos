@@ -4,7 +4,7 @@ import { FinancialRecord, Contract, Invoice, Resident, ViewState } from '../type
 import { DollarSign, TrendingUp, TrendingDown, Plus, X, FileText, Calendar, CheckCircle2, AlertCircle, FileCheck, Wallet, Trash2, UploadCloud, ExternalLink, Loader2 } from 'lucide-react';
 import CustomSelect from './CustomSelect';
 import { useAuth } from '../contexts/AuthContext';
-import { getContractDocumentUrl, uploadContractDocument } from '../services/supabaseClient';
+import { deleteContractDocument, getContractDocumentUrl, uploadContractDocument } from '../services/supabaseClient';
 import { toast } from '../services/toast';
 
 interface FinanceModuleProps {
@@ -15,7 +15,7 @@ interface FinanceModuleProps {
   onAddRecord: (record: FinancialRecord) => void;
   onDeleteRecord: (id: string) => void;
   onAddContract: (contract: Contract) => void | Promise<void>;
-  onUpdateContractFile: (contractId: string, fileUrl: string) => void | Promise<void>;
+  onUpdateContractFile: (contractId: string, fileUrl: string | null) => void | Promise<void>;
   onUpdateInvoice: (invoice: Invoice) => void;
 }
 
@@ -153,6 +153,28 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
     } catch (error) {
       console.error('Erro ao anexar contrato:', error);
       toast.error('Erro ao anexar o contrato. Tente novamente.');
+    } finally {
+      setUploadingContractId(null);
+    }
+  };
+
+  const handleDeleteContractFile = async (contract: Contract) => {
+    if (!contract.fileUrl || !window.confirm('Deseja excluir o contrato anexado?')) return;
+    setUploadingContractId(contract.id);
+    try {
+      const fileUrl = contract.fileUrl;
+      await onUpdateContractFile(contract.id, null);
+      try {
+        await deleteContractDocument(fileUrl);
+      } catch (storageError) {
+        // O vinculo ja foi removido. Uma eventual falha de limpeza do objeto
+        // nao deve fazer o contrato reaparecer para o usuario.
+        console.warn('Vínculo removido, mas o arquivo não pôde ser apagado do Storage:', storageError);
+      }
+      toast.success('Contrato anexado excluído com sucesso!');
+    } catch (error) {
+      console.error('Erro ao excluir contrato anexado:', error);
+      toast.error('Erro ao excluir o contrato anexado. Tente novamente.');
     } finally {
       setUploadingContractId(null);
     }
@@ -302,11 +324,23 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
                             <ExternalLink className="h-3.5 w-3.5" /> Ver contrato
                           </button>
                           {canEdit && (
-                            <label className={`inline-flex items-center text-slate-500 hover:text-blue-700 cursor-pointer ${uploadingContractId === c.id ? 'pointer-events-none opacity-60' : ''}`} title="Substituir contrato">
-                              {uploadingContractId === c.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UploadCloud className="h-3.5 w-3.5" />}
-                              <span className="sr-only">Substituir contrato</span>
-                              <input type="file" className="hidden" accept="application/pdf,image/jpeg,image/png,image/webp" disabled={uploadingContractId === c.id} onChange={e => { const file = e.target.files?.[0]; if (file) void handleContractFileUpload(c, file); e.currentTarget.value = ''; }} />
-                            </label>
+                            <>
+                              <label className={`inline-flex items-center text-slate-500 hover:text-blue-700 cursor-pointer ${uploadingContractId === c.id ? 'pointer-events-none opacity-60' : ''}`} title="Substituir contrato">
+                                {uploadingContractId === c.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UploadCloud className="h-3.5 w-3.5" />}
+                                <span className="sr-only">Substituir contrato</span>
+                                <input type="file" className="hidden" accept="application/pdf,image/jpeg,image/png,image/webp" disabled={uploadingContractId === c.id} onChange={e => { const file = e.target.files?.[0]; if (file) void handleContractFileUpload(c, file); e.currentTarget.value = ''; }} />
+                              </label>
+                              <button
+                                type="button"
+                                onClick={() => void handleDeleteContractFile(c)}
+                                disabled={uploadingContractId === c.id}
+                                className="inline-flex items-center text-slate-400 hover:text-rose-600 disabled:opacity-60 transition-colors"
+                                title="Excluir contrato anexado"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                                <span className="sr-only">Excluir contrato anexado</span>
+                              </button>
+                            </>
                           )}
                         </div>
                       ) : canEdit ? (

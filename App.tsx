@@ -1421,7 +1421,7 @@ function AppInner() {
     }
   };
 
-  const handleUpdateContractFile = async (contractId: string, fileUrl: string) => {
+  const handleUpdateContractFile = async (contractId: string, fileUrl: string | null) => {
     const { error } = await supabase
       .from('Recanto_Contratos')
       .update({ file_url: fileUrl })

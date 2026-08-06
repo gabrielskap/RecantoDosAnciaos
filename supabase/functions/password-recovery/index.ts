@@ -41,10 +41,14 @@ function createCode() {
   return String(100000 + (buffer[0] % 900000));
 }
 
-async function sendCode(apiKey: string, from: string, email: string, code: string) {
+async function sendCode(apiKey: string, from: string, email: string, code: string, idempotencyKey: string) {
   const response = await fetch('https://api.resend.com/emails', {
     method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      'Idempotency-Key': `password-reset/${idempotencyKey}`,
+    },
     body: JSON.stringify({
       from,
       to: [email],
@@ -121,7 +125,7 @@ Deno.serve(async (req: Request) => {
       if (insertError) throw insertError;
 
       try {
-        await sendCode(secrets.RESEND_API_KEY, secrets.PASSWORD_RESET_FROM_EMAIL, email, code);
+        await sendCode(secrets.RESEND_API_KEY, secrets.PASSWORD_RESET_FROM_EMAIL, email, code, codeHash);
       } catch (error) {
         await admin.from(TABLE).update({ consumed_at: new Date().toISOString() }).eq('email', email).eq('code_hash', codeHash);
         throw error;

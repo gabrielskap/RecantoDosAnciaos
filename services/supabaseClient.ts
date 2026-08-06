@@ -232,6 +232,18 @@ export const getContractDocumentUrl = async (fileUrl: string): Promise<string> =
   return data.signedUrl;
 };
 
+export const deleteContractDocument = async (fileUrl: string): Promise<void> => {
+  // URLs antigas podem pertencer a outro bucket ou provedor. Nesses casos,
+  // removemos apenas o vinculo salvo no contrato.
+  if (/^(https?:|data:|blob:)/i.test(fileUrl)) return;
+
+  const { error } = await supabase.storage
+    .from('contract-documents')
+    .remove([fileUrl]);
+
+  if (error) throw error;
+};
+
 // Helper to upload an institutional compliance document (PDF/image) to Supabase storage
 export const uploadComplianceDocument = async (file: File): Promise<string> => {
   const fileExt = file.name.split('.').pop() || 'pdf';
