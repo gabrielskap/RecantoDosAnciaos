@@ -777,17 +777,20 @@ function AppInner() {
       if (resError) throw resError;
 
       // 1. Alergias
-      await supabase.from('Recanto_Alergias').delete().eq('resident_id', updated.id);
+      const { error: allergiesDeleteError } = await supabase.from('Recanto_Alergias').delete().eq('resident_id', updated.id);
+      if (allergiesDeleteError) throw allergiesDeleteError;
       if (updated.allergies && updated.allergies.length > 0) {
-        await supabase.from('Recanto_Alergias').insert(
+        const { error: allergiesInsertError } = await supabase.from('Recanto_Alergias').insert(
           updated.allergies.map(a => ({ resident_id: updated.id, description: a }))
         );
+        if (allergiesInsertError) throw allergiesInsertError;
       }
 
       // 2. Contatos de emergência
-      await supabase.from('Recanto_ContatosEmergencia').delete().eq('resident_id', updated.id);
+      const { error: contactsDeleteError } = await supabase.from('Recanto_ContatosEmergencia').delete().eq('resident_id', updated.id);
+      if (contactsDeleteError) throw contactsDeleteError;
       if (updated.emergencyContacts && updated.emergencyContacts.length > 0) {
-        await supabase.from('Recanto_ContatosEmergencia').insert(
+        const { error: contactsInsertError } = await supabase.from('Recanto_ContatosEmergencia').insert(
           updated.emergencyContacts.map(c => ({
             resident_id: updated.id,
             name: c.name,
@@ -795,18 +798,20 @@ function AppInner() {
             phone: c.phone
           }))
         );
+        if (contactsInsertError) throw contactsInsertError;
       }
 
       // 3. Responsável Legal
       if (updated.legalGuardian && updated.legalGuardian.name) {
-        await supabase.from('Recanto_ResponsaveisLegais').upsert({
+        const { error: guardianError } = await supabase.from('Recanto_ResponsaveisLegais').upsert({
           resident_id: updated.id,
           name: updated.legalGuardian.name,
-          cpf: updated.legalGuardian.cpf,
-          phone: updated.legalGuardian.phone,
-          address: updated.legalGuardian.address,
+          cpf: updated.legalGuardian.cpf || '',
+          phone: updated.legalGuardian.phone || '',
+          address: updated.legalGuardian.address || '',
           is_primary: true
         }, { onConflict: 'resident_id' });
+        if (guardianError) throw guardianError;
       }
 
       // 4. Medicações

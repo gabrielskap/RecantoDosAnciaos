@@ -62,17 +62,20 @@ function mapResidentRow(r: any, heavy: ResidentHeavyData): Resident {
       addressStreet: r.address_street || undefined,
       addressNumber: r.address_number || undefined,
       addressComplement: r.address_complement || undefined,
-      emergencyContacts: (r.emergencyContacts || []).map((c: any) => ({
+      emergencyContacts: (Array.isArray(r.emergencyContacts) ? r.emergencyContacts : r.emergencyContacts ? [r.emergencyContacts] : []).map((c: any) => ({
         name: c.name,
         relation: c.relation,
         phone: c.phone
       })),
-      legalGuardian: r.legalGuardian && r.legalGuardian.length > 0 ? {
-        name: r.legalGuardian[0].name,
-        cpf: r.legalGuardian[0].cpf,
-        phone: r.legalGuardian[0].phone,
-        address: r.legalGuardian[0].address
-      } : undefined,
+      legalGuardian: (() => {
+        const guardianRow = Array.isArray(r.legalGuardian) ? r.legalGuardian[0] : r.legalGuardian;
+        return guardianRow ? {
+          name: guardianRow.name,
+          cpf: guardianRow.cpf,
+          phone: guardianRow.phone,
+          address: guardianRow.address
+        } : undefined;
+      })(),
       clinicalCondition: r.clinical_condition || '',
       functionalCondition: r.functional_condition || '',
       socialHistory: r.social_history || '',

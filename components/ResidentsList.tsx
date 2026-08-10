@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, Filter, FileText, X, User, Phone, FileHeart, Plus, AlertCircle, BedDouble, Home, Edit2, Pill, Camera, ArrowUpDown, ArrowUp, ArrowDown, ChevronDown, UserX, UserCheck, UploadCloud, LogOut, Calendar, ExternalLink, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, Filter, FileText, X, User, Phone, FileHeart, Plus, AlertCircle, BedDouble, Home, Edit2, Pill, Camera, ArrowUpDown, ArrowUp, ArrowDown, ChevronDown, UserX, UserCheck, UploadCloud, LogOut, Calendar, ExternalLink, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
 import { Resident, Room, ViewState } from '../types';
 import CustomSelect from './CustomSelect';
 import { compressImage, uploadResidentPhoto, uploadResidentDocument } from '../services/supabaseClient';
@@ -252,11 +252,23 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
   const endIndex = Math.min(startIndex + itemsPerPage, totalItems);
   const paginatedResidents = filtered.slice(startIndex, endIndex);
 
+  const MAX_EMERGENCY_CONTACTS = 3;
+
   const addContact = () => {
-    if (contactTemp.name && contactTemp.phone) {
-      setFormData({ ...formData, emergencyContacts: [...(formData.emergencyContacts || []), contactTemp] });
-      setContactTemp({ name: '', relation: '', phone: '' });
+    if (!contactTemp.name || !contactTemp.phone) return;
+    if ((formData.emergencyContacts || []).length >= MAX_EMERGENCY_CONTACTS) {
+      toast.error(`É possível cadastrar no máximo ${MAX_EMERGENCY_CONTACTS} contatos de emergência.`);
+      return;
     }
+    setFormData({ ...formData, emergencyContacts: [...(formData.emergencyContacts || []), contactTemp] });
+    setContactTemp({ name: '', relation: '', phone: '' });
+  };
+
+  const removeContact = (index: number) => {
+    setFormData({
+      ...formData,
+      emergencyContacts: (formData.emergencyContacts || []).filter((_, i) => i !== index)
+    });
   };
 
   const handleStartEdit = (resident: Resident) => {
@@ -1261,18 +1273,30 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
                     </div>
                   </div>
                   <div>
-                    <h4 className="font-bold text-slate-700 text-sm mb-3">Contatos de Emergência</h4>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-2">
-                      <input placeholder="Nome" value={contactTemp.name} onChange={e => setContactTemp({ ...contactTemp, name: e.target.value })} className={inputClass} />
-                      <input placeholder="Parentesco" value={contactTemp.relation} onChange={e => setContactTemp({ ...contactTemp, relation: e.target.value })} className={inputClass} />
-                      <input placeholder="Telefone" value={contactTemp.phone} onChange={e => setContactTemp({ ...contactTemp, phone: e.target.value })} className={inputClass} />
-                    </div>
-                    <button type="button" onClick={addContact} className="w-full py-2 bg-slate-100 hover:bg-slate-200 rounded-xl text-sm font-semibold text-slate-600 transition-colors">+ Adicionar Contato</button>
+                    <h4 className="font-bold text-slate-700 text-sm mb-3">
+                      Contatos de Emergência
+                      <span className="font-normal text-slate-400"> ({(formData.emergencyContacts || []).length}/{MAX_EMERGENCY_CONTACTS})</span>
+                    </h4>
+                    {(formData.emergencyContacts || []).length < MAX_EMERGENCY_CONTACTS && (
+                      <>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-2">
+                          <input placeholder="Nome" value={contactTemp.name} onChange={e => setContactTemp({ ...contactTemp, name: e.target.value })} className={inputClass} />
+                          <input placeholder="Parentesco" value={contactTemp.relation} onChange={e => setContactTemp({ ...contactTemp, relation: e.target.value })} className={inputClass} />
+                          <input placeholder="Telefone" value={contactTemp.phone} onChange={e => setContactTemp({ ...contactTemp, phone: e.target.value })} className={inputClass} />
+                        </div>
+                        <button type="button" onClick={addContact} className="w-full py-2 bg-slate-100 hover:bg-slate-200 rounded-xl text-sm font-semibold text-slate-600 transition-colors">+ Adicionar Contato</button>
+                      </>
+                    )}
                     <div className="mt-3 space-y-2">
                       {formData.emergencyContacts?.map((c, i) => (
                         <div key={i} className="flex justify-between items-center bg-slate-50 rounded-xl px-3 py-2 text-sm">
                           <span className="font-medium text-slate-700">{c.name} <span className="text-slate-400">({c.relation})</span></span>
-                          <span className="text-slate-500 text-xs">{c.phone}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-slate-500 text-xs">{c.phone}</span>
+                            <button type="button" onClick={() => removeContact(i)} className="text-slate-400 hover:text-red-600 transition-colors">
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>

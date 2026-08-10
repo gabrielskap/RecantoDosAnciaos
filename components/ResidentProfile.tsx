@@ -917,6 +917,25 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     setIsEditModalOpen(true);
   };
 
+  const MAX_EMERGENCY_CONTACTS = 3;
+
+  const handleAddEmergencyContact = () => {
+    if (!contactTemp.name || !contactTemp.phone) return;
+    if ((formData.emergencyContacts || []).length >= MAX_EMERGENCY_CONTACTS) {
+      toast.error(`É possível cadastrar no máximo ${MAX_EMERGENCY_CONTACTS} contatos de emergência.`);
+      return;
+    }
+    setFormData({ ...formData, emergencyContacts: [...(formData.emergencyContacts || []), contactTemp] });
+    setContactTemp({ name: '', relation: '', phone: '' });
+  };
+
+  const handleRemoveEmergencyContact = (index: number) => {
+    setFormData({
+      ...formData,
+      emergencyContacts: (formData.emergencyContacts || []).filter((_, i) => i !== index)
+    });
+  };
+
   const handleCepChange = async (value: string) => {
     const raw = value.replace(/\D/g, '');
     let formatted = raw;
@@ -3782,15 +3801,29 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                 </div>
                 <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
                   <h3 className="font-semibold text-slate-800 mb-3 border-b border-slate-200 pb-2">Responsável & Emergência</h3>
-                  <div className="space-y-2 text-sm">
-                     <p className="font-medium text-slate-700">Responsável Legal:</p>
-                     <p>{resident.legalGuardian?.name || 'Não informado'}</p>
-                     <p className="text-xs text-slate-500">{resident.legalGuardian?.phone}</p>
-                     
-                     <p className="font-medium text-slate-700 mt-4">Contatos Emergência:</p>
-                     {resident.emergencyContacts?.map((c, i) => (
-                       <p key={i}>{c.name} ({c.relation}) - {c.phone}</p>
-                     ))}
+                  <div className="text-sm">
+                    <p className="font-medium text-slate-700 mb-1">Responsável Legal</p>
+                    {resident.legalGuardian?.name ? (
+                      <div className="space-y-1">
+                        <p><span className="text-slate-500">Nome:</span> {resident.legalGuardian.name}</p>
+                        <p><span className="text-slate-500">CPF:</span> {resident.legalGuardian.cpf || '-'}</p>
+                        <p><span className="text-slate-500">Telefone:</span> {resident.legalGuardian.phone || '-'}</p>
+                        <p><span className="text-slate-500">Endereço:</span> {resident.legalGuardian.address || '-'}</p>
+                      </div>
+                    ) : (
+                      <p className="text-slate-500">Não informado</p>
+                    )}
+
+                    <p className="font-medium text-slate-700 mb-1 mt-4 pt-3 border-t border-slate-200">Contatos de Emergência</p>
+                    {resident.emergencyContacts && resident.emergencyContacts.length > 0 ? (
+                      <div className="space-y-1">
+                        {resident.emergencyContacts.map((c, i) => (
+                          <p key={i}><span className="text-slate-500">{c.relation}:</span> {c.name} — {c.phone}</p>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-slate-500">Nenhum contato cadastrado</p>
+                    )}
                   </div>
                 </div>
 
@@ -7829,12 +7862,55 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                     </div>
                   </div>
                   <div>
-                    <h4 className="font-bold text-slate-700 text-sm mb-3">Contatos de Emergência</h4>
+                    <h4 className="font-bold text-slate-700 text-sm mb-3">
+                      Contatos de Emergência
+                      <span className="font-normal text-slate-400"> ({(formData.emergencyContacts || []).length}/{MAX_EMERGENCY_CONTACTS})</span>
+                    </h4>
+                    {(formData.emergencyContacts || []).length < MAX_EMERGENCY_CONTACTS && (
+                      <>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-2">
+                          <input
+                            placeholder="Nome"
+                            value={contactTemp.name}
+                            onChange={e => setContactTemp({ ...contactTemp, name: e.target.value })}
+                            className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                          />
+                          <input
+                            placeholder="Parentesco"
+                            value={contactTemp.relation}
+                            onChange={e => setContactTemp({ ...contactTemp, relation: e.target.value })}
+                            className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                          />
+                          <input
+                            placeholder="Telefone"
+                            value={contactTemp.phone}
+                            onChange={e => setContactTemp({ ...contactTemp, phone: e.target.value })}
+                            className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleAddEmergencyContact}
+                          className="w-full py-2 bg-slate-100 hover:bg-slate-200 rounded-xl text-sm font-semibold text-slate-600 transition-colors"
+                        >
+                          + Adicionar Contato
+                        </button>
+                      </>
+                    )}
                     <div className="mt-3 space-y-2">
                       {formData.emergencyContacts?.map((c, i) => (
                         <div key={i} className="flex justify-between items-center bg-slate-50 rounded-xl px-3 py-2 text-sm">
                           <span className="font-medium text-slate-700">{c.name} <span className="text-slate-400">({c.relation})</span></span>
-                          <span className="text-slate-500 text-xs">{c.phone}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-slate-500 text-xs">{c.phone}</span>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveEmergencyContact(i)}
+                              className="text-slate-400 hover:text-red-600 transition-colors"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>
