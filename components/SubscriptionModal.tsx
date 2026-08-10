@@ -225,7 +225,7 @@ const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ isOpen, onClose }
 
     try {
       const { data: sessionData } = await supabase.auth.getSession();
-      const { data, error } = await supabase.functions.invoke('asaas-activate-subscription', {
+      const { data, error } = await supabase.functions.invoke('RecantoDosAnciaos_asaas-activate-subscription', {
         body,
         headers: { Authorization: `Bearer ${sessionData.session?.access_token}` },
       });

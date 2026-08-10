@@ -3,7 +3,7 @@
 -- Data: 2026-06-25
 -- Descrição:
 --   Seeds (não sensíveis) em Recanto_Integracao_Secrets e agendamentos pg_cron
---   que chamam a Edge Function dispatch-notifications (envio) e o reaper
+--   que chamam a Edge Function RecantoDosAnciaos_dispatch-notifications (envio) e o reaper
 --   (destrava mensagens presas em 'processing').
 --
 --   PRÉ-REQUISITOS (passo manual do ambiente):
@@ -22,14 +22,14 @@
 INSERT INTO public."Recanto_Integracao_Secrets" (chave, valor, descricao) VALUES
   ('UAZAPI_BASE_URL',    'https://SEU_HOST.uazapi.com',
      'Base URL da API UAZAPI (ex.: https://free.uazapi.com)'),
-  ('NOTIF_DISPATCH_URL', 'https://SEU_PROJETO.supabase.co/functions/v1/dispatch-notifications',
-     'URL da Edge Function dispatch-notifications (usada pelo cron)')
+  ('NOTIF_DISPATCH_URL', 'https://SEU_PROJETO.supabase.co/functions/v1/RecantoDosAnciaos_dispatch-notifications',
+     'URL da Edge Function RecantoDosAnciaos_dispatch-notifications (usada pelo cron)')
 ON CONFLICT (chave) DO NOTHING;
 
 -- ── Preencha os segredos sensíveis manualmente (NÃO versionar valores) ──
 -- insert into public."Recanto_Integracao_Secrets" (chave, valor, descricao) values
 --   ('UAZAPI_ADMIN_TOKEN', '<admintoken_do_servidor_uazapi>', 'Token admin p/ criar/conectar instâncias'),
---   ('DISPATCH_SECRET',    '<segredo_forte_do_dispatcher>',  'Bearer exigido pela Edge Function dispatch-notifications')
+--   ('DISPATCH_SECRET',    '<segredo_forte_do_dispatcher>',  'Bearer exigido pela Edge Function RecantoDosAnciaos_dispatch-notifications')
 -- on conflict (chave) do update set valor = excluded.valor, updated_at = now();
 -- E ajuste UAZAPI_BASE_URL / NOTIF_DISPATCH_URL com os valores reais.
 

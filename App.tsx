@@ -1426,6 +1426,15 @@ function AppInner() {
     }
   };
 
+  const handleUpdateContractFile = async (contractId: string, fileUrl: string | null) => {
+    const { error } = await supabase
+      .from('Recanto_Contratos')
+      .update({ file_url: fileUrl })
+      .eq('id', contractId);
+    if (error) throw error;
+    await fetchContracts();
+  };
+
   const handleUpdateInvoice = async (updatedInvoice: Invoice) => {
     try {
       const { error } = await supabase
@@ -1870,6 +1879,7 @@ function AppInner() {
             onAddRecord={handleAddFinancialRecord}
             onDeleteRecord={handleDeleteFinancialRecord}
             onAddContract={handleAddContract}
+            onUpdateContractFile={handleUpdateContractFile}
             onUpdateInvoice={handleUpdateInvoice}
           />
         );

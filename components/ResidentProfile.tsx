@@ -12,6 +12,7 @@ import { residentAvatarSrc } from '../lib/avatar';
 import { toast } from '../services/toast';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import CustomSelect from './CustomSelect';
+import MedicationAutocomplete from './MedicationAutocomplete';
 import { useAuth } from '../contexts/AuthContext';
 import { compressImage, uploadResidentPhoto, uploadPrescriptionDocument, uploadResidentDocument, supabase } from '../services/supabaseClient';
 import { openPrintWindow } from '../services/pdfPrint';
@@ -24,6 +25,40 @@ interface ChecklistMedication {
   status: 'tomou' | 'nao_tomou' | 'pendente';
   time?: string;
 }
+
+type EvolutionArea =
+  | 'enfermagem'
+  | 'fisioterapia'
+  | 'nutricao'
+  | 'medicina'
+  | 'fonoaudiologia'
+  | 'terapia_ocupacional';
+
+const EVOLUTION_AREAS: { id: EvolutionArea; label: string; noteLabel: string }[] = [
+  { id: 'enfermagem', label: 'Enfermagem', noteLabel: 'enfermagem' },
+  { id: 'fisioterapia', label: 'Fisioterapia', noteLabel: 'fisioterapia' },
+  { id: 'nutricao', label: 'Nutricionista', noteLabel: 'nutrição' },
+  { id: 'medicina', label: 'Médica', noteLabel: 'medicina' },
+  { id: 'fonoaudiologia', label: 'Fonoaudióloga', noteLabel: 'fonoaudiologia' },
+  { id: 'terapia_ocupacional', label: 'Fisioterapia Ocupacional', noteLabel: 'fisioterapia ocupacional' }
+];
+
+const getEvolutionArea = (log: AuditLog): EvolutionArea => {
+  const savedArea = log.data?.evolutionArea;
+  return EVOLUTION_AREAS.some(area => area.id === savedArea)
+    ? savedArea as EvolutionArea
+    : 'enfermagem';
+};
+
+const getInitialEvolutionArea = (role?: string): EvolutionArea => {
+  const normalizedRole = (role || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  if (normalizedRole.includes('ocupacional')) return 'terapia_ocupacional';
+  if (normalizedRole.includes('fisio')) return 'fisioterapia';
+  if (normalizedRole.includes('nutri')) return 'nutricao';
+  if (normalizedRole.includes('medic')) return 'medicina';
+  if (normalizedRole.includes('fono')) return 'fonoaudiologia';
+  return 'enfermagem';
+};
 
 // ── Glicemia helpers ─────────────────────────────────────────────────────────
 
@@ -523,6 +558,9 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
 
   const [evolutionPage, setEvolutionPage] = useState(1);
   const [evolutionItemsPerPage, setEvolutionItemsPerPage] = useState(10);
+  const [selectedEvolutionArea, setSelectedEvolutionArea] = useState<EvolutionArea>(() =>
+    getInitialEvolutionArea(currentUser?.employeeRole || currentUser?.profile.type)
+  );
 
   const [glicemiaPage, setGlicemiaPage] = useState(1);
   const [glicemiaItemsPerPage, setGlicemiaItemsPerPage] = useState(10);
@@ -3592,7 +3630,8 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
       userId: currentUser?.id || 'current-user',
       userName: formattedSignature,
       action: 'Evolução',
-      details: newNoteText.trim()
+      details: newNoteText.trim(),
+      data: { evolutionArea: selectedEvolutionArea }
     };
 
     onUpdateResident({
@@ -3601,6 +3640,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     });
 
     setNewNoteText('');
+    setEvolutionPage(1);
   };
 
   const handleChecklistToggle = (field: keyof DailyChecklist) => {
@@ -7131,9 +7171,11 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
           })()}
 
           {activeTab === 'evolution' && (() => {
-            const evolutionLogs = (resident.auditLogs || [])
+            const allEvolutionLogs = (resident.auditLogs || [])
               .filter(log => log.action === 'Evolução')
               .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+            const evolutionLogs = allEvolutionLogs.filter(log => getEvolutionArea(log) === selectedEvolutionArea);
+            const selectedArea = EVOLUTION_AREAS.find(area => area.id === selectedEvolutionArea)!;
 
             const totalEvolutionItems = evolutionLogs.length;
             const totalEvolutionPages = Math.ceil(totalEvolutionItems / evolutionItemsPerPage) || 1;
@@ -7144,22 +7186,69 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
 
             return (
               <div className="space-y-4">
+                 <div className="rounded-xl border border-slate-200 bg-white p-3">
+                   <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Selecione sua área profissional</p>
+                   <div className="flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Áreas de evolução profissional">
+                     {EVOLUTION_AREAS.map(area => {
+                       const areaCount = allEvolutionLogs.filter(log => getEvolutionArea(log) === area.id).length;
+                       const isSelected = selectedEvolutionArea === area.id;
+                       return (
+                         <button
+                           key={area.id}
+                           type="button"
+                           role="tab"
+                           aria-selected={isSelected}
+                           onClick={() => {
+                             setSelectedEvolutionArea(area.id);
+                             setEvolutionPage(1);
+                           }}
+                           className={`shrink-0 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+                             isSelected
+                               ? 'border-primary-600 bg-primary-600 text-white shadow-sm'
+                               : 'border-slate-200 bg-white text-slate-600 hover:border-primary-300 hover:bg-primary-50 hover:text-primary-700'
+                           }`}
+                         >
+                           {area.label}
+                           <span className={`ml-2 rounded-full px-1.5 py-0.5 text-[10px] ${isSelected ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                             {areaCount}
+                           </span>
+                         </button>
+                       );
+                     })}
+                   </div>
+                 </div>
                  {hasPermission(ViewState.RESIDENT_DETAIL_EVOLUTION, 'create') && (
-                    <div className="flex gap-2 mb-4">
-                      <textarea 
-                        value={newNoteText}
-                        onChange={(e) => setNewNoteText(e.target.value)}
-                        className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-sm resize-none" 
-                        rows={3} 
-                        placeholder="Nova anotação de enfermagem..."
-                      />
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                      <div className="mb-2 flex items-center justify-between gap-3">
+                        <label htmlFor="evolution-area" className="text-sm font-semibold text-slate-700">Área deste registro</label>
+                        <select
+                          id="evolution-area"
+                          value={selectedEvolutionArea}
+                          onChange={(e) => {
+                            setSelectedEvolutionArea(e.target.value as EvolutionArea);
+                            setEvolutionPage(1);
+                          }}
+                          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-transparent focus:ring-2 focus:ring-primary-500"
+                        >
+                          {EVOLUTION_AREAS.map(area => <option key={area.id} value={area.id}>{area.label}</option>)}
+                        </select>
+                      </div>
+                      <div className="flex flex-col gap-2 sm:flex-row">
+                        <textarea
+                          value={newNoteText}
+                          onChange={(e) => setNewNoteText(e.target.value)}
+                          className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-sm resize-none"
+                          rows={3}
+                          placeholder={`Nova anotação de ${selectedArea.noteLabel}...`}
+                        />
                       <button 
                         onClick={handleSaveEvolutionNote}
                         disabled={!newNoteText.trim()}
-                        className="bg-primary-600 text-white px-4 rounded-lg font-medium hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all cursor-pointer"
+                        className="bg-primary-600 text-white px-5 py-2 rounded-lg font-medium hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all cursor-pointer sm:self-stretch"
                       >
                         Salvar
                       </button>
+                      </div>
                     </div>
                   )}
                  {evolutionLogs.length > 0 ? (
@@ -7172,7 +7261,12 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                               </div>
                               <div className="w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] p-4 rounded bg-white border border-slate-200 shadow-sm hover:shadow transition-shadow">
                                   <div className="flex items-center justify-between space-x-2 mb-1">
-                                      <div className="font-bold text-slate-900">{log.userName}</div>
+                                      <div className="min-w-0">
+                                        <div className="font-bold text-slate-900">{log.userName}</div>
+                                        <span className="inline-flex rounded-full bg-primary-50 px-2 py-0.5 text-[10px] font-semibold text-primary-700">
+                                          {EVOLUTION_AREAS.find(area => area.id === getEvolutionArea(log))?.label}
+                                        </span>
+                                      </div>
                                       <time className="font-medium text-slate-550 text-xs">
                                         {new Date(log.timestamp).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
                                         {', '}
@@ -7238,8 +7332,8 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                        <FileText className="h-6 w-6 text-blue-400" />
                      </div>
                      <div>
-                       <p className="text-sm font-semibold text-slate-700">Nenhuma evolução registrada</p>
-                       <p className="text-xs text-slate-400 mt-1">Escreva uma anotação acima para iniciar o prontuário evolutivo deste residente.</p>
+                       <p className="text-sm font-semibold text-slate-700">Nenhuma evolução de {selectedArea.label.toLowerCase()} registrada</p>
+                       <p className="text-xs text-slate-400 mt-1">Escreva uma anotação acima ou selecione outra área profissional.</p>
                      </div>
                    </div>
                  )}
@@ -8270,13 +8364,11 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
             <form onSubmit={handleSavePrescription} className="p-6 overflow-y-auto flex-1 space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1.5">Nome do Medicamento</label>
-                <input 
-                  required 
-                  type="text" 
-                  value={prescriptionData.name} 
-                  onChange={e => setPrescriptionData({ ...prescriptionData, name: e.target.value })} 
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                  placeholder="Ex: Dipirona Gotas, Losartana Potássica" 
+                <MedicationAutocomplete
+                  required
+                  value={prescriptionData.name}
+                  onChange={name => setPrescriptionData({ ...prescriptionData, name })}
+                  placeholder="Busque pelo nome na ANVISA"
                 />
               </div>
 

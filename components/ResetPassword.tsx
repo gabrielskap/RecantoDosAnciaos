@@ -1,76 +1,56 @@
-import React, { useState, useEffect } from 'react';
-import { HeartPulse, Lock, Eye, EyeOff, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
-import { supabase } from '../services/supabaseClient';
+import React, { useState } from 'react';
+import { AlertCircle, CheckCircle, HeartPulse, Loader2, Lock, Mail } from 'lucide-react';
+import { confirmPasswordRecovery, requestPasswordRecovery } from '../services/passwordRecoveryService';
 
-type Step = 'loading' | 'form' | 'success' | 'error';
+type Step = 'email' | 'code' | 'success';
 
 const ResetPassword: React.FC = () => {
-  const [step, setStep] = useState<Step>('loading');
+  const [step, setStep] = useState<Step>('email');
+  const [email, setEmail] = useState('');
+  const [code, setCode] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
-  const [showPwd, setShowPwd] = useState(false);
-  const [showConfirm, setShowConfirm] = useState(false);
-  const [errorMsg, setErrorMsg] = useState('');
-  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    // O Supabase emite PASSWORD_RECOVERY quando o usuário chega via link de reset.
-    // Também verificamos a sessão ativa (o link já fez login automático).
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'PASSWORD_RECOVERY') {
-        setStep('form');
-      }
-    });
-
-    // Verifica sessão existente caso o listener já tenha disparado antes de montar
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) setStep('form');
-      else if (step === 'loading') {
-        // Aguarda um pouco — o hash pode ainda estar sendo processado
-        setTimeout(() => {
-          setStep(s => s === 'loading' ? 'error' : s);
-          setErrorMsg('Link inválido ou expirado. Solicite um novo e-mail de redefinição de senha.');
-        }, 3000);
-      }
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMsg('');
-
-    if (password.length < 8) {
-      setErrorMsg('A senha deve ter no mínimo 8 caracteres.');
-      return;
-    }
-    if (password !== confirm) {
-      setErrorMsg('As senhas não coincidem.');
-      return;
-    }
-
-    setSubmitting(true);
+  const requestCode = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setError('');
+    setLoading(true);
     try {
-      const { error } = await supabase.auth.updateUser({ password });
-      if (error) throw error;
+      await requestPasswordRecovery(email);
+      setStep('code');
+    } catch (err: any) {
+      setError(err.message || 'Não foi possível enviar o código.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const savePassword = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setError('');
+    if (password.length < 8) return setError('A senha deve ter no mínimo 8 caracteres.');
+    if (password !== confirm) return setError('As senhas não coincidem.');
+    setLoading(true);
+    try {
+      await confirmPasswordRecovery(email, code, password);
       setStep('success');
     } catch (err: any) {
-      setErrorMsg(err.message || 'Erro ao redefinir a senha. Tente novamente.');
+      setError(err.message || 'Não foi possível redefinir a senha.');
     } finally {
-      setSubmitting(false);
+      setLoading(false);
     }
   };
 
   const goToLogin = () => {
-    window.history.pushState(null, '', '/');
+    window.history.pushState(null, '', '/login');
     window.location.reload();
   };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#1e40af] to-[#1e3a8a] flex items-center justify-center p-4">
       <div className="w-full max-w-md">
-        {/* Logo */}
         <div className="flex flex-col items-center mb-8">
           <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center shadow-lg mb-3 border border-white/20">
             <HeartPulse className="h-8 w-8 text-white" />
@@ -79,129 +59,67 @@ const ResetPassword: React.FC = () => {
         </div>
 
         <div className="bg-white rounded-2xl shadow-xl p-8">
-          {/* Loading */}
-          {step === 'loading' && (
-            <div className="text-center py-4">
-              <Loader2 className="h-8 w-8 animate-spin text-blue-600 mx-auto mb-3" />
-              <p className="text-slate-600 text-sm">Verificando link de redefinição...</p>
-            </div>
-          )}
-
-          {/* Form */}
-          {step === 'form' && (
-            <>
-              <div className="flex items-center gap-3 mb-6">
-                <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center">
-                  <Lock className="h-5 w-5 text-blue-600" />
-                </div>
-                <div>
-                  <h1 className="text-lg font-bold text-slate-900">Nova senha</h1>
-                  <p className="text-xs text-slate-500">Crie uma senha segura para sua conta</p>
-                </div>
-              </div>
-
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Nova senha *</label>
-                  <div className="relative">
-                    <input
-                      type={showPwd ? 'text' : 'password'}
-                      value={password}
-                      onChange={e => setPassword(e.target.value)}
-                      placeholder="Mínimo 8 caracteres"
-                      className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 pr-10"
-                      required
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPwd(v => !v)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                    >
-                      {showPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </button>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Confirmar senha *</label>
-                  <div className="relative">
-                    <input
-                      type={showConfirm ? 'text' : 'password'}
-                      value={confirm}
-                      onChange={e => setConfirm(e.target.value)}
-                      placeholder="Repita a nova senha"
-                      className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 pr-10"
-                      required
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowConfirm(v => !v)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                    >
-                      {showConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </button>
-                  </div>
-                </div>
-
-                {errorMsg && (
-                  <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
-                    <AlertCircle className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
-                    <p className="text-sm text-red-700">{errorMsg}</p>
-                  </div>
-                )}
-
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold py-2.5 rounded-xl transition-all flex items-center justify-center gap-2 text-sm"
-                >
-                  {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
-                  {submitting ? 'Salvando...' : 'Salvar nova senha'}
-                </button>
-              </form>
-            </>
-          )}
-
-          {/* Success */}
-          {step === 'success' && (
+          {step === 'success' ? (
             <div className="text-center py-4">
               <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
                 <CheckCircle className="h-9 w-9 text-emerald-600" />
               </div>
-              <h2 className="text-lg font-bold text-slate-900 mb-2">Senha atualizada!</h2>
-              <p className="text-sm text-slate-500 mb-6">Sua senha foi redefinida com sucesso. Faça login para continuar.</p>
-              <button
-                onClick={goToLogin}
-                className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-2.5 rounded-xl transition-all text-sm"
-              >
+              <h1 className="text-lg font-bold text-slate-900 mb-2">Senha atualizada!</h1>
+              <p className="text-sm text-slate-500 mb-6">Faça login com sua nova senha para continuar.</p>
+              <button onClick={goToLogin} className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-2.5 rounded-xl text-sm">
                 Ir para o login
               </button>
             </div>
-          )}
-
-          {/* Error */}
-          {step === 'error' && (
-            <div className="text-center py-4">
-              <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <AlertCircle className="h-9 w-9 text-red-600" />
+          ) : (
+            <>
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center">
+                  {step === 'email' ? <Mail className="h-5 w-5 text-blue-600" /> : <Lock className="h-5 w-5 text-blue-600" />}
+                </div>
+                <div>
+                  <h1 className="text-lg font-bold text-slate-900">Redefinir senha</h1>
+                  <p className="text-xs text-slate-500">{step === 'email' ? 'Receba um código por e-mail' : 'Digite o código e a nova senha'}</p>
+                </div>
               </div>
-              <h2 className="text-lg font-bold text-slate-900 mb-2">Link inválido</h2>
-              <p className="text-sm text-slate-500 mb-6">
-                {errorMsg || 'Este link de redefinição expirou ou já foi utilizado.'}
-              </p>
-              <button
-                onClick={goToLogin}
-                className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-2.5 rounded-xl transition-all text-sm"
-              >
-                Solicitar novo link
-              </button>
-            </div>
+
+              <form onSubmit={step === 'email' ? requestCode : savePassword} className="space-y-4">
+                {step === 'email' ? (
+                  <input type="email" value={email} onChange={e => setEmail(e.target.value)} required autoFocus
+                    placeholder="E-mail cadastrado" autoComplete="email"
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                ) : (
+                  <>
+                    <input inputMode="numeric" autoComplete="one-time-code" value={code}
+                      onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} required autoFocus
+                      placeholder="000000"
+                      className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-center text-xl tracking-[0.35em] font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    <input type="password" value={password} onChange={e => setPassword(e.target.value)} required
+                      placeholder="Nova senha (mínimo 8 caracteres)" autoComplete="new-password"
+                      className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    <input type="password" value={confirm} onChange={e => setConfirm(e.target.value)} required
+                      placeholder="Confirme a nova senha" autoComplete="new-password"
+                      className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  </>
+                )}
+
+                {error && <div className="flex gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
+                  <AlertCircle className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
+                  <p className="text-sm text-red-700">{error}</p>
+                </div>}
+
+                <button type="submit" disabled={loading || (step === 'code' && code.length !== 6)}
+                  className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold py-2.5 rounded-xl flex items-center justify-center gap-2 text-sm">
+                  {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+                  {loading ? 'Aguarde...' : step === 'email' ? 'Enviar código' : 'Salvar nova senha'}
+                </button>
+                {step === 'code' && <button type="button" onClick={() => { setStep('email'); setError(''); }}
+                  className="w-full border border-slate-200 hover:bg-slate-50 text-slate-600 font-medium py-2.5 rounded-xl text-sm">
+                  Solicitar outro código
+                </button>}
+              </form>
+            </>
           )}
         </div>
-
-        <p className="text-center text-blue-200/60 text-xs mt-6">
-          © {new Date().getFullYear()} RecantoCare · Todos os direitos reservados
-        </p>
       </div>
     </div>
   );

@@ -1,9 +1,11 @@
 import React, { useState, useMemo, useRef } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { FinancialRecord, Contract, Invoice, Resident, ViewState } from '../types';
-import { DollarSign, TrendingUp, TrendingDown, Plus, X, FileText, Calendar, CheckCircle2, AlertCircle, FileCheck, Wallet, Trash2 } from 'lucide-react';
+import { DollarSign, TrendingUp, TrendingDown, Plus, X, FileText, Calendar, CheckCircle2, AlertCircle, FileCheck, Wallet, Trash2, UploadCloud, ExternalLink, Loader2 } from 'lucide-react';
 import CustomSelect from './CustomSelect';
 import { useAuth } from '../contexts/AuthContext';
+import { deleteContractDocument, getContractDocumentUrl, uploadContractDocument } from '../services/supabaseClient';
+import { toast } from '../services/toast';
 
 interface FinanceModuleProps {
   records: FinancialRecord[];
@@ -12,13 +14,14 @@ interface FinanceModuleProps {
   residents: Resident[];
   onAddRecord: (record: FinancialRecord) => void;
   onDeleteRecord: (id: string) => void;
-  onAddContract: (contract: Contract) => void;
+  onAddContract: (contract: Contract) => void | Promise<void>;
+  onUpdateContractFile: (contractId: string, fileUrl: string | null) => void | Promise<void>;
   onUpdateInvoice: (invoice: Invoice) => void;
 }
 
 const FinanceModule: React.FC<FinanceModuleProps> = ({
   records, contracts, invoices, residents,
-  onAddRecord, onDeleteRecord, onAddContract, onUpdateInvoice,
+  onAddRecord, onDeleteRecord, onAddContract, onUpdateContractFile, onUpdateInvoice,
 }) => {
   const { hasPermission } = useAuth();
   const canCreate = hasPermission(ViewState.FINANCE, 'create');
@@ -57,6 +60,9 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
     const saved = localStorage.getItem('modal_finance_new_contract');
     return saved ? JSON.parse(saved) : { residentId: '', monthlyValue: '', dueDay: '5', startDate: new Date().toISOString().split('T')[0] };
   });
+  const [contractFile, setContractFile] = useState<File | null>(null);
+  const [uploadingContractId, setUploadingContractId] = useState<string | null>(null);
+  const [isCreatingContract, setIsCreatingContract] = useState(false);
   const modalMouseDown = useRef(false);
 
   React.useEffect(() => {
@@ -107,12 +113,93 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
     setNewRecord({ type: 'despesa', description: '', category: '', amount: '', date: new Date().toISOString().split('T')[0] });
   };
 
-  const handleContractSubmit = (e: React.FormEvent) => {
+  const validateContractFile = (file: File) => {
+    const allowedTypes = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) {
+      toast.error('Envie o contrato em PDF, JPG, PNG ou WEBP.');
+      return false;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('O arquivo do contrato deve ter no máximo 10 MB.');
+      return false;
+    }
+    return true;
+  };
+
+  const openContract = async (fileUrl: string) => {
+    const contractWindow = window.open('about:blank', '_blank');
+    if (contractWindow) contractWindow.opener = null;
+    try {
+      const url = await getContractDocumentUrl(fileUrl);
+      if (contractWindow) {
+        contractWindow.location.href = url;
+      } else {
+        toast.error('Permita pop-ups no navegador para visualizar o contrato.');
+      }
+    } catch (error) {
+      contractWindow?.close();
+      console.error('Erro ao abrir contrato:', error);
+      toast.error('Não foi possível abrir o contrato.');
+    }
+  };
+
+  const handleContractFileUpload = async (contract: Contract, file: File) => {
+    if (!validateContractFile(file)) return;
+    setUploadingContractId(contract.id);
+    try {
+      const fileUrl = await uploadContractDocument(file, contract.residentId);
+      await onUpdateContractFile(contract.id, fileUrl);
+      toast.success('Contrato anexado com sucesso!');
+    } catch (error) {
+      console.error('Erro ao anexar contrato:', error);
+      toast.error('Erro ao anexar o contrato. Tente novamente.');
+    } finally {
+      setUploadingContractId(null);
+    }
+  };
+
+  const handleDeleteContractFile = async (contract: Contract) => {
+    if (!contract.fileUrl || !window.confirm('Deseja excluir o contrato anexado?')) return;
+    setUploadingContractId(contract.id);
+    try {
+      const fileUrl = contract.fileUrl;
+      await onUpdateContractFile(contract.id, null);
+      try {
+        await deleteContractDocument(fileUrl);
+      } catch (storageError) {
+        // O vinculo ja foi removido. Uma eventual falha de limpeza do objeto
+        // nao deve fazer o contrato reaparecer para o usuario.
+        console.warn('Vínculo removido, mas o arquivo não pôde ser apagado do Storage:', storageError);
+      }
+      toast.success('Contrato anexado excluído com sucesso!');
+    } catch (error) {
+      console.error('Erro ao excluir contrato anexado:', error);
+      toast.error('Erro ao excluir o contrato anexado. Tente novamente.');
+    } finally {
+      setUploadingContractId(null);
+    }
+  };
+
+  const handleContractSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newContract.residentId || !newContract.monthlyValue) return;
-    const resident = residents.find(r => r.id === newContract.residentId);
-    onAddContract({ id: Math.random().toString(36).substr(2, 9), residentId: newContract.residentId, residentName: resident?.name || 'Desconhecido', startDate: newContract.startDate, monthlyValue: parseFloat(newContract.monthlyValue), dueDay: parseInt(newContract.dueDay), status: 'Ativo' });
-    setNewContract({ residentId: '', monthlyValue: '', dueDay: '5', startDate: new Date().toISOString().split('T')[0] });
+    if (contractFile && !validateContractFile(contractFile)) return;
+    setIsCreatingContract(true);
+    try {
+      const resident = residents.find(r => r.id === newContract.residentId);
+      const fileUrl = contractFile
+        ? await uploadContractDocument(contractFile, newContract.residentId)
+        : undefined;
+      await onAddContract({ id: Math.random().toString(36).substr(2, 9), residentId: newContract.residentId, residentName: resident?.name || 'Desconhecido', startDate: newContract.startDate, monthlyValue: parseFloat(newContract.monthlyValue), dueDay: parseInt(newContract.dueDay), status: 'Ativo', fileUrl });
+      setNewContract({ residentId: '', monthlyValue: '', dueDay: '5', startDate: new Date().toISOString().split('T')[0] });
+      setContractFile(null);
+      setIsContractModalOpen(false);
+    } catch (error) {
+      console.error('Erro ao criar contrato:', error);
+      toast.error('Não foi possível criar o contrato.');
+    } finally {
+      setIsCreatingContract(false);
+    }
   };
 
   const inputClass = 'w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500';
@@ -231,7 +318,40 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
                       <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${c.status === 'Ativo' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>{c.status}</span>
                     </td>
                     <td className="px-6 py-4">
-                      <button className="text-xs font-semibold text-blue-600 hover:text-blue-800 hover:underline">Ver PDF</button>
+                      {c.fileUrl ? (
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => openContract(c.fileUrl!)} className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800 hover:underline">
+                            <ExternalLink className="h-3.5 w-3.5" /> Ver contrato
+                          </button>
+                          {canEdit && (
+                            <>
+                              <label className={`inline-flex items-center text-slate-500 hover:text-blue-700 cursor-pointer ${uploadingContractId === c.id ? 'pointer-events-none opacity-60' : ''}`} title="Substituir contrato">
+                                {uploadingContractId === c.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UploadCloud className="h-3.5 w-3.5" />}
+                                <span className="sr-only">Substituir contrato</span>
+                                <input type="file" className="hidden" accept="application/pdf,image/jpeg,image/png,image/webp" disabled={uploadingContractId === c.id} onChange={e => { const file = e.target.files?.[0]; if (file) void handleContractFileUpload(c, file); e.currentTarget.value = ''; }} />
+                              </label>
+                              <button
+                                type="button"
+                                onClick={() => void handleDeleteContractFile(c)}
+                                disabled={uploadingContractId === c.id}
+                                className="inline-flex items-center text-slate-400 hover:text-rose-600 disabled:opacity-60 transition-colors"
+                                title="Excluir contrato anexado"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                                <span className="sr-only">Excluir contrato anexado</span>
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      ) : canEdit ? (
+                        <label className={`inline-flex items-center gap-1.5 text-xs font-semibold text-blue-600 border border-blue-200 px-2.5 py-1.5 rounded-lg hover:bg-blue-50 cursor-pointer transition-colors ${uploadingContractId === c.id ? 'pointer-events-none opacity-60' : ''}`}>
+                          {uploadingContractId === c.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UploadCloud className="h-3.5 w-3.5" />}
+                          {uploadingContractId === c.id ? 'Enviando...' : 'Anexar contrato'}
+                          <input type="file" className="hidden" accept="application/pdf,image/jpeg,image/png,image/webp" disabled={uploadingContractId === c.id} onChange={e => { const file = e.target.files?.[0]; if (file) void handleContractFileUpload(c, file); e.currentTarget.value = ''; }} />
+                        </label>
+                      ) : (
+                        <span className="text-xs text-slate-400">Sem anexo</span>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -428,9 +548,32 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
                 <label className="block text-xs font-semibold text-slate-600 mb-1.5">Data de Início</label>
                 <input required type="date" value={newContract.startDate} onChange={e => setNewContract({ ...newContract, startDate: e.target.value })} className={inputClass} />
               </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1.5">Contrato do idoso</label>
+                <label className="flex items-center gap-3 border-2 border-dashed border-slate-200 rounded-xl px-4 py-3 cursor-pointer hover:border-blue-300 hover:bg-blue-50/40 transition-colors">
+                  <UploadCloud className="h-5 w-5 text-blue-500 shrink-0" />
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold text-slate-700 truncate">{contractFile?.name || 'Selecionar contrato'}</span>
+                    <span className="block text-xs text-slate-400">PDF ou imagem, até 10 MB</span>
+                  </span>
+                  <input
+                    type="file"
+                    className="hidden"
+                    accept="application/pdf,image/jpeg,image/png,image/webp"
+                    onChange={e => {
+                      const file = e.target.files?.[0] || null;
+                      if (!file || validateContractFile(file)) setContractFile(file);
+                      e.currentTarget.value = '';
+                    }}
+                  />
+                </label>
+              </div>
               <div className="flex gap-3 pt-2">
-                <button type="button" onClick={() => setIsContractModalOpen(false)} className="flex-1 py-2.5 border border-slate-200 rounded-xl text-slate-600 font-semibold text-sm hover:bg-slate-50 transition-colors">Cancelar</button>
-                <button type="submit" className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold text-sm transition-colors">Criar Contrato</button>
+                <button type="button" disabled={isCreatingContract} onClick={() => setIsContractModalOpen(false)} className="flex-1 py-2.5 border border-slate-200 rounded-xl text-slate-600 font-semibold text-sm hover:bg-slate-50 transition-colors disabled:opacity-60">Cancelar</button>
+                <button type="submit" disabled={isCreatingContract} className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold text-sm transition-colors disabled:opacity-60">
+                  {isCreatingContract && <Loader2 className="h-4 w-4 animate-spin" />}
+                  {isCreatingContract ? 'Salvando...' : 'Criar Contrato'}
+                </button>
               </div>
             </form>
           </div>

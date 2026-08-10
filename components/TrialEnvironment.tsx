@@ -486,7 +486,9 @@ const TrialEnvironment: React.FC = () => {
             invoices={invoices}
             residents={residents}
             onAddRecord={handleAddFinancialRecord}
+            onDeleteRecord={id => setFinancials(prev => prev.filter(record => record.id !== id))}
             onAddContract={async () => {}}
+            onUpdateContractFile={async () => {}}
             onUpdateInvoice={handleUpdateInvoice}
           />
         );

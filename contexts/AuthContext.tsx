@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useRef } from 'r
 import { AuthUser, Profile, Permission, PermissionAction, ViewState, ProfileType, DigitalCertificate, BoletimModelType } from '../types';
 import { supabase } from '../services/supabaseClient';
 import { toast } from '../services/toast';
+import { confirmPasswordRecovery, requestPasswordRecovery } from '../services/passwordRecoveryService';
 
 // --- Context ---
 
@@ -20,12 +21,14 @@ export interface AuthContextValue {
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
+  confirmPasswordReset: (email: string, code: string, password: string) => Promise<void>;
   hasPermission: (module: ViewState, action: PermissionAction) => boolean;
   updateProfile: (profile: Profile) => Promise<void>;
   addProfile: (profile: Profile) => Promise<void>;
   deleteProfile: (profileId: string) => Promise<void>;
   addUser: (user: Omit<AuthUser, 'id'> & { employeeId?: string }) => Promise<string | undefined>;
   deleteUser: (id: string) => Promise<void>;
+  resetUserPassword: (id: string, newPassword: string) => Promise<void>;
   updateUser: (user: AuthUser) => Promise<void>;
   updateUserCertificate: (userId: string, cert: DigitalCertificate | null) => Promise<void>;
   /** true quando o acesso deve ser bloqueado (pagamento pendente ou trial expirado). */
@@ -604,10 +607,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const resetPassword = async (email: string) => {
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/reset-password`,
-    });
-    if (error) throw new Error(error.message || 'Erro ao enviar e-mail de redefinição.');
+    await requestPasswordRecovery(email);
+  };
+
+  const confirmPasswordReset = async (email: string, code: string, password: string) => {
+    await confirmPasswordRecovery(email, code, password);
   };
 
   const hasPermission = (module: ViewState, action: PermissionAction): boolean => {
@@ -844,7 +848,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const deleteUser = async (id: string) => {
     try {
-      const { data, error } = await supabase.functions.invoke('delete-user', {
+      const { data, error } = await supabase.functions.invoke('RecantoDosAnciaos_delete-user', {
         body: { targetUserId: id },
       });
       if (error) throw error;
@@ -860,12 +864,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const resetUserPassword = async (id: string, newPassword: string) => {
+    const { data, error } = await supabase.functions.invoke('RecantoDosAnciaos_reset-user-password', {
+      body: { targetUserId: id, newPassword },
+    });
+    if (error || data?.error) {
+      throw new Error(data?.error || 'Não foi possível redefinir a senha do usuário.');
+    }
+  };
+
   const updateUser = async (updatedUser: AuthUser) => {
     try {
       // Se o e-mail mudou, atualiza em auth.users via Edge Function (requer service_role)
       const existingUser = users.find(u => u.id === updatedUser.id);
       if (existingUser && existingUser.email !== updatedUser.email) {
-        const { data: fnData, error: fnError } = await supabase.functions.invoke('update-user-email', {
+        const { data: fnData, error: fnError } = await supabase.functions.invoke('RecantoDosAnciaos_update-user-email', {
           body: { targetUserId: updatedUser.id, newEmail: updatedUser.email },
         });
         if (fnError) throw fnError;
@@ -943,7 +956,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ currentUser, users, profiles, loading, login, logout, resetPassword, hasPermission, updateProfile, addProfile, deleteProfile, addUser, deleteUser, updateUser, updateUserCertificate, accessBlocked, trialInfo, refreshAccessStatus, modeloBoletim, refreshModeloBoletim }}>
+    <AuthContext.Provider value={{ currentUser, users, profiles, loading, login, logout, resetPassword, confirmPasswordReset, hasPermission, updateProfile, addProfile, deleteProfile, addUser, deleteUser, resetUserPassword, updateUser, updateUserCertificate, accessBlocked, trialInfo, refreshAccessStatus, modeloBoletim, refreshModeloBoletim }}>
       {children}
     </AuthContext.Provider>
   );

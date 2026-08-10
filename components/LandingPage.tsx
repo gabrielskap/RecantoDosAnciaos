@@ -167,7 +167,7 @@ const DEFAULT_PLANOS: PlanoView[] = [
 ];
 
 const LandingPage: React.FC = () => {
-  const { login, resetPassword } = useAuth();
+  const { login, resetPassword, confirmPasswordReset } = useAuth();
   const [showLoginModal, setShowLoginModal] = useState(
     window.location.pathname === '/login'
   );
@@ -179,7 +179,10 @@ const LandingPage: React.FC = () => {
   const [resetEmail, setResetEmail] = useState('');
   const [resetLoading, setResetLoading] = useState(false);
   const [resetError, setResetError] = useState('');
-  const [resetSuccess, setResetSuccess] = useState(false);
+  const [resetStep, setResetStep] = useState<'email' | 'code' | 'done'>('email');
+  const [resetCode, setResetCode] = useState('');
+  const [resetNewPassword, setResetNewPassword] = useState('');
+  const [resetConfirmPassword, setResetConfirmPassword] = useState('');
   const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'gestores' | 'grupos'>('gestores');
@@ -226,7 +229,7 @@ const LandingPage: React.FC = () => {
   const openResetMode = () => {
     setResetEmail(loginEmail);
     setResetError('');
-    setResetSuccess(false);
+    setResetStep('email');
     setResetMode(true);
   };
 
@@ -234,7 +237,10 @@ const LandingPage: React.FC = () => {
     setResetMode(false);
     setResetEmail('');
     setResetError('');
-    setResetSuccess(false);
+    setResetStep('email');
+    setResetCode('');
+    setResetNewPassword('');
+    setResetConfirmPassword('');
   };
 
   const handleResetPassword = async (e: React.FormEvent) => {
@@ -243,9 +249,31 @@ const LandingPage: React.FC = () => {
     setResetLoading(true);
     try {
       await resetPassword(resetEmail);
-      setResetSuccess(true);
+      setResetStep('code');
     } catch (err: any) {
       setResetError(err.message || 'Erro ao enviar e-mail de redefinição.');
+    } finally {
+      setResetLoading(false);
+    }
+  };
+
+  const handleConfirmPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setResetError('');
+    if (resetNewPassword.length < 8) {
+      setResetError('A senha deve ter no mínimo 8 caracteres.');
+      return;
+    }
+    if (resetNewPassword !== resetConfirmPassword) {
+      setResetError('As senhas não coincidem.');
+      return;
+    }
+    setResetLoading(true);
+    try {
+      await confirmPasswordReset(resetEmail, resetCode, resetNewPassword);
+      setResetStep('done');
+    } catch (err: any) {
+      setResetError(err.message || 'Não foi possível redefinir a senha.');
     } finally {
       setResetLoading(false);
     }
@@ -994,15 +1022,17 @@ const LandingPage: React.FC = () => {
                     <Lock className="h-7 w-7 text-white" />
                   </div>
                   <h2 className="text-2xl font-bold text-slate-900">Redefinir senha</h2>
-                  <p className="text-slate-400 text-sm mt-1">Enviaremos um link para o seu e-mail</p>
+                  <p className="text-slate-400 text-sm mt-1">
+                    {resetStep === 'email' ? 'Enviaremos um código para o seu e-mail' : resetStep === 'code' ? 'Informe o código e crie sua nova senha' : 'Sua senha foi atualizada'}
+                  </p>
                 </div>
 
-                {resetSuccess ? (
+                {resetStep === 'done' ? (
                   <div className="text-center space-y-4">
                     <div className="flex items-center justify-center space-x-2 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-4">
                       <AlertCircle className="h-5 w-5 text-emerald-500 flex-shrink-0" />
                       <p className="text-sm text-emerald-700 font-medium">
-                        E-mail enviado! Verifique sua caixa de entrada.
+                        Senha redefinida com sucesso. Você já pode entrar.
                       </p>
                     </div>
                     <button
@@ -1012,7 +1042,7 @@ const LandingPage: React.FC = () => {
                       Voltar ao login
                     </button>
                   </div>
-                ) : (
+                ) : resetStep === 'email' ? (
                   <form onSubmit={handleResetPassword} className="space-y-4">
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1.5">E-mail cadastrado</label>
@@ -1042,7 +1072,7 @@ const LandingPage: React.FC = () => {
                       disabled={resetLoading}
                       className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-semibold py-3.5 rounded-xl transition-all text-sm shadow"
                     >
-                      {resetLoading ? 'Enviando...' : 'Enviar link de redefinição'}
+                      {resetLoading ? 'Enviando...' : 'Enviar código'}
                     </button>
 
                     <button
@@ -1051,6 +1081,56 @@ const LandingPage: React.FC = () => {
                       className="w-full border border-slate-200 hover:bg-slate-50 text-slate-600 font-medium py-3 rounded-xl transition-all text-sm"
                     >
                       Voltar ao login
+                    </button>
+                  </form>
+                ) : (
+                  <form onSubmit={handleConfirmPassword} className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">Código de 6 dígitos</label>
+                      <input
+                        inputMode="numeric"
+                        autoComplete="one-time-code"
+                        value={resetCode}
+                        onChange={e => setResetCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                        placeholder="000000"
+                        required
+                        autoFocus
+                        className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-center text-xl tracking-[0.35em] font-semibold"
+                      />
+                    </div>
+                    <input
+                      type="password"
+                      autoComplete="new-password"
+                      value={resetNewPassword}
+                      onChange={e => setResetNewPassword(e.target.value)}
+                      placeholder="Nova senha (mínimo 8 caracteres)"
+                      required
+                      className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                    />
+                    <input
+                      type="password"
+                      autoComplete="new-password"
+                      value={resetConfirmPassword}
+                      onChange={e => setResetConfirmPassword(e.target.value)}
+                      placeholder="Confirme a nova senha"
+                      required
+                      className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                    />
+
+                    {resetError && (
+                      <div className="flex items-center space-x-2 bg-rose-50 border border-rose-200 rounded-xl px-4 py-3">
+                        <AlertCircle className="h-4 w-4 text-rose-500 flex-shrink-0" />
+                        <p className="text-sm text-rose-600">{resetError}</p>
+                      </div>
+                    )}
+
+                    <button type="submit" disabled={resetLoading || resetCode.length !== 6}
+                      className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-semibold py-3.5 rounded-xl transition-all text-sm shadow">
+                      {resetLoading ? 'Salvando...' : 'Redefinir senha'}
+                    </button>
+                    <button type="button" onClick={() => { setResetStep('email'); setResetError(''); }}
+                      className="w-full border border-slate-200 hover:bg-slate-50 text-slate-600 font-medium py-3 rounded-xl transition-all text-sm">
+                      Solicitar outro código
                     </button>
                   </form>
                 )}
