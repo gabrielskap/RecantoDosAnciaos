@@ -149,7 +149,7 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
   };
 
   const handleDeleteItem = (item: StockItem) => {
-    if (window.confirm(`Tem certeza que deseja excluir "${item.name}" do estoque geral?`)) {
+    if (window.confirm(`Tem certeza que deseja excluir "${item.name}" do estoque?`)) {
       onDeleteItem(item.id);
     }
   };
@@ -574,6 +574,21 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
                         <button onClick={() => setSelectedHistoryItem(item)} className="w-full flex items-center justify-center gap-2 py-2 text-xs font-semibold text-slate-600 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl transition-colors">
                           <History className="h-3.5 w-3.5 text-slate-400" /> Histórico de Uso
                         </button>
+
+                        {(canEdit || canDelete) && (
+                          <div className="flex items-center gap-2 mt-2">
+                            {canEdit && (
+                              <button onClick={() => handleOpenEditModal(item)} className="flex-1 flex items-center justify-center gap-2 py-2 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-100 rounded-xl transition-colors">
+                                <Pencil className="h-3.5 w-3.5" /> Editar
+                              </button>
+                            )}
+                            {canDelete && (
+                              <button onClick={() => handleDeleteItem(item)} className="flex-1 flex items-center justify-center gap-2 py-2 text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-100 rounded-xl transition-colors">
+                                <Trash2 className="h-3.5 w-3.5" /> Excluir
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -597,6 +612,7 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
                         <th className="text-center px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wide">Ajustar</th>
                         <th className="text-center px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wide">Histórico</th>
                         <th className="text-center px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wide">Status</th>
+                        <th className="text-center px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wide">Ações</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
@@ -642,6 +658,21 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
                               {isLow
                                 ? <span className="inline-flex items-center gap-1.5 text-xs font-semibold bg-rose-50 text-rose-600 border border-rose-100 px-2.5 py-1 rounded-full"><AlertTriangle className="h-3 w-3" /> Repor</span>
                                 : <span className="inline-flex items-center gap-1.5 text-xs font-semibold bg-emerald-50 text-emerald-600 border border-emerald-100 px-2.5 py-1 rounded-full"><CheckCircle2 className="h-3 w-3" /> Regular</span>}
+                            </td>
+                            <td className="px-6 py-4 text-center">
+                              <div className="flex items-center justify-center gap-2">
+                                {canEdit && (
+                                  <button onClick={() => handleOpenEditModal(item)} title="Editar item" className="w-9 h-9 rounded-xl hover:bg-blue-50 flex items-center justify-center transition-colors">
+                                    <Pencil className="h-4 w-4 text-slate-400 hover:text-blue-600" />
+                                  </button>
+                                )}
+                                {canDelete && (
+                                  <button onClick={() => handleDeleteItem(item)} title="Excluir item" className="w-9 h-9 rounded-xl hover:bg-rose-50 flex items-center justify-center transition-colors">
+                                    <Trash2 className="h-4 w-4 text-slate-400 hover:text-rose-600" />
+                                  </button>
+                                )}
+                                {!canEdit && !canDelete && <span className="block text-slate-300">—</span>}
+                              </div>
                             </td>
                           </tr>
                         );
