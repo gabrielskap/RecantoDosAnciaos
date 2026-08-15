@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { toast } from '../services/toast';
 import { useAuth } from '../contexts/AuthContext';
-import { uploadComplianceDocument } from '../services/supabaseClient';
+import { deleteComplianceStorageObject, uploadComplianceDocument } from '../services/supabaseClient';
 import {
   ComplianceDocument,
   ComplianceDocumentType,
@@ -339,7 +339,7 @@ const ReportsModule: React.FC<ReportsModuleProps> = ({
     else setIlpiDoc(document);
   };
 
-  const loadComplianceDocuments = async () => {
+  const loadComplianceDocuments = async (): Promise<ComplianceDocument[] | undefined> => {
     if (!currentUser?.empresaId) return;
 
     let documents = await fetchComplianceDocuments(currentUser.empresaId);
@@ -362,8 +362,7 @@ const ReportsModule: React.FC<ReportsModuleProps> = ({
       localStorage.removeItem(legacyComplianceStorageKeys[type]);
     }
 
-    setDocumentState('licenca', documents.find(document => document.type === 'licenca') ?? null);
-    setDocumentState('ilpi', documents.find(document => document.type === 'ilpi') ?? null);
+    return documents;
   };
 
   React.useEffect(() => {
@@ -371,7 +370,10 @@ const ReportsModule: React.FC<ReportsModuleProps> = ({
 
     const load = async () => {
       try {
-        await loadComplianceDocuments();
+        const documents = await loadComplianceDocuments();
+        if (!active || !documents) return;
+        setDocumentState('licenca', documents.find(document => document.type === 'licenca') ?? null);
+        setDocumentState('ilpi', documents.find(document => document.type === 'ilpi') ?? null);
       } catch (error) {
         console.error('Erro ao carregar documentos de conformidade:', error);
         if (active) toast.error('Não foi possível carregar os documentos de conformidade.');
@@ -382,7 +384,10 @@ const ReportsModule: React.FC<ReportsModuleProps> = ({
     return () => { active = false; };
   }, [currentUser?.empresaId]);
 
-  const saveDoc = async (type: ComplianceDocumentType, input: Pick<ComplianceDoc, 'storagePath' | 'fileName' | 'validade'>) => {
+  const saveDoc = async (
+    type: ComplianceDocumentType,
+    input: Pick<ComplianceDoc, 'storagePath' | 'fileName' | 'mimeType' | 'sizeBytes' | 'validade'>,
+  ) => {
     if (!currentUser?.empresaId) throw new Error('Empresa não identificada para salvar o documento.');
     const saved = await saveComplianceDocument({
       empresaId: currentUser.empresaId,
@@ -400,6 +405,8 @@ const ReportsModule: React.FC<ReportsModuleProps> = ({
       await saveDoc(key, {
         storagePath: current.storagePath,
         fileName: current.fileName,
+        mimeType: current.mimeType,
+        sizeBytes: current.sizeBytes,
         validade,
       });
     } catch (error) {
@@ -415,12 +422,33 @@ const ReportsModule: React.FC<ReportsModuleProps> = ({
     }
 
     setUploadingDoc(key);
+    let storagePath: string | null = null;
     try {
-      const storagePath = await uploadComplianceDocument(file, currentUser.empresaId);
-      const current = key === 'licenca' ? licencaDoc : ilpiDoc;
-      await saveDoc(key, { storagePath, fileName: file.name, validade: current?.validade ?? '' });
+      storagePath = await uploadComplianceDocument(file, currentUser.empresaId);
+      const previous = key === 'licenca' ? licencaDoc : ilpiDoc;
+      await saveDoc(key, {
+        storagePath,
+        fileName: file.name,
+        mimeType: file.type || undefined,
+        sizeBytes: file.size,
+        validade: previous?.validade ?? '',
+      });
+      if (previous && previous.storagePath !== storagePath) {
+        try {
+          await deleteComplianceStorageObject(previous.storagePath);
+        } catch (cleanupError) {
+          console.warn('Documento anterior substituído, mas não removido do Storage:', cleanupError);
+        }
+      }
       toast.success('Documento enviado com sucesso!');
     } catch (error) {
+      if (storagePath) {
+        try {
+          await deleteComplianceStorageObject(storagePath);
+        } catch (cleanupError) {
+          console.warn('Não foi possível limpar o arquivo sem metadados:', cleanupError);
+        }
+      }
       console.error('Erro ao enviar documento de conformidade:', error);
       toast.error('Erro ao enviar documento. Tente novamente.');
     } finally {

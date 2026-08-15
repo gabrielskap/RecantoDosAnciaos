@@ -3482,8 +3482,13 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     win.document.close();
   };
 
-  const handleStartEditChecklist = () => {
+  const handleStartEditChecklist = async () => {
     if (selectedChecklist.signedBy) return;
+    if (!checklistDraftKey || hydratedChecklistDraftKey !== checklistDraftStorageKey) {
+      toast.info('Carregando o rascunho clínico. Aguarde um instante.');
+      return;
+    }
+
     const draft = { ...selectedChecklist, shift: selectedShift };
     // Seed care routine fields from resident plan when not yet recorded in this checklist
     if (!draft.usoFraldas) draft.usoFraldas = resident.usoFraldas || 'nao';
@@ -3513,7 +3518,15 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     });
     draft.carePlanAdherence = updatedAdherence;
 
-    setChecklistDraft(draft);
+    try {
+      // A criação do rascunho é confirmada antes de liberar a edição; assim um
+      // fechamento logo após abrir o boletim não perde a primeira versão.
+      await saveChecklistDraft(checklistDraftKey, draft);
+      setChecklistDraft(draft);
+    } catch (error) {
+      console.error('Erro ao criar rascunho clínico no banco:', error);
+      toast.error('Não foi possível iniciar o boletim. Verifique a conexão e tente novamente.');
+    }
   };
 
   const handleCancelEditChecklist = async () => {

@@ -509,7 +509,7 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
                   {/* Allocation helper button */}
                   {roomResidents.length < room.capacity && room.status !== 'Manutenção' && (
                     <button
-                      onClick={async () => {
+                      onClick={() => {
                         setLinkingRoom(room);
                         setIsLinkModalOpen(true);
                       }}
@@ -556,7 +556,7 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
                   )}
                   {onDeleteRoom && canDelete && (
                     <button
-                      onClick={() => {
+                      onClick={async () => {
                         if (roomResidents.length > 0) {
                           toast.warning('Não é possível excluir um quarto que possua residentes vinculados.');
                           return;

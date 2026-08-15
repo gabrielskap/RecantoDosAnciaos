@@ -102,64 +102,36 @@ export async function saveFrigobarReading(
     payload.empresa_id = empresaId;
   }
 
-  try {
-    const { data, error } = await supabase
-      .from('Recanto_ControleTemperaturaFrigobar')
-      .insert([payload])
-      .select()
-      .single();
+  const { data, error } = await supabase
+    .from('Recanto_ControleTemperaturaFrigobar')
+    .insert([payload])
+    .select()
+    .single();
 
-    if (!error && data) {
-      const created = mapFrigobarRow(data);
-      localReadingsCache = [created, ...localReadingsCache];
-      return created;
-    }
-
-    if (error) {
-      console.warn('Não foi possível inserir no Supabase:', error.message);
-    }
-  } catch (err) {
-    console.error('Erro ao salvar no banco Supabase:', err);
+  if (error) {
+    throw error;
   }
 
-  // Retorno de fallback caso ocorra algum problema com a requisição do banco
-  const fallbackReading: FrigobarReading = {
-    id: `reading-${Date.now()}`,
-    empresaId,
-    equipamentoNome: reading.equipamentoNome,
-    localizacao: reading.localizacao,
-    dataHora: reading.dataHora || new Date().toISOString(),
-    turno: reading.turno,
-    temperaturaAtual: reading.temperaturaAtual,
-    temperaturaMinima: reading.temperaturaMinima,
-    temperaturaMaxima: reading.temperaturaMaxima,
-    status: calculatedStatus,
-    responsavelNome: reading.responsavelNome,
-    usuarioId: reading.usuarioId,
-    observacoes: reading.observacoes,
-    acaoCorretiva: reading.acaoCorretiva,
-    createdAt: new Date().toISOString()
-  };
+  if (!data) {
+    throw new Error('O banco não retornou a medição criada.');
+  }
 
-  localReadingsCache = [fallbackReading, ...localReadingsCache];
-  return fallbackReading;
+  const created = mapFrigobarRow(data);
+  localReadingsCache = [created, ...localReadingsCache];
+  return created;
 }
 
 /**
  * Remove uma medição de frigobar da tabela Recanto_ControleTemperaturaFrigobar
  */
 export async function deleteFrigobarReading(id: string): Promise<boolean> {
-  try {
-    const { error } = await supabase
-      .from('Recanto_ControleTemperaturaFrigobar')
-      .delete()
-      .eq('id', id);
+  const { error } = await supabase
+    .from('Recanto_ControleTemperaturaFrigobar')
+    .delete()
+    .eq('id', id);
 
-    if (error) {
-      console.warn('Erro ao deletar medição no Supabase:', error.message);
-    }
-  } catch (err) {
-    console.error('Erro ao deletar medição:', err);
+  if (error) {
+    throw error;
   }
 
   localReadingsCache = localReadingsCache.filter(r => r.id !== id);

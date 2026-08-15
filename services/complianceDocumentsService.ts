@@ -13,6 +13,8 @@ export interface ComplianceDocument {
   type: ComplianceDocumentType;
   storagePath: string;
   fileName: string;
+  mimeType?: string;
+  sizeBytes?: number;
   validade: string;
   fileUrl: string;
 }
@@ -22,6 +24,8 @@ type ComplianceRow = {
   tipo: ComplianceDocumentType;
   caminho_arquivo: string;
   nome_arquivo: string;
+  mime_type: string | null;
+  size_bytes: number | null;
   validade: string | null;
 };
 
@@ -30,6 +34,8 @@ const mapRow = async (row: ComplianceRow): Promise<ComplianceDocument> => ({
   type: row.tipo,
   storagePath: row.caminho_arquivo,
   fileName: row.nome_arquivo,
+  mimeType: row.mime_type ?? undefined,
+  sizeBytes: row.size_bytes ?? undefined,
   validade: row.validade ?? '',
   fileUrl: await getComplianceDocumentUrl(row.caminho_arquivo),
 });
@@ -37,7 +43,7 @@ const mapRow = async (row: ComplianceRow): Promise<ComplianceDocument> => ({
 export async function fetchComplianceDocuments(empresaId: string): Promise<ComplianceDocument[]> {
   const { data, error } = await supabase
     .from(TABLE)
-    .select('id, tipo, caminho_arquivo, nome_arquivo, validade')
+    .select('id, tipo, caminho_arquivo, nome_arquivo, mime_type, size_bytes, validade')
     .eq('empresa_id', empresaId);
 
   if (error) throw error;
@@ -49,6 +55,8 @@ export async function saveComplianceDocument(input: {
   type: ComplianceDocumentType;
   storagePath: string;
   fileName: string;
+  mimeType?: string;
+  sizeBytes?: number;
   validade: string;
 }): Promise<ComplianceDocument> {
   const { data, error } = await supabase
@@ -58,9 +66,11 @@ export async function saveComplianceDocument(input: {
       tipo: input.type,
       caminho_arquivo: input.storagePath,
       nome_arquivo: input.fileName,
+      mime_type: input.mimeType ?? null,
+      size_bytes: input.sizeBytes ?? null,
       validade: input.validade || null,
     }, { onConflict: 'empresa_id,tipo' })
-    .select('id, tipo, caminho_arquivo, nome_arquivo, validade')
+    .select('id, tipo, caminho_arquivo, nome_arquivo, mime_type, size_bytes, validade')
     .single();
 
   if (error) throw error;
