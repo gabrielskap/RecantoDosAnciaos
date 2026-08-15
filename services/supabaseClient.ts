@@ -244,11 +244,13 @@ export const deleteContractDocument = async (fileUrl: string): Promise<void> => 
   if (error) throw error;
 };
 
-// Helper to upload an institutional compliance document (PDF/image) to Supabase storage
-export const uploadComplianceDocument = async (file: File): Promise<string> => {
+// Documentos de conformidade são privados e organizados por empresa. O banco
+// guarda o caminho retornado por esta função; a URL assinada só é gerada para
+// exibição/download.
+export const uploadComplianceDocument = async (file: File, empresaId: string): Promise<string> => {
   const fileExt = file.name.split('.').pop() || 'pdf';
   const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}.${fileExt}`;
-  const filePath = `compliance/${fileName}`;
+  const filePath = `${empresaId}/${fileName}`;
 
   const { error: uploadErr } = await supabase.storage
     .from('compliance-documents')
@@ -258,10 +260,30 @@ export const uploadComplianceDocument = async (file: File): Promise<string> => {
     });
 
   if (uploadErr) throw uploadErr;
+  return filePath;
+};
 
-  const { data } = supabase.storage
+export const getComplianceDocumentUrl = async (filePath: string): Promise<string> => {
+  // Compatibilidade com vínculos legados que gravavam uma URL pública no
+  // navegador antes de existir o registro canônico no banco.
+  if (/^(https?:|data:|blob:)/i.test(filePath)) return filePath;
+
+  const { data, error } = await supabase.storage
     .from('compliance-documents')
-    .getPublicUrl(filePath);
+    .createSignedUrl(filePath, 60 * 10);
 
-  return data.publicUrl;
+  if (error) throw error;
+  return data.signedUrl;
+};
+
+export const deleteComplianceStorageObject = async (filePath: string): Promise<void> => {
+  // Não é possível apagar com segurança uma URL legada sem saber a qual bucket
+  // ela pertence. O novo fluxo sempre persiste o caminho interno do objeto.
+  if (/^(https?:|data:|blob:)/i.test(filePath)) return;
+
+  const { error } = await supabase.storage
+    .from('compliance-documents')
+    .remove([filePath]);
+
+  if (error) throw error;
 };

@@ -133,22 +133,18 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
   const { users, profiles, addUser, deleteUser, resetUserPassword, currentUser, updateUser, updateUserCertificate } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [certFilter, setCertFilter] = useState('all');
-  const [isModalOpen, setIsModalOpen] = useState(() => {
-    return localStorage.getItem('modal_users_create_open') === 'true';
-  });
-  const [userToDelete, setUserToDelete] = useState<AuthUser | null>(() => {
-    const saved = localStorage.getItem('modal_users_delete_user');
-    return saved ? JSON.parse(saved) : null;
-  });
+  // Dados de cadastro (inclusive senha, CPF e endereço) só existem enquanto
+  // o formulário está aberto. O registro confirmado é salvo pelo AuthContext
+  // no banco; rascunhos não confirmados nunca devem ficar no navegador.
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [userToDelete, setUserToDelete] = useState<AuthUser | null>(null);
   const [passwordResetUser, setPasswordResetUser] = useState<AuthUser | null>(null);
   const [newUserPassword, setNewUserPassword] = useState('');
   const [confirmUserPassword, setConfirmUserPassword] = useState('');
   const [passwordResetError, setPasswordResetError] = useState('');
   const [passwordResetLoading, setPasswordResetLoading] = useState(false);
 
-  const [editingUserId, setEditingUserId] = useState<string | null>(() => {
-    return localStorage.getItem('modal_users_editing_user_id') || null;
-  });
+  const [editingUserId, setEditingUserId] = useState<string | null>(null);
 
   // Certificate modal state
   const [certModalUserId, setCertModalUserId] = useState<string | null>(null);
@@ -156,76 +152,47 @@ const UsersModule: React.FC<UsersModuleProps> = ({ residents, employees, onAddEm
   const modalMouseDown = useRef(false);
 
   // Form State
-  const [name, setName] = useState(() => localStorage.getItem('modal_users_form_name') || '');
-  const [email, setEmail] = useState(() => localStorage.getItem('modal_users_form_email') || '');
-  const [password, setPassword] = useState(() => localStorage.getItem('modal_users_form_password') || '');
-  const [selectedProfileId, setSelectedProfileId] = useState(() => localStorage.getItem('modal_users_form_profile_id') || '');
-  const [selectedResidentId, setSelectedResidentId] = useState(() => localStorage.getItem('modal_users_form_resident_id') || '');
-  const [formError, setFormError] = useState(() => localStorage.getItem('modal_users_form_error') || '');
-  const [cpf, setCpf] = useState(() => localStorage.getItem('modal_users_form_cpf') || '');
-  const [sexo, setSexo] = useState(() => localStorage.getItem('modal_users_form_sexo') || 'Prefiro não Informar');
-  const [celular, setCelular] = useState(() => localStorage.getItem('modal_users_form_celular') || '');
-  const [cep, setCep] = useState(() => localStorage.getItem('modal_users_form_cep') || '');
-  const [logradouro, setLogradouro] = useState(() => localStorage.getItem('modal_users_form_logradouro') || '');
-  const [bairro, setBairro] = useState(() => localStorage.getItem('modal_users_form_bairro') || '');
-  const [cidade, setCidade] = useState(() => localStorage.getItem('modal_users_form_cidade') || '');
-  const [estado, setEstado] = useState(() => localStorage.getItem('modal_users_form_estado') || '');
-  const [numero, setNumero] = useState(() => localStorage.getItem('modal_users_form_numero') || '');
-  const [complemento, setComplemento] = useState(() => localStorage.getItem('modal_users_form_complemento') || '');
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [selectedProfileId, setSelectedProfileId] = useState('');
+  const [selectedResidentId, setSelectedResidentId] = useState('');
+  const [formError, setFormError] = useState('');
+  const [cpf, setCpf] = useState('');
+  const [sexo, setSexo] = useState('Prefiro não Informar');
+  const [celular, setCelular] = useState('');
+  const [cep, setCep] = useState('');
+  const [logradouro, setLogradouro] = useState('');
+  const [bairro, setBairro] = useState('');
+  const [cidade, setCidade] = useState('');
+  const [estado, setEstado] = useState('');
+  const [numero, setNumero] = useState('');
+  const [complemento, setComplemento] = useState('');
   const [searchingCep, setSearchingCep] = useState(false);
 
   React.useEffect(() => {
-    if (isModalOpen) {
-      localStorage.setItem('modal_users_create_open', 'true');
-      localStorage.setItem('modal_users_form_name', name);
-      localStorage.setItem('modal_users_form_email', email);
-      localStorage.setItem('modal_users_form_password', password);
-      localStorage.setItem('modal_users_form_profile_id', selectedProfileId);
-      localStorage.setItem('modal_users_form_resident_id', selectedResidentId);
-      localStorage.setItem('modal_users_form_error', formError);
-      localStorage.setItem('modal_users_form_cpf', cpf);
-      localStorage.setItem('modal_users_form_sexo', sexo);
-      localStorage.setItem('modal_users_form_celular', celular);
-      localStorage.setItem('modal_users_form_cep', cep);
-      localStorage.setItem('modal_users_form_logradouro', logradouro);
-      localStorage.setItem('modal_users_form_bairro', bairro);
-      localStorage.setItem('modal_users_form_cidade', cidade);
-      localStorage.setItem('modal_users_form_estado', estado);
-      localStorage.setItem('modal_users_form_numero', numero);
-      localStorage.setItem('modal_users_form_complemento', complemento);
-      if (editingUserId) localStorage.setItem('modal_users_editing_user_id', editingUserId);
-    } else {
-      localStorage.removeItem('modal_users_create_open');
-      localStorage.removeItem('modal_users_form_name');
-      localStorage.removeItem('modal_users_form_email');
-      localStorage.removeItem('modal_users_form_password');
-      localStorage.removeItem('modal_users_form_profile_id');
-      localStorage.removeItem('modal_users_form_resident_id');
-      localStorage.removeItem('modal_users_form_error');
-      localStorage.removeItem('modal_users_form_cpf');
-      localStorage.removeItem('modal_users_form_sexo');
-      localStorage.removeItem('modal_users_form_celular');
-      localStorage.removeItem('modal_users_form_cep');
-      localStorage.removeItem('modal_users_form_logradouro');
-      localStorage.removeItem('modal_users_form_bairro');
-      localStorage.removeItem('modal_users_form_cidade');
-      localStorage.removeItem('modal_users_form_estado');
-      localStorage.removeItem('modal_users_form_numero');
-      localStorage.removeItem('modal_users_form_complemento');
-      localStorage.removeItem('modal_users_editing_user_id');
-    }
-  }, [
-    isModalOpen, name, email, password, selectedProfileId, selectedResidentId, formError,
-    cpf, sexo, celular, cep, logradouro, bairro, cidade, estado, numero, complemento, editingUserId
-  ]);
-
-  React.useEffect(() => {
-    if (userToDelete) {
-      localStorage.setItem('modal_users_delete_user', JSON.stringify(userToDelete));
-    } else {
-      localStorage.removeItem('modal_users_delete_user');
-    }
-  }, [userToDelete]);
+    [
+      'modal_users_create_open',
+      'modal_users_delete_user',
+      'modal_users_editing_user_id',
+      'modal_users_form_name',
+      'modal_users_form_email',
+      'modal_users_form_password',
+      'modal_users_form_profile_id',
+      'modal_users_form_resident_id',
+      'modal_users_form_error',
+      'modal_users_form_cpf',
+      'modal_users_form_sexo',
+      'modal_users_form_celular',
+      'modal_users_form_cep',
+      'modal_users_form_logradouro',
+      'modal_users_form_bairro',
+      'modal_users_form_cidade',
+      'modal_users_form_estado',
+      'modal_users_form_numero',
+      'modal_users_form_complemento',
+    ].forEach(key => localStorage.removeItem(key));
+  }, []);
 
   React.useEffect(() => {
     if (autoOpenCreate) {

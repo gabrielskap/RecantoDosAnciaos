@@ -3,6 +3,11 @@ import { PageHeader, SectionCard, Avatar, Badge, Toggle } from './demo/component
 import { useAuth } from '../contexts/AuthContext';
 import { supabase, compressImage, uploadUserPhoto } from '../services/supabaseClient';
 import { toast } from '../services/toast';
+import {
+  defaultUserPreferences,
+  fetchUserPreferences,
+  saveProfilePreferences,
+} from '../services/userPreferencesService';
 import { Camera, Upload, Trash2, KeyRound, Eye, EyeOff, Lock, CheckCircle2, ShieldCheck, Loader2 } from 'lucide-react';
 
 const Field: React.FC<{
@@ -136,7 +141,7 @@ const UserProfile: React.FC = () => {
     dailyDigest: false,
   });
 
-  // Load preferences from localStorage and profile details from database
+  // Dados pessoais e preferências são carregados da fonte canônica no banco.
   useEffect(() => {
     if (!currentUser) return;
 
@@ -153,17 +158,6 @@ const UserProfile: React.FC = () => {
     setNumero(currentUser.numero || '');
     setComplemento(currentUser.complemento || '');
     setAvatarUrl(currentUser.avatarUrl || '');
-
-    // Initial preference state from localStorage
-    const localPrefsKey = `recanto_user_prefs_${currentUser.id}`;
-    const savedPrefs = localStorage.getItem(localPrefsKey);
-    if (savedPrefs) {
-      try {
-        setPrefs(JSON.parse(savedPrefs));
-      } catch (err) {
-        console.error('Error parsing local user preferences:', err);
-      }
-    }
 
     const fetchProfileData = async () => {
       try {
@@ -189,7 +183,47 @@ const UserProfile: React.FC = () => {
       }
     };
 
-    fetchProfileData();
+    const loadPreferences = async () => {
+      try {
+        const saved = await fetchUserPreferences(currentUser.id);
+        if (saved) {
+          setPrefs({
+            emailNotif: saved.emailNotif,
+            stockAlerts: saved.stockAlerts,
+            dailyDigest: saved.dailyDigest,
+          });
+          return;
+        }
+
+        // Migra as preferências legadas uma única vez e remove a cópia do
+        // navegador somente depois que o banco confirma a gravação.
+        const localPrefsKey = `recanto_user_prefs_${currentUser.id}`;
+        const rawLegacy = localStorage.getItem(localPrefsKey);
+        if (!rawLegacy || !currentUser.empresaId) {
+          setPrefs({
+            emailNotif: defaultUserPreferences.emailNotif,
+            stockAlerts: defaultUserPreferences.stockAlerts,
+            dailyDigest: defaultUserPreferences.dailyDigest,
+          });
+          return;
+        }
+
+        const legacy = JSON.parse(rawLegacy) as Partial<typeof prefs>;
+        const migrated = {
+          emailNotif: typeof legacy.emailNotif === 'boolean' ? legacy.emailNotif : defaultUserPreferences.emailNotif,
+          stockAlerts: typeof legacy.stockAlerts === 'boolean' ? legacy.stockAlerts : defaultUserPreferences.stockAlerts,
+          dailyDigest: typeof legacy.dailyDigest === 'boolean' ? legacy.dailyDigest : defaultUserPreferences.dailyDigest,
+        };
+        await saveProfilePreferences(currentUser.id, currentUser.empresaId, migrated);
+        localStorage.removeItem(localPrefsKey);
+        setPrefs(migrated);
+      } catch (err) {
+        console.error('Error loading user preferences from database:', err);
+      }
+    };
+
+    void fetchProfileData();
+    void loadPreferences();
   }, [currentUser]);
 
   const handleCepChange = async (val: string) => {
@@ -300,9 +334,13 @@ const UserProfile: React.FC = () => {
         console.warn('Could not update phone in Recanto_Funcionarios:', funcUpdateError);
       }
 
-      // 3. Save preferences to localStorage
-      const localPrefsKey = `recanto_user_prefs_${currentUser.id}`;
-      localStorage.setItem(localPrefsKey, JSON.stringify(prefs));
+      // 3. Preferências individuais também são dados persistentes e devem
+      // sobreviver à troca de dispositivo/sessão.
+      if (!currentUser.empresaId) {
+        throw new Error('Empresa não identificada para salvar as preferências.');
+      }
+      await saveProfilePreferences(currentUser.id, currentUser.empresaId, prefs);
+      localStorage.removeItem(`recanto_user_prefs_${currentUser.id}`);
 
       toast.success('Perfil atualizado com sucesso!');
     } catch (err: any) {

@@ -509,7 +509,7 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
                   {/* Allocation helper button */}
                   {roomResidents.length < room.capacity && room.status !== 'Manutenção' && (
                     <button
-                      onClick={() => {
+                      onClick={async () => {
                         setLinkingRoom(room);
                         setIsLinkModalOpen(true);
                       }}
@@ -562,7 +562,12 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
                           return;
                         }
                         if (window.confirm(`Tem certeza que deseja excluir o Quarto ${room.number}?`)) {
-                          onDeleteRoom(room.id);
+                          try {
+                            await onDeleteRoom(room.id);
+                          } catch {
+                            // O handler apresenta a falha; preservamos a tela
+                            // para que o usuário possa tentar novamente.
+                          }
                         }
                       }}
                       className="p-1.5 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors border border-transparent hover:border-rose-100 bg-white shadow-sm"

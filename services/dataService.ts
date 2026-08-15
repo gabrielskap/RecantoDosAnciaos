@@ -1,5 +1,5 @@
 import { supabase } from './supabaseClient';
-import type { Resident, ResidentPrescriptionRecord, FinancialRecord, Contract, Invoice, StockItem, Employee, SystemAccessLog, TrainingRecord, CalendarEvent, Room } from '../types';
+import type { Resident, ResidentPrescriptionRecord, FinancialRecord, Contract, Invoice, StockItem, Employee, SystemAccessLog, TrainingRecord, CalendarEvent, Room, GlucoseReading } from '../types';
 
 // Relations that are cheap and needed just to render the resident list/cards
 // (contacts, allergies, care plan, diet, document folders). Kept identical
@@ -25,7 +25,21 @@ interface ResidentHeavyData {
   nutritionalLogs: any[];
   visits: any[];
   isDetailLoaded: boolean;
+  glicemiaLoaded: boolean;
 }
+
+export const mapGlucoseReading = (row: any): GlucoseReading => ({
+  id: row.id || Math.random().toString(36).substr(2, 9),
+  timestamp: row.timestamp || row.created_at || new Date().toISOString(),
+  value: row.valor_mg_dl != null ? Number(row.valor_mg_dl) : (row.value != null ? Number(row.value) : 0),
+  moment: (row.momento || row.moment || 'outro') as GlucoseReading['moment'],
+  insulinApplied: Boolean(row.insulina_aplicada ?? row.insulinApplied ?? false),
+  insulinUnits: row.insulina_unidades != null
+    ? parseFloat(row.insulina_unidades)
+    : (row.insulinUnits != null ? parseFloat(row.insulinUnits) : undefined),
+  insulinType: row.tipo_insulina || row.insulinType || undefined,
+  notes: row.observacoes || row.notes || undefined
+});
 
 // Shared shaping logic between fetchResidentsSummary (light, one row per
 // resident) and fetchResidentDetails (full clinical history for a single
@@ -146,8 +160,18 @@ function mapResidentRow(r: any, heavy: ResidentHeavyData): Resident {
           notes: g.observacoes || g.notes || undefined
         }));
 
-        const extractedFromAudit: any[] = (rAuditLogs || [])
-          .filter((al: any) => al.action && (al.action.includes('Glicemia') || al.action.includes('glicemia')))
+        // Once the canonical table was queried, audit entries must not act as
+        // a secondary source of truth: an older registration log would bring
+        // back an entry that was later deleted.
+        const extractedFromAudit: any[] = heavy.glicemiaLoaded
+          ? []
+          : (rAuditLogs || [])
+          // A deletion audit records what was removed; it must never be used
+          // as a current reading on the next refresh.
+          .filter((al: any) => {
+            const action = String(al.action || '');
+            return /glicemia/i.test(action) && !/(exclus|remove|apag)/i.test(action);
+          })
           .map((al: any) => {
             const data = al.dados || al.data;
             if (data && typeof data === 'object' && (data.value != null || data.valor_mg_dl != null)) {
@@ -338,7 +362,8 @@ function mapResidentRow(r: any, heavy: ResidentHeavyData): Resident {
         observations: v.observations || undefined,
         createdBy: v.created_by
       })).sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime()),
-      isDetailLoaded: heavy.isDetailLoaded
+      isDetailLoaded: heavy.isDetailLoaded,
+      glicemiaLoaded: heavy.glicemiaLoaded
     };
   }
 }
@@ -401,8 +426,22 @@ export async function fetchResidentsSummary(empresaId: string): Promise<Resident
     auditLogs: [],
     nutritionalLogs: nutriLogsByResident.get(r.id) || [],
     visits: [],
-    isDetailLoaded: false
+    isDetailLoaded: false,
+    glicemiaLoaded: false
   }));
+}
+
+// Fast path for the Glicemia tab. It reads only the canonical table, so this
+// screen does not wait for the rest of the resident's clinical history.
+export async function fetchResidentGlicemia(residentId: string): Promise<GlucoseReading[]> {
+  const { data, error } = await supabase
+    .from('Recanto_Glicemia')
+    .select('id, timestamp, valor_mg_dl, momento, insulina_aplicada, insulina_unidades, tipo_insulina, observacoes')
+    .eq('resident_id', residentId)
+    .order('timestamp', { ascending: false });
+
+  if (error) throw error;
+  return (data || []).map(mapGlucoseReading);
 }
 
 // Fetches the complete clinical history for a SINGLE resident (vitals,
@@ -435,7 +474,7 @@ export async function fetchResidentDetails(residentId: string): Promise<Resident
     supabase.from('Recanto_Medicacoes').select('*').eq('resident_id', residentId),
     supabase.from('Recanto_Receitas').select('*').eq('resident_id', residentId),
     supabase.from('Recanto_SinaisVitais').select('*').eq('resident_id', residentId),
-    supabase.from('Recanto_Glicemia').select('*').eq('resident_id', residentId),
+    supabase.from('Recanto_Glicemia').select('*').eq('resident_id', residentId).order('timestamp', { ascending: false }),
     supabase.from('Recanto_ChecklistDiario').select('*').eq('resident_id', residentId),
     supabase.from('Recanto_Documentos').select('*').eq('resident_id', residentId),
     supabase.from('Recanto_LogsAuditoria').select('*').eq('resident_id', residentId).order('timestamp', { ascending: false }),
@@ -492,7 +531,8 @@ export async function fetchResidentDetails(residentId: string): Promise<Resident
     auditLogs: auditLogsResult.data || [],
     nutritionalLogs: nutriLogsResult.data || [],
     visits: visitsResult.data || [],
-    isDetailLoaded: true
+    isDetailLoaded: true,
+    glicemiaLoaded: true
   });
 }
 

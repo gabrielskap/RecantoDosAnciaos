@@ -371,8 +371,11 @@ const CheckoutPage: React.FC = () => {
         update.dados_plano = data;
       }
 
-      await supabase.from('Recanto_Checkout_Rascunhos').upsert(update, { onConflict: 'rascunho_token' });
-    } catch { /* falha silenciosa — sessionStorage já tem os dados */ } finally {
+      const { error } = await supabase
+        .from('Recanto_Checkout_Rascunhos')
+        .upsert(update, { onConflict: 'rascunho_token' });
+      if (error) throw error;
+    } finally {
       setSavingRascunho(false);
     }
   };
@@ -440,9 +443,14 @@ const CheckoutPage: React.FC = () => {
         qtdResidentes: form.qtdResidentes,
         qtdUsuarios: form.qtdUsuarios,
       };
-      sessionStorage.setItem('rc_emp', JSON.stringify(empData));
-      await saveRascunho('empresa', empData);
-      setStep('admin');
+      try {
+        await saveRascunho('empresa', empData);
+        sessionStorage.setItem('rc_emp', JSON.stringify(empData));
+        setStep('admin');
+      } catch (error) {
+        console.error('Erro ao salvar rascunho de cadastro da empresa:', error);
+        setErrorMsg('Não foi possível salvar seus dados no servidor. Tente novamente.');
+      }
     } else if (step === 'admin' && validateAdmin()) {
       // Salva dados do admin no rascunho (sem senha)
       const admData = {
@@ -452,9 +460,14 @@ const CheckoutPage: React.FC = () => {
         telefoneAdmin: form.telefoneAdmin,
         cargo: form.cargo,
       };
-      sessionStorage.setItem('rc_adm', JSON.stringify(admData));
-      await saveRascunho('admin', admData);
-      setStep('plano');
+      try {
+        await saveRascunho('admin', admData);
+        sessionStorage.setItem('rc_adm', JSON.stringify(admData));
+        setStep('plano');
+      } catch (error) {
+        console.error('Erro ao salvar rascunho de cadastro do administrador:', error);
+        setErrorMsg('Não foi possível salvar seus dados no servidor. Tente novamente.');
+      }
     } else if (step === 'plano' && validarLimitesPlano()) {
       setStep('pagamento');
     } else if (step === 'pagamento' && validatePagamento()) {
@@ -476,8 +489,13 @@ const CheckoutPage: React.FC = () => {
     }
     if (!validarLimitesPlano()) return;
     const planoData = { planoId: form.planoId, periodicidade: form.periodicidade };
-    await saveRascunho('plano', planoData);
-    finalizar(true);
+    try {
+      await saveRascunho('plano', planoData);
+      finalizar(true);
+    } catch (error) {
+      console.error('Erro ao salvar rascunho do plano:', error);
+      setErrorMsg('Não foi possível salvar seus dados no servidor. Tente novamente.');
+    }
   };
 
   // ─── Finalização ───────────────────────────────────────────────────────────

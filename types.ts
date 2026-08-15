@@ -269,6 +269,10 @@ export interface Resident {
   // everything" or it wipes real rows out of the database.
   isDetailLoaded?: boolean;
 
+  // Loaded separately when the glicemia tab is opened, so unrelated clinical
+  // history never blocks its first render.
+  glicemiaLoaded?: boolean;
+
   // Nutrition
   dietPlan?: DietPlan;
   nutritionalLogs?: NutritionalLog[];

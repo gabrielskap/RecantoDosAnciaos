@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
 import ResidentsList from './components/ResidentsList';
@@ -31,11 +31,32 @@ import NotificationsPanel from './components/NotificationsPanel';
 import type { AlertItem } from './components/NotificationsPanel';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { Menu, HeartPulse, Bell, ChevronDown, UserCircle, LogOut, Building2 } from 'lucide-react';
-import { ViewState, Resident, FinancialRecord, StockItem, Employee, TrainingRecord, SystemAccessLog, Contract, Invoice, CalendarEvent, StockTransaction, Room, MedicamentoInventarioItem } from './types';
+import { ViewState, Resident, FinancialRecord, StockItem, Employee, TrainingRecord, SystemAccessLog, Contract, Invoice, CalendarEvent, StockTransaction, Room, MedicamentoInventarioItem, GlucoseReading } from './types';
 import { supabase } from './services/supabaseClient';
 import * as dataService from './services/dataService';
 import { fetchInventario, fetchInventarioParaMedicacao, debitarPorBoletim, unidadesPorTomada } from './services/medicationInventoryService';
+import { fetchUserPreferences, saveDismissedAlertIds } from './services/userPreferencesService';
 import UserProfile from './components/UserProfile';
+
+const LAST_SELECTED_RESIDENT_KEY = 'recanto_last_selected_resident';
+
+// Navegação e preferências não são dados críticos. Uma quota esgotada não pode
+// derrubar a aplicação por causa de uma tentativa de persistência opcional.
+const safelySetLocalStorage = (key: string, value: string) => {
+  try {
+    localStorage.setItem(key, value);
+  } catch (error) {
+    console.warn(`Não foi possível persistir ${key} no armazenamento local:`, error);
+  }
+};
+
+const safelyRemoveLocalStorage = (key: string) => {
+  try {
+    localStorage.removeItem(key);
+  } catch (error) {
+    console.warn(`Não foi possível remover ${key} do armazenamento local:`, error);
+  }
+};
 
 // Path name to ViewState conversion
 const pathToView = (path: string): { view: ViewState; residentId?: string } => {
@@ -132,14 +153,9 @@ function AppInner() {
     }
     return ViewState.DASHBOARD;
   });
-  const [selectedResident, setSelectedResident] = useState<Resident | null>(() => {
-    try {
-      const saved = localStorage.getItem('recanto_last_selected_resident');
-      return saved ? JSON.parse(saved) : null;
-    } catch {
-      return null;
-    }
-  });
+  // A rota já contém o id do residente. Persistir o objeto inteiro aqui fazia
+  // o localStorage receber histórico clínico, documentos e até data URLs.
+  const [selectedResident, setSelectedResident] = useState<Resident | null>(null);
   // Full clinical history (vitals, checklists, documents, audit trail,
   // visits, prescriptions) for the ONE resident whose profile is currently
   // open. `residents` only carries the lightweight summary now, so this is
@@ -150,18 +166,50 @@ function AppInner() {
   const [dataLoaded, setDataLoaded] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
-  const [dismissedAlertIds, setDismissedAlertIds] = useState<Set<string>>(() => {
-    try {
-      const saved = localStorage.getItem('recanto_dismissed_alert_ids');
-      return saved ? new Set(JSON.parse(saved)) : new Set();
-    } catch {
-      return new Set();
-    }
-  });
+  const [dismissedAlertIds, setDismissedAlertIds] = useState<Set<string>>(new Set());
 
   // Profile dropdown and Company Name states
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [companyName, setCompanyName] = useState('RecantoCare');
+
+  // Alertas dispensados são uma preferência individual. O banco é a fonte de
+  // verdade para que o estado seja o mesmo em qualquer dispositivo; a chave
+  // local abaixo é lida apenas para migração de instalações antigas.
+  useEffect(() => {
+    let active = true;
+
+    const loadDismissedAlerts = async () => {
+      if (!currentUser?.id || !currentUser.empresaId) {
+        if (active) setDismissedAlertIds(new Set());
+        return;
+      }
+
+      try {
+        const saved = await fetchUserPreferences(currentUser.id);
+        if (saved) {
+          if (active) setDismissedAlertIds(new Set(saved.dismissedAlertIds));
+          return;
+        }
+
+        const legacyRaw = localStorage.getItem('recanto_dismissed_alert_ids');
+        if (!legacyRaw) {
+          if (active) setDismissedAlertIds(new Set());
+          return;
+        }
+
+        const legacyIds = JSON.parse(legacyRaw);
+        if (!Array.isArray(legacyIds)) return;
+        await saveDismissedAlertIds(currentUser.id, currentUser.empresaId, legacyIds);
+        safelyRemoveLocalStorage('recanto_dismissed_alert_ids');
+        if (active) setDismissedAlertIds(new Set(legacyIds.filter((id): id is string => typeof id === 'string')));
+      } catch (error) {
+        console.error('Erro ao carregar alertas dispensados do banco:', error);
+      }
+    };
+
+    void loadDismissedAlerts();
+    return () => { active = false; };
+  }, [currentUser?.id, currentUser?.empresaId]);
 
   // Compute user initials
   const userInitials = useMemo(() => {
@@ -200,6 +248,13 @@ function AppInner() {
   const [accessLogs, setAccessLogs] = useState<SystemAccessLog[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
+  const loadedDataKeysRef = useRef<Set<string>>(new Set());
+
+  // Remove a versão legada que continha o objeto completo do residente e pode
+  // ocupar toda a quota da origem. A seleção é reconstituída pela URL abaixo.
+  useEffect(() => {
+    safelyRemoveLocalStorage(LAST_SELECTED_RESIDENT_KEY);
+  }, []);
 
   // --- Supabase Data Fetchers ---
 
@@ -227,17 +282,36 @@ function AppInner() {
     }
   };
 
-  // Hydrate the full clinical history only when a resident's profile is
-  // actually opened (id changes) — not on every unrelated refresh of the
-  // lightweight `residents` list, which keeps the same id but a new object
-  // reference every time it reloads.
+  const loadResidentDetailForProfile = async (residentId: string) => {
+    const detail = await dataService.fetchResidentDetails(residentId);
+    if (!detail) throw new Error('Residente não encontrado.');
+    setSelectedResidentDetail(detail);
+  };
+
+  // Glicemia is independent from the rest of the clinical history. Loading it
+  // on demand lets its tab render without waiting for documents, checklists,
+  // medication logs and the full audit trail.
+  const loadResidentGlicemia = async (residentId: string) => {
+    const glucoseReadings = await dataService.fetchResidentGlicemia(residentId);
+    setSelectedResidentDetail(previous => {
+      const base = previous?.id === residentId
+        ? previous
+        : selectedResident?.id === residentId
+          ? selectedResident
+          : null;
+      if (!base) return previous;
+      return { ...base, glucoseReadings, glicemiaLoaded: true };
+    });
+  };
+
+  // The profile loads its active tab on demand. Reset stale details when the
+  // resident changes, but do not eagerly fan out every history endpoint.
   useEffect(() => {
-    if (selectedResident) {
-      refreshSelectedResidentDetail(selectedResident.id);
-    } else {
+    if (!selectedResident) {
       setSelectedResidentDetail(null);
+      return;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setSelectedResidentDetail(previous => previous?.id === selectedResident.id ? previous : null);
   }, [selectedResident?.id]);
 
   // Family/legal-guardian portal: only ever needs the one resident tied to
@@ -254,6 +328,142 @@ function AppInner() {
   const residentForProfile = selectedResidentDetail && selectedResident && selectedResidentDetail.id === selectedResident.id
     ? selectedResidentDetail
     : selectedResident;
+
+  const persistGlicemiaAudit = async (
+    residentId: string,
+    reading: GlucoseReading,
+    action: 'Registro de Glicemia' | 'Edição de Glicemia' | 'Exclusão de Glicemia'
+  ) => {
+    const verb = action === 'Registro de Glicemia'
+      ? 'Registrou'
+      : action === 'Edição de Glicemia'
+        ? 'Editou'
+        : 'Removeu';
+    const { data, error } = await supabase
+      .from('Recanto_LogsAuditoria')
+      .insert({
+        resident_id: residentId,
+        user_id: currentUser?.id || 'current-user',
+        user_name: currentUser?.name || 'Usuário Atual',
+        action,
+        details: `${verb} medição de glicemia de ${reading.value} mg/dL (${reading.moment})`,
+        dados: reading
+      })
+      .select()
+      .single();
+
+    // O dado clínico já foi persistido neste ponto. Auditoria é registrada em
+    // seguida, mas uma falha isolada nela não deve desfazer nem mascarar a
+    // operação principal para o profissional.
+    if (error) {
+      console.error('Erro ao registrar auditoria da glicemia:', error);
+      return null;
+    }
+
+    return {
+      id: data.id,
+      timestamp: data.timestamp,
+      userId: data.user_id,
+      userName: data.user_name,
+      action: data.action,
+      details: data.details || '',
+      data: data.dados || undefined
+    };
+  };
+
+  const handleSaveGlicemia = async (
+    residentId: string,
+    reading: GlucoseReading,
+    isEditing: boolean
+  ) => {
+    const insulinUnits = reading.insulinApplied && typeof reading.insulinUnits === 'number' && Number.isFinite(reading.insulinUnits)
+      ? reading.insulinUnits
+      : null;
+    const payload = {
+      timestamp: reading.timestamp,
+      valor_mg_dl: reading.value,
+      momento: reading.moment,
+      insulina_aplicada: reading.insulinApplied,
+      insulina_unidades: insulinUnits,
+      tipo_insulina: reading.insulinApplied ? reading.insulinType || null : null,
+      observacoes: reading.notes || null
+    };
+
+    let savedRow: any;
+    if (isEditing) {
+      const { data, error } = await supabase
+        .from('Recanto_Glicemia')
+        .update(payload)
+        .eq('id', reading.id)
+        .eq('resident_id', residentId)
+        .select()
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) throw new Error('Medição de glicemia não encontrada ou sem permissão para atualização.');
+      savedRow = data;
+    } else {
+      const { data, error } = await supabase
+        .from('Recanto_Glicemia')
+        .insert({ resident_id: residentId, ...payload })
+        .select()
+        .single();
+      if (error) throw error;
+      savedRow = data;
+    }
+
+    const persistedReading: GlucoseReading = {
+      id: savedRow.id,
+      timestamp: savedRow.timestamp,
+      value: Number(savedRow.valor_mg_dl),
+      moment: savedRow.momento,
+      insulinApplied: Boolean(savedRow.insulina_aplicada),
+      insulinUnits: savedRow.insulina_unidades != null ? Number(savedRow.insulina_unidades) : undefined,
+      insulinType: savedRow.tipo_insulina || undefined,
+      notes: savedRow.observacoes || undefined
+    };
+    const auditLog = await persistGlicemiaAudit(
+      residentId,
+      persistedReading,
+      isEditing ? 'Edição de Glicemia' : 'Registro de Glicemia'
+    );
+
+    setSelectedResidentDetail(previous => {
+      if (!previous || previous.id !== residentId) return previous;
+      const glucoseReadings = isEditing
+        ? previous.glucoseReadings.map(item => item.id === persistedReading.id ? persistedReading : item)
+        : [persistedReading, ...previous.glucoseReadings];
+      return {
+        ...previous,
+        glucoseReadings,
+        glicemiaLoaded: true,
+        auditLogs: auditLog ? [auditLog, ...previous.auditLogs] : previous.auditLogs
+      };
+    });
+  };
+
+  const handleDeleteGlicemia = async (residentId: string, reading: GlucoseReading) => {
+    const { data: deletedRows, error } = await supabase
+      .from('Recanto_Glicemia')
+      .delete()
+      .eq('id', reading.id)
+      .eq('resident_id', residentId)
+      .select('id');
+    if (error) throw error;
+    if (!deletedRows || deletedRows.length === 0) {
+      throw new Error('Medição de glicemia não encontrada ou sem permissão para exclusão.');
+    }
+
+    const auditLog = await persistGlicemiaAudit(residentId, reading, 'Exclusão de Glicemia');
+    setSelectedResidentDetail(previous => {
+      if (!previous || previous.id !== residentId) return previous;
+      return {
+        ...previous,
+        glucoseReadings: previous.glucoseReadings.filter(item => item.id !== reading.id),
+        glicemiaLoaded: true,
+        auditLogs: auditLog ? [auditLog, ...previous.auditLogs] : previous.auditLogs
+      };
+    });
+  };
 
   const fetchFinancials = async () => {
     if (!currentUser?.empresaId) return;
@@ -341,23 +551,27 @@ function AppInner() {
     try {
       const mapped = await dataService.fetchRooms(currentUser.empresaId);
       setRooms(mapped);
-      localStorage.setItem('recanto_rooms', JSON.stringify(mapped));
+      // Quartos são dados de negócio: o banco é a única fonte de verdade.
+      safelyRemoveLocalStorage('recanto_rooms');
     } catch (err) {
-      console.warn('Erro ao buscar quartos do Supabase, usando localStorage:', err);
-      const saved = localStorage.getItem('recanto_rooms');
-      if (saved) {
-        setRooms(JSON.parse(saved));
-      } else {
-        const defaultRooms: Room[] = [
-          { id: 'q101', number: '101', type: 'Individual', capacity: 1, assets: ['Televisão', 'Guarda-roupa', 'Banheiro Adaptado'] },
-          { id: 'q102', number: '102', type: 'Individual', capacity: 1, assets: ['Guarda-roupa', 'Ventilador'] },
-          { id: 'q103', number: '103', type: 'Compartilhado', capacity: 2, assets: ['Televisão', 'Guarda-roupa', 'Banheiro Adaptado', 'Ar Condicionado'] },
-          { id: 'q201', number: '201', type: 'Compartilhado', capacity: 2, assets: ['Guarda-roupa', 'Ventilador'] },
-          { id: 'q202', number: '202', type: 'Compartilhado', capacity: 3, assets: ['Televisão', 'Guarda-roupa', 'Banheiro Adaptado', 'Ar Condicionado', 'Frigobar'] }
-        ];
-        setRooms(defaultRooms);
-        localStorage.setItem('recanto_rooms', JSON.stringify(defaultRooms));
+      // Nunca exiba o cache local como se tivesse sido confirmado pelo banco.
+      console.error('Erro ao buscar quartos do Supabase:', err);
+    }
+  };
+
+  const fetchCompanyInfo = async () => {
+    if (!currentUser?.empresaId) return;
+    try {
+      const { data } = await supabase
+        .from('Recanto_Empresas')
+        .select('nome_instituicao')
+        .eq('empresa_id', currentUser.empresaId)
+        .maybeSingle();
+      if (data?.nome_instituicao) {
+        setCompanyName(data.nome_instituicao);
       }
+    } catch (err) {
+      console.warn('Erro ao carregar nome da empresa no topo:', err);
     }
   };
 
@@ -376,10 +590,9 @@ function AppInner() {
       if (error) throw error;
       await fetchRooms();
     } catch (err) {
-      console.warn('Erro ao inserir quarto no Supabase, atualizando localStorage localmente:', err);
-      const updatedRooms = [...rooms, newRoom];
-      setRooms(updatedRooms);
-      localStorage.setItem('recanto_rooms', JSON.stringify(updatedRooms));
+      console.error('Erro ao inserir quarto no Supabase:', err);
+      toast.error('Não foi possível salvar o quarto. Tente novamente.');
+      throw err;
     }
   };
 
@@ -399,10 +612,9 @@ function AppInner() {
       if (error) throw error;
       await fetchRooms();
     } catch (err) {
-      console.warn('Erro ao atualizar quarto no Supabase, atualizando localStorage localmente:', err);
-      const updatedRooms = rooms.map(r => r.id === updatedRoom.id ? updatedRoom : r);
-      setRooms(updatedRooms);
-      localStorage.setItem('recanto_rooms', JSON.stringify(updatedRooms));
+      console.error('Erro ao atualizar quarto no Supabase:', err);
+      toast.error('Não foi possível atualizar o quarto. Tente novamente.');
+      throw err;
     }
   };
 
@@ -416,26 +628,19 @@ function AppInner() {
       if (error) throw error;
       await fetchRooms();
     } catch (err) {
-      console.warn('Erro ao excluir quarto no Supabase, atualizando localStorage localmente:', err);
-      const updatedRooms = rooms.filter(r => r.id !== roomId);
-      setRooms(updatedRooms);
-      localStorage.setItem('recanto_rooms', JSON.stringify(updatedRooms));
+      console.error('Erro ao excluir quarto no Supabase:', err);
+      toast.error('Não foi possível excluir o quarto. Tente novamente.');
+      throw err;
     }
   };
 
   // Sync state with Database on user login
   useEffect(() => {
     if (currentUser) {
+      const bootstrapKey = `${currentUser.id}:${currentUser.empresaId}:bootstrap`;
+      if (loadedDataKeysRef.current.has(bootstrapKey)) return;
+      loadedDataKeysRef.current.add(bootstrapKey);
       fetchResidents();
-      fetchFinancials();
-      fetchContracts();
-      fetchInvoices();
-      fetchStockItems();
-      fetchMedicationInventory();
-      fetchEmployees();
-      fetchAccessLogs();
-      fetchTrainingRecords();
-      fetchEvents();
       fetchRooms();
 
       // Buscar nome da instituição
@@ -455,6 +660,7 @@ function AppInner() {
       };
       fetchCompanyInfo();
     } else {
+      loadedDataKeysRef.current.clear();
       setResidents([]);
       setFinancials([]);
       setContracts([]);
@@ -469,7 +675,68 @@ function AppInner() {
       setDataLoaded(false);
       setCompanyName('RecantoCare');
     }
-  }, [currentUser?.id]);
+  }, [currentUser?.id, currentUser?.empresaId]);
+
+  // Busca cada conjunto de dados na primeira visita ao módulo que o consome.
+  // Isso evita que uma rota de prontuário aguarde chamadas de módulos que não
+  // estão visíveis, sem impedir os refreshes explícitos após cada mutação.
+  useEffect(() => {
+    if (!currentUser?.empresaId) return;
+
+    const loadOnce = (key: string, load: () => Promise<void>) => {
+      const scopedKey = `${currentUser.id}:${currentUser.empresaId}:${key}`;
+      if (loadedDataKeysRef.current.has(scopedKey)) return;
+      loadedDataKeysRef.current.add(scopedKey);
+      void load();
+    };
+
+    if (currentUser.profile.type === 'Responsável') {
+      loadOnce('events', fetchEvents);
+      return;
+    }
+
+    switch (currentView) {
+      case ViewState.DASHBOARD:
+        loadOnce('financials', fetchFinancials);
+        loadOnce('stock', fetchStockItems);
+        loadOnce('medication-inventory', fetchMedicationInventory);
+        loadOnce('invoices', fetchInvoices);
+        loadOnce('employees', fetchEmployees);
+        loadOnce('events', fetchEvents);
+        break;
+      case ViewState.FINANCE:
+        loadOnce('financials', fetchFinancials);
+        loadOnce('contracts', fetchContracts);
+        loadOnce('invoices', fetchInvoices);
+        break;
+      case ViewState.STOCK:
+        loadOnce('stock', fetchStockItems);
+        break;
+      case ViewState.TEAM:
+      case ViewState.USERS:
+        loadOnce('employees', fetchEmployees);
+        loadOnce('access-logs', fetchAccessLogs);
+        loadOnce('training-records', fetchTrainingRecords);
+        break;
+      case ViewState.AGENDA:
+        loadOnce('events', fetchEvents);
+        break;
+      case ViewState.REPORTS:
+        loadOnce('financials', fetchFinancials);
+        loadOnce('contracts', fetchContracts);
+        loadOnce('invoices', fetchInvoices);
+        loadOnce('stock', fetchStockItems);
+        loadOnce('employees', fetchEmployees);
+        loadOnce('events', fetchEvents);
+        break;
+      case ViewState.NOTIFICATIONS:
+        loadOnce('stock', fetchStockItems);
+        break;
+    }
+    // Loader identities change on render because they close over currentUser;
+    // currentView and authenticated identity are the intentional dependencies.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.id, currentUser?.empresaId, currentUser?.profile.type, currentView]);
 
   // Navigate function that pushes state
   const navigateTo = (view: ViewState, residentId?: string) => {
@@ -483,14 +750,13 @@ function AppInner() {
       const found = residents.find(r => r.id === residentId) || selectedResident;
       if (found) {
         setSelectedResident(found);
-        localStorage.setItem('recanto_last_selected_resident', JSON.stringify(found));
       }
     } else if (view !== ViewState.RESIDENT_DETAIL) {
       setSelectedResident(null);
-      localStorage.removeItem('recanto_last_selected_resident');
+      safelyRemoveLocalStorage(LAST_SELECTED_RESIDENT_KEY);
     }
     if (path !== '/' && path !== '/login' && path !== '/portal') {
-      localStorage.setItem('recanto_last_active_path', path);
+      safelySetLocalStorage('recanto_last_active_path', path);
     }
   };
 
@@ -513,7 +779,7 @@ function AppInner() {
         window.history.replaceState(null, '', '/');
         setCurrentView(ViewState.DASHBOARD);
         setSelectedResident(null);
-        localStorage.removeItem('recanto_last_selected_resident');
+        safelyRemoveLocalStorage(LAST_SELECTED_RESIDENT_KEY);
         return;
       }
 
@@ -540,21 +806,20 @@ function AppInner() {
         const found = residents.find(r => r.id === residentId);
         if (found) {
           setSelectedResident(found);
-          localStorage.setItem('recanto_last_selected_resident', JSON.stringify(found));
         } else if (dataLoaded) {
           // Resident not found after data finished loading
           window.history.replaceState(null, '', '/residents');
           setCurrentView(ViewState.RESIDENTS);
           setSelectedResident(null);
-          localStorage.removeItem('recanto_last_selected_resident');
+          safelyRemoveLocalStorage(LAST_SELECTED_RESIDENT_KEY);
         }
       } else if (view !== ViewState.RESIDENT_DETAIL) {
         setSelectedResident(null);
-        localStorage.removeItem('recanto_last_selected_resident');
+        safelyRemoveLocalStorage(LAST_SELECTED_RESIDENT_KEY);
       }
 
       if (path !== '/' && path !== '/login' && path !== '/portal') {
-        localStorage.setItem('recanto_last_active_path', path);
+        safelySetLocalStorage('recanto_last_active_path', path);
       }
     };
 
@@ -1311,7 +1576,8 @@ function AppInner() {
           .filter(g => !updatedGlicemiaIds.includes(g.id))
           .map(g => g.id);
         if (deletedGlicemiaIds.length > 0) {
-          await supabase.from('Recanto_Glicemia').delete().in('id', deletedGlicemiaIds);
+          const { error: delErr } = await supabase.from('Recanto_Glicemia').delete().in('id', deletedGlicemiaIds);
+          if (delErr) throw delErr;
         }
 
         if (updated.glucoseReadings.length > 0) {
@@ -1320,6 +1586,7 @@ function AppInner() {
           updated.glucoseReadings.forEach((g: any) => {
             const isGlicemiaMock = !g.id || g.id.length < 15;
             const validId = !isGlicemiaMock ? g.id : generateUUID();
+            g.id = validId;
             const item: any = {
               id: validId,
               resident_id: updated.id,
@@ -1361,7 +1628,8 @@ function AppInner() {
         }
       }
 
-      setResidents(prev => prev.map(r => r.id === updated.id ? updated : r));
+      // `residents` is intentionally a lightweight summary. Do not inject the
+      // fully hydrated record here; fetchResidents below restores that contract.
       await fetchResidents();
       if (selectedResident?.id === updated.id) {
         await refreshSelectedResidentDetail(updated.id);
@@ -1841,10 +2109,18 @@ function AppInner() {
 
   const visibleAlerts = allAlerts.filter(a => !dismissedAlertIds.has(a.id));
 
-  const handleClearAllAlerts = () => {
-    const dismissed = new Set(allAlerts.map(a => a.id));
-    setDismissedAlertIds(dismissed);
-    localStorage.setItem('recanto_dismissed_alert_ids', JSON.stringify(Array.from(dismissed)));
+  const handleClearAllAlerts = async () => {
+    const dismissed = new Set<string>(allAlerts.map(a => String(a.id)));
+    if (!currentUser?.id || !currentUser.empresaId) return;
+
+    try {
+      await saveDismissedAlertIds(currentUser.id, currentUser.empresaId, dismissed);
+      setDismissedAlertIds(dismissed);
+      safelyRemoveLocalStorage('recanto_dismissed_alert_ids');
+    } catch (error) {
+      console.error('Erro ao salvar alertas dispensados:', error);
+      toast.error('Não foi possível atualizar os alertas dispensados.');
+    }
   };
 
   const renderContent = () => {
@@ -1899,6 +2175,10 @@ function AppInner() {
             rooms={rooms}
             onBack={() => navigateTo(ViewState.RESIDENTS)}
             onUpdateResident={handleUpdateResident}
+            onLoadGlicemia={loadResidentGlicemia}
+            onLoadResidentDetail={loadResidentDetailForProfile}
+            onSaveGlicemia={handleSaveGlicemia}
+            onDeleteGlicemia={handleDeleteGlicemia}
             onCreateFolder={handleCreateDocumentFolder}
             onRenameFolder={handleRenameDocumentFolder}
             onDeleteFolder={handleDeleteDocumentFolder}

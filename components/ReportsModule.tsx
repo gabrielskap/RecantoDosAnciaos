@@ -16,6 +16,13 @@ import {
 import { toast } from '../services/toast';
 import { useAuth } from '../contexts/AuthContext';
 import { uploadComplianceDocument } from '../services/supabaseClient';
+import {
+  ComplianceDocument,
+  ComplianceDocumentType,
+  fetchComplianceDocuments,
+  removeComplianceDocument,
+  saveComplianceDocument,
+} from '../services/complianceDocumentsService';
 import { openPrintWindow } from '../services/pdfPrint';
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -42,11 +49,34 @@ interface ModuleOption {
   accentText: string;
 }
 
-interface ComplianceDoc {
+interface LegacyComplianceDoc {
   fileUrl: string;
   fileName: string;
   validade: string;
 }
+
+type ComplianceDoc = ComplianceDocument;
+
+const legacyComplianceStorageKeys: Record<ComplianceDocumentType, string> = {
+  licenca: 'compliance_licenca_sanitaria',
+  ilpi: 'compliance_ilpi_doc',
+};
+
+const readLegacyComplianceDocument = (type: ComplianceDocumentType): LegacyComplianceDoc | null => {
+  try {
+    const raw = localStorage.getItem(legacyComplianceStorageKeys[type]);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<LegacyComplianceDoc>;
+    if (!parsed.fileUrl || !parsed.fileName) return null;
+    return {
+      fileUrl: parsed.fileUrl,
+      fileName: parsed.fileName,
+      validade: parsed.validade || '',
+    };
+  } catch {
+    return null;
+  }
+};
 
 const isDocValid = (doc: ComplianceDoc | null): boolean => {
   if (!doc?.fileUrl || !doc?.validade) return false;
@@ -300,46 +330,118 @@ const ReportsModule: React.FC<ReportsModuleProps> = ({
   const [startDate, setStartDate] = useState(defaultStart);
   const [endDate, setEndDate] = useState(defaultEnd);
 
-  const [licencaDoc, setLicencaDoc] = useState<ComplianceDoc | null>(() => {
-    try { return JSON.parse(localStorage.getItem('compliance_licenca_sanitaria') || 'null'); } catch { return null; }
-  });
-  const [ilpiDoc, setIlpiDoc] = useState<ComplianceDoc | null>(() => {
-    try { return JSON.parse(localStorage.getItem('compliance_ilpi_doc') || 'null'); } catch { return null; }
-  });
+  const [licencaDoc, setLicencaDoc] = useState<ComplianceDoc | null>(null);
+  const [ilpiDoc, setIlpiDoc] = useState<ComplianceDoc | null>(null);
   const [uploadingDoc, setUploadingDoc] = useState<'licenca' | 'ilpi' | null>(null);
 
-  const saveDoc = (key: 'licenca' | 'ilpi', doc: ComplianceDoc) => {
-    const storageKey = key === 'licenca' ? 'compliance_licenca_sanitaria' : 'compliance_ilpi_doc';
-    localStorage.setItem(storageKey, JSON.stringify(doc));
-    if (key === 'licenca') setLicencaDoc(doc);
-    else setIlpiDoc(doc);
+  const setDocumentState = (type: ComplianceDocumentType, document: ComplianceDoc | null) => {
+    if (type === 'licenca') setLicencaDoc(document);
+    else setIlpiDoc(document);
   };
 
-  const handleValidadeChange = (key: 'licenca' | 'ilpi', validade: string) => {
+  const loadComplianceDocuments = async () => {
+    if (!currentUser?.empresaId) return;
+
+    let documents = await fetchComplianceDocuments(currentUser.empresaId);
+
+    // Migração de dados que existiam apenas no navegador. A referência é
+    // registrada uma única vez no banco e só então a chave local é removida.
+    for (const type of Object.keys(legacyComplianceStorageKeys) as ComplianceDocumentType[]) {
+      if (documents.some(document => document.type === type)) continue;
+      const legacy = readLegacyComplianceDocument(type);
+      if (!legacy) continue;
+
+      const migrated = await saveComplianceDocument({
+        empresaId: currentUser.empresaId,
+        type,
+        storagePath: legacy.fileUrl,
+        fileName: legacy.fileName,
+        validade: legacy.validade,
+      });
+      documents = [...documents, migrated];
+      localStorage.removeItem(legacyComplianceStorageKeys[type]);
+    }
+
+    setDocumentState('licenca', documents.find(document => document.type === 'licenca') ?? null);
+    setDocumentState('ilpi', documents.find(document => document.type === 'ilpi') ?? null);
+  };
+
+  React.useEffect(() => {
+    let active = true;
+
+    const load = async () => {
+      try {
+        await loadComplianceDocuments();
+      } catch (error) {
+        console.error('Erro ao carregar documentos de conformidade:', error);
+        if (active) toast.error('Não foi possível carregar os documentos de conformidade.');
+      }
+    };
+
+    void load();
+    return () => { active = false; };
+  }, [currentUser?.empresaId]);
+
+  const saveDoc = async (type: ComplianceDocumentType, input: Pick<ComplianceDoc, 'storagePath' | 'fileName' | 'validade'>) => {
+    if (!currentUser?.empresaId) throw new Error('Empresa não identificada para salvar o documento.');
+    const saved = await saveComplianceDocument({
+      empresaId: currentUser.empresaId,
+      type,
+      ...input,
+    });
+    setDocumentState(type, saved);
+    return saved;
+  };
+
+  const handleValidadeChange = async (key: ComplianceDocumentType, validade: string) => {
     const current = key === 'licenca' ? licencaDoc : ilpiDoc;
-    saveDoc(key, { fileUrl: current?.fileUrl ?? '', fileName: current?.fileName ?? '', validade });
+    if (!current) return;
+    try {
+      await saveDoc(key, {
+        storagePath: current.storagePath,
+        fileName: current.fileName,
+        validade,
+      });
+    } catch (error) {
+      console.error('Erro ao salvar validade do documento:', error);
+      toast.error('Não foi possível salvar a validade do documento.');
+    }
   };
 
-  const handleFileUpload = async (key: 'licenca' | 'ilpi', file: File) => {
+  const handleFileUpload = async (key: ComplianceDocumentType, file: File) => {
+    if (!currentUser?.empresaId) {
+      toast.error('Empresa não identificada para enviar o documento.');
+      return;
+    }
+
     setUploadingDoc(key);
     try {
-      const fileUrl = await uploadComplianceDocument(file);
+      const storagePath = await uploadComplianceDocument(file, currentUser.empresaId);
       const current = key === 'licenca' ? licencaDoc : ilpiDoc;
-      saveDoc(key, { fileUrl, fileName: file.name, validade: current?.validade ?? '' });
+      await saveDoc(key, { storagePath, fileName: file.name, validade: current?.validade ?? '' });
       toast.success('Documento enviado com sucesso!');
-    } catch {
+    } catch (error) {
+      console.error('Erro ao enviar documento de conformidade:', error);
       toast.error('Erro ao enviar documento. Tente novamente.');
     } finally {
       setUploadingDoc(null);
     }
   };
 
-  const handleRemoveDoc = (key: 'licenca' | 'ilpi') => {
-    const storageKey = key === 'licenca' ? 'compliance_licenca_sanitaria' : 'compliance_ilpi_doc';
-    localStorage.removeItem(storageKey);
-    if (key === 'licenca') setLicencaDoc(null);
-    else setIlpiDoc(null);
-    toast.success('Arquivo removido.');
+  const handleRemoveDoc = async (key: ComplianceDocumentType) => {
+    const current = key === 'licenca' ? licencaDoc : ilpiDoc;
+    if (!current) return;
+    setUploadingDoc(key);
+    try {
+      await removeComplianceDocument(current);
+      setDocumentState(key, null);
+      toast.success('Arquivo removido.');
+    } catch (error) {
+      console.error('Erro ao remover documento de conformidade:', error);
+      toast.error('Não foi possível remover o documento.');
+    } finally {
+      setUploadingDoc(null);
+    }
   };
 
   const mod = MODULES.find(m => m.id === selectedModule)!;
@@ -655,8 +757,9 @@ const ReportsModule: React.FC<ReportsModuleProps> = ({
                         <input
                           type="date"
                           value={doc?.validade ?? ''}
+                          disabled={!doc?.fileUrl || isUploading}
                           onChange={(e) => handleValidadeChange(item.uploadKey!, e.target.value)}
-                          className="border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-300 bg-white"
+                          className="border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-300 bg-white disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
                         />
                       </div>
 

@@ -16,6 +16,12 @@ import MedicationAutocomplete from './MedicationAutocomplete';
 import { useAuth } from '../contexts/AuthContext';
 import { compressImage, uploadResidentPhoto, uploadPrescriptionDocument, uploadResidentDocument, supabase } from '../services/supabaseClient';
 import { openPrintWindow } from '../services/pdfPrint';
+import {
+  ChecklistDraftKey,
+  fetchChecklistDraft,
+  removeChecklistDraft,
+  saveChecklistDraft,
+} from '../services/checklistDraftService';
 
 interface ChecklistMedication {
   id: string;
@@ -61,6 +67,17 @@ const getInitialEvolutionArea = (role?: string): EvolutionArea => {
 };
 
 // ── Glicemia helpers ─────────────────────────────────────────────────────────
+
+const generateUUID = (): string => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+};
 
 export const GLICEMIA_MOMENTO_LABELS: Record<GlicemiaMomento, string> = {
   jejum: 'Jejum',
@@ -462,14 +479,18 @@ interface ResidentProfileProps {
   resident: Resident;
   rooms: Room[];
   onBack: () => void;
-  onUpdateResident?: (resident: Resident) => void;
+  onUpdateResident?: (resident: Resident) => Promise<void> | void;
+  onLoadGlicemia?: (residentId: string) => Promise<void>;
+  onLoadResidentDetail?: (residentId: string) => Promise<void>;
+  onSaveGlicemia?: (residentId: string, reading: GlucoseReading, isEditing: boolean) => Promise<void>;
+  onDeleteGlicemia?: (residentId: string, reading: GlucoseReading) => Promise<void>;
   onCreateFolder?: (residentId: string, name: string) => Promise<void>;
   onRenameFolder?: (folderId: string, name: string, residentId: string) => Promise<void>;
   onDeleteFolder?: (folderId: string, residentId: string) => Promise<void>;
   onMoveDocument?: (documentId: string, folderId: string | null, residentId: string) => Promise<void>;
 }
 
-const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBack, onUpdateResident, onCreateFolder, onRenameFolder, onDeleteFolder, onMoveDocument }) => {
+const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBack, onUpdateResident, onLoadGlicemia, onLoadResidentDetail, onSaveGlicemia, onDeleteGlicemia, onCreateFolder, onRenameFolder, onDeleteFolder, onMoveDocument }) => {
   const { currentUser, hasPermission, modeloBoletim } = useAuth();
 
   const TAB_VIEW_STATE_MAP: Record<string, ViewState> = {
@@ -523,13 +544,51 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   }, [visibleTabs, activeTab]);
 
   React.useEffect(() => {
-    localStorage.setItem(`recanto_resident_profile_active_tab_${resident.id}`, activeTab);
+    try {
+      localStorage.setItem(`recanto_resident_profile_active_tab_${resident.id}`, activeTab);
+    } catch (error) {
+      // This is only a convenience preference; quota failures must not break
+      // the resident profile or block a clinical registration.
+      console.warn('Não foi possível salvar a aba ativa do residente:', error);
+    }
     const url = new URL(window.location.href);
     if (url.searchParams.get('tab') !== activeTab) {
       url.searchParams.set('tab', activeTab);
       window.history.replaceState(null, '', url.pathname + url.search);
     }
   }, [activeTab, resident.id]);
+
+  const glicemiaLoadRequestRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (activeTab !== 'glicemia' || resident.glicemiaLoaded || !onLoadGlicemia) return;
+    if (glicemiaLoadRequestRef.current === resident.id) return;
+
+    glicemiaLoadRequestRef.current = resident.id;
+    void onLoadGlicemia(resident.id).catch((error: any) => {
+      console.error('Erro ao carregar glicemias:', error);
+      glicemiaLoadRequestRef.current = null;
+      toast.error(error?.message || 'Não foi possível carregar o histórico de glicemia.');
+    });
+    // The parent callback closes over current resident state, but the request
+    // itself is guarded by the resident id above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, resident.id, resident.glicemiaLoaded]);
+
+  const residentDetailLoadRequestRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (activeTab === 'glicemia' || resident.isDetailLoaded !== false || !onLoadResidentDetail) return;
+    if (residentDetailLoadRequestRef.current === resident.id) return;
+
+    residentDetailLoadRequestRef.current = resident.id;
+    void onLoadResidentDetail(resident.id).catch((error: any) => {
+      console.error('Erro ao carregar detalhes do residente:', error);
+      residentDetailLoadRequestRef.current = null;
+      toast.error(error?.message || 'Não foi possível carregar os detalhes do prontuário.');
+    });
+    // The request is deduplicated by resident id, so only tab/state changes are
+    // intentional triggers here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, resident.id, resident.isDetailLoaded]);
 
   const [isEditingStatus, setIsEditingStatus] = useState(false);
   const [uploadingDoc, setUploadingDoc] = useState(false);
@@ -597,7 +656,9 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     insulinType: '',
     notes: ''
   });
-  const [glicemiaToDelete, setGlicemiaToDelete] = useState<string | null>(null);
+  const [glicemiaToDelete, setGlicemiaToDelete] = useState<GlucoseReading | null>(null);
+  const [isSavingGlicemia, setIsSavingGlicemia] = useState(false);
+  const [isDeletingGlicemia, setIsDeletingGlicemia] = useState(false);
 
   const canRegisterVisits = hasPermission(ViewState.RESIDENT_DETAIL_VISITS, 'create') ||
                             hasPermission(ViewState.RESIDENT_DETAIL_VISITS, 'edit');
@@ -805,9 +866,9 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     setIsGlicemiaModalOpen(true);
   };
 
-  const handleSaveGlicemia = (e: React.FormEvent) => {
+  const handleSaveGlicemia = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!onUpdateResident) return;
+    if (!onSaveGlicemia && !onUpdateResident) return;
 
     const value = parseInt(glicemiaFormData.value, 10);
     if (isNaN(value) || value < 20 || value > 700) {
@@ -817,7 +878,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
 
     const isEditing = !!editingGlicemiaId;
     const reading: GlucoseReading = {
-      id: editingGlicemiaId || Math.random().toString(36).substr(2, 9),
+      id: editingGlicemiaId || generateUUID(),
       timestamp: new Date(glicemiaFormData.date).toISOString(),
       value,
       moment: glicemiaFormData.moment,
@@ -831,12 +892,28 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
       notes: glicemiaFormData.notes || undefined
     };
 
+    if (onSaveGlicemia) {
+      setIsSavingGlicemia(true);
+      try {
+        await onSaveGlicemia(resident.id, reading, isEditing);
+        setIsGlicemiaModalOpen(false);
+        setEditingGlicemiaId(null);
+        toast.success(isEditing ? 'Medição atualizada com sucesso!' : 'Medição registrada com sucesso!');
+      } catch (error: any) {
+        console.error('Erro ao salvar glicemia:', error);
+        toast.error(error?.message || 'Não foi possível salvar a medição de glicemia.');
+      } finally {
+        setIsSavingGlicemia(false);
+      }
+      return;
+    }
+
     const updatedReadings = isEditing
       ? (resident.glucoseReadings || []).map(g => g.id === reading.id ? reading : g)
       : [reading, ...(resident.glucoseReadings || [])];
 
     const newLog: AuditLog = {
-      id: Math.random().toString(36).substr(2, 9),
+      id: generateUUID(),
       timestamp: new Date().toISOString(),
       userId: currentUser?.id || 'current-user',
       userName: currentUser?.name || 'Usuário Atual',
@@ -845,41 +922,79 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
       data: reading
     };
 
-    onUpdateResident({
-      ...resident,
-      glucoseReadings: updatedReadings,
-      auditLogs: [newLog, ...(resident.auditLogs || [])]
-    });
-
-    setIsGlicemiaModalOpen(false);
-    setEditingGlicemiaId(null);
-    toast.success(isEditing ? 'Medição atualizada com sucesso!' : 'Medição registrada com sucesso!');
-  };
-
-  const handleDeleteGlicemia = (readingId: string) => {
-    if (!onUpdateResident) return;
-
-    const reading = resident.glucoseReadings?.find(g => g.id === readingId);
-    if (!reading) return;
-
-    if (confirm(`Tem certeza que deseja excluir esta medição de glicemia (${reading.value} mg/dL)?`)) {
-      const updatedReadings = (resident.glucoseReadings || []).filter(g => g.id !== readingId);
-
-      const newLog: AuditLog = {
-        id: Math.random().toString(36).substr(2, 9),
-        timestamp: new Date().toISOString(),
-        userId: currentUser?.id || 'current-user',
-        userName: currentUser?.name || 'Usuário Atual',
-        action: 'Exclusão de Glicemia',
-        details: `Removeu medição de glicemia de ${reading.value} mg/dL (${GLICEMIA_MOMENTO_LABELS[reading.moment]})`,
-        data: reading
-      };
-
-      onUpdateResident({
+    setIsSavingGlicemia(true);
+    try {
+      await onUpdateResident!({
         ...resident,
         glucoseReadings: updatedReadings,
         auditLogs: [newLog, ...(resident.auditLogs || [])]
       });
+      setIsGlicemiaModalOpen(false);
+      setEditingGlicemiaId(null);
+      toast.success(isEditing ? 'Medição atualizada com sucesso!' : 'Medição registrada com sucesso!');
+    } catch (error: any) {
+      console.error('Erro ao salvar glicemia:', error);
+      toast.error(error?.message || 'Não foi possível salvar a medição de glicemia.');
+    } finally {
+      setIsSavingGlicemia(false);
+    }
+  };
+
+  const handleDeleteGlicemia = (readingId: string) => {
+    if (!onDeleteGlicemia && !onUpdateResident) return;
+
+    const reading = resident.glucoseReadings?.find(g => g.id === readingId);
+    if (!reading) return;
+
+    setGlicemiaToDelete(reading);
+  };
+
+  const confirmDeleteGlicemia = async () => {
+    if (!glicemiaToDelete || (!onDeleteGlicemia && !onUpdateResident)) return;
+
+    const reading = glicemiaToDelete;
+
+    if (onDeleteGlicemia) {
+      setIsDeletingGlicemia(true);
+      try {
+        await onDeleteGlicemia(resident.id, reading);
+        toast.success('Medição de glicemia excluída com sucesso!');
+        setGlicemiaToDelete(null);
+      } catch (error: any) {
+        console.error('Erro ao excluir glicemia:', error);
+        toast.error(error?.message || 'Não foi possível excluir a medição de glicemia.');
+      } finally {
+        setIsDeletingGlicemia(false);
+      }
+      return;
+    }
+
+    const updatedReadings = (resident.glucoseReadings || []).filter(g => g.id !== reading.id);
+
+    const newLog: AuditLog = {
+      id: generateUUID(),
+      timestamp: new Date().toISOString(),
+      userId: currentUser?.id || 'current-user',
+      userName: currentUser?.name || 'Usuário Atual',
+      action: 'Exclusão de Glicemia',
+      details: `Removeu medição de glicemia de ${reading.value} mg/dL (${GLICEMIA_MOMENTO_LABELS[reading.moment]})`,
+      data: reading
+    };
+
+    setIsDeletingGlicemia(true);
+    try {
+      await onUpdateResident!({
+        ...resident,
+        glucoseReadings: updatedReadings,
+        auditLogs: [newLog, ...(resident.auditLogs || [])]
+      });
+      toast.success('Medição de glicemia excluída com sucesso!');
+      setGlicemiaToDelete(null);
+    } catch (error: any) {
+      console.error('Erro ao excluir glicemia:', error);
+      toast.error(error?.message || 'Não foi possível excluir a medição de glicemia.');
+    } finally {
+      setIsDeletingGlicemia(false);
     }
   };
 
@@ -1207,36 +1322,94 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     leisure: false
   };
 
-  // Keep track of the current key we have loaded/saved to prevent race conditions on mount/change
-  const lastLoadedChecklistKeyRef = React.useRef<string | null>(null);
+  const checklistDraftStorageKey = `recanto_checklist_draft_${resident.id}_${selectedChecklistDate}_${selectedShift}`;
+  const checklistDraftKey = currentUser?.empresaId && currentUser.id
+    ? {
+        empresaId: currentUser.empresaId,
+        authUserId: currentUser.id,
+        residentId: resident.id,
+        date: selectedChecklistDate,
+        shift: selectedShift,
+      } satisfies ChecklistDraftKey
+    : null;
+  const [hydratedChecklistDraftKey, setHydratedChecklistDraftKey] = useState<string | null>(null);
 
-  // Sync checklist draft with localStorage
+  // O rascunho clínico não pode depender do armazenamento do navegador: além
+  // de conter dados sensíveis, ele precisa sobreviver a troca de dispositivo.
+  // A cópia local antiga é lida somente para migrar o registro ao banco.
   React.useEffect(() => {
-    const key = `recanto_checklist_draft_${resident.id}_${selectedChecklistDate}_${selectedShift}`;
-    
-    // If the key has changed (e.g. date, shift, or resident changed), load the corresponding draft
-    if (lastLoadedChecklistKeyRef.current !== key) {
-      lastLoadedChecklistKeyRef.current = key;
-      const saved = localStorage.getItem(key);
-      if (saved) {
-        try {
-          setChecklistDraft(JSON.parse(saved));
-        } catch (e) {
-          setChecklistDraft(null);
-        }
-      } else {
-        setChecklistDraft(null);
-      }
-      return;
-    }
+    let active = true;
+    setChecklistDraft(null);
+    setHydratedChecklistDraftKey(null);
 
-    // Otherwise, this is a change to the current checklistDraft state (e.g. user typed something)
-    if (checklistDraft) {
-      localStorage.setItem(key, JSON.stringify(checklistDraft));
-    } else {
-      localStorage.removeItem(key);
+    const loadDraft = async () => {
+      if (!checklistDraftKey) return;
+
+      try {
+        let draft = await fetchChecklistDraft(checklistDraftKey);
+        if (!draft) {
+          const legacy = localStorage.getItem(checklistDraftStorageKey);
+          if (legacy) {
+            try {
+              draft = JSON.parse(legacy) as DailyChecklist;
+              await saveChecklistDraft(checklistDraftKey, draft);
+              localStorage.removeItem(checklistDraftStorageKey);
+            } catch (legacyError) {
+              console.error('Erro ao migrar rascunho clínico legado:', legacyError);
+              // Mantém a cópia legada visível para não apagar o trabalho em
+              // curso se a conexão cair durante a migração.
+            }
+          }
+        }
+
+        if (active) {
+          setChecklistDraft(draft);
+          setHydratedChecklistDraftKey(checklistDraftStorageKey);
+        }
+      } catch (error) {
+        console.error('Erro ao carregar rascunho clínico do banco:', error);
+      }
+    };
+
+    void loadDraft();
+    return () => { active = false; };
+  }, [checklistDraftKey?.empresaId, checklistDraftKey?.authUserId, resident.id, selectedChecklistDate, selectedShift]);
+
+  // Salva cada alteração com uma pequena espera para não criar uma chamada por
+  // tecla. O rascunho é removido apenas quando o usuário descarta ou assina o
+  // boletim, nunca ao trocar de tela por acidente.
+  React.useEffect(() => {
+    if (!checklistDraftKey || hydratedChecklistDraftKey !== checklistDraftStorageKey) return;
+
+    const timer = window.setTimeout(() => {
+      const persist = async () => {
+        try {
+          if (checklistDraft) {
+            await saveChecklistDraft(checklistDraftKey, checklistDraft);
+          } else {
+            await removeChecklistDraft(checklistDraftKey);
+          }
+        } catch (error) {
+          console.error('Erro ao salvar rascunho clínico no banco:', error);
+        }
+      };
+      void persist();
+    }, 350);
+
+    return () => window.clearTimeout(timer);
+  }, [checklistDraft, checklistDraftKey?.empresaId, checklistDraftKey?.authUserId, resident.id, selectedChecklistDate, selectedShift, hydratedChecklistDraftKey]);
+
+  const clearChecklistDraft = async () => {
+    if (checklistDraftKey) {
+      try {
+        await removeChecklistDraft(checklistDraftKey);
+      } catch (error) {
+        console.error('Erro ao remover rascunho clínico do banco:', error);
+        throw error;
+      }
     }
-  }, [checklistDraft, resident.id, selectedChecklistDate, selectedShift]);
+    setChecklistDraft(null);
+  };
 
   // Keep track of the loaded edit resident key to prevent race conditions
   const lastLoadedEditResidentKeyRef = React.useRef<string | null>(null);
@@ -1643,15 +1816,33 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
       const otherChecklists = resident.dailyChecklists?.filter(
         c => !(c.date === signedDraft.date && (c.shift || 'diurno') === selectedShift)
       ) || [];
-      onUpdateResident({ ...resident, dailyChecklists: [signedDraft, ...otherChecklists] });
+      try {
+        await Promise.resolve(onUpdateResident({ ...resident, dailyChecklists: [signedDraft, ...otherChecklists] }));
+      } catch (error) {
+        console.error('Erro ao salvar boletim assinado:', error);
+        toast.error('Não foi possível salvar o boletim assinado. O rascunho foi mantido.');
+        return;
+      }
       setSelectedChecklistDate(signedDraft.date);
-      setChecklistDraft(null);
+      try {
+        await clearChecklistDraft();
+      } catch {
+        // O boletim final já foi confirmado. Um rascunho órfão será limpo na
+        // próxima edição, sem esconder o sucesso do registro clínico.
+        setChecklistDraft(null);
+      }
     } else if (signConfirmContext === 'read' && onUpdateResident) {
       const updatedChecklist = { ...selectedChecklist, signedBy, signedAt, signatureInfo, shift: selectedShift };
       const otherChecklists = resident.dailyChecklists?.filter(
         c => !(c.date === updatedChecklist.date && (c.shift || 'diurno') === selectedShift)
       ) || [];
-      onUpdateResident({ ...resident, dailyChecklists: [updatedChecklist, ...otherChecklists] });
+      try {
+        await Promise.resolve(onUpdateResident({ ...resident, dailyChecklists: [updatedChecklist, ...otherChecklists] }));
+      } catch (error) {
+        console.error('Erro ao salvar assinatura do boletim:', error);
+        toast.error('Não foi possível salvar a assinatura do boletim.');
+        return;
+      }
     }
 
     setIsSignConfirmModalOpen(false);
@@ -3325,8 +3516,12 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     setChecklistDraft(draft);
   };
 
-  const handleCancelEditChecklist = () => {
-    setChecklistDraft(null);
+  const handleCancelEditChecklist = async () => {
+    try {
+      await clearChecklistDraft();
+    } catch {
+      toast.error('Não foi possível descartar o rascunho. Tente novamente.');
+    }
   };
 
   const handlePrescriptionDocChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -4419,7 +4614,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
           })()}
 
           {activeTab === 'glicemia' && (() => {
-            if (resident.isDetailLoaded === false) {
+            if (resident.glicemiaLoaded === false) {
               return (
                 <div className="bg-white p-12 rounded-xl border border-slate-200 shadow-sm flex flex-col items-center justify-center text-center space-y-3">
                   <Loader2 className="h-8 w-8 text-rose-500 animate-spin" />
@@ -5021,14 +5216,72 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                           />
                         </div>
                         <div className="flex items-center justify-end gap-2 pt-2">
-                          <button type="button" onClick={() => setIsGlicemiaModalOpen(false)} className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
+                          <button type="button" disabled={isSavingGlicemia} onClick={() => setIsGlicemiaModalOpen(false)} className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors disabled:opacity-50">
                             Cancelar
                           </button>
-                          <button type="submit" className="px-4 py-2 bg-primary-600 text-white text-xs font-semibold rounded-lg hover:bg-primary-700 transition-colors">
-                            {editingGlicemiaId ? 'Salvar Alterações' : 'Registrar'}
+                          <button type="submit" disabled={isSavingGlicemia} className="px-4 py-2 bg-primary-600 text-white text-xs font-semibold rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                            {isSavingGlicemia ? 'Salvando...' : (editingGlicemiaId ? 'Salvar Alterações' : 'Registrar')}
                           </button>
                         </div>
                       </form>
+                    </div>
+                  </div>
+                )}
+
+                {glicemiaToDelete && (
+                  <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-100 animate-in zoom-in-95 duration-200">
+                      <div className="p-6 text-center">
+                        <div className="flex items-center justify-center w-12 h-12 rounded-full bg-rose-100 border border-rose-200 text-rose-600 mx-auto mb-4">
+                          <Trash2 size={24} />
+                        </div>
+                        <h3 className="text-lg font-bold text-slate-800 mb-2">
+                          Excluir Medição de Glicemia
+                        </h3>
+                        <p className="text-sm text-slate-600 leading-relaxed mb-4">
+                          Tem certeza que deseja excluir esta medição de glicemia ({glicemiaToDelete.value} mg/dL)?
+                        </p>
+                        
+                        <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 text-left text-xs space-y-2 mb-3">
+                          <div className="flex justify-between items-center text-slate-600">
+                            <span className="font-medium text-slate-500">Valor da Glicemia:</span>
+                            <span className="font-bold text-slate-800 text-sm">{glicemiaToDelete.value} mg/dL</span>
+                          </div>
+                          <div className="flex justify-between items-center text-slate-600">
+                            <span className="font-medium text-slate-500">Momento:</span>
+                            <span className="font-semibold text-slate-700">{GLICEMIA_MOMENTO_LABELS[glicemiaToDelete.moment]}</span>
+                          </div>
+                          <div className="flex justify-between items-center text-slate-600">
+                            <span className="font-medium text-slate-500">Data e Hora:</span>
+                            <span className="font-mono text-slate-700">
+                              {new Date(glicemiaToDelete.timestamp).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}
+                            </span>
+                          </div>
+                        </div>
+
+                        <p className="text-xs text-rose-600 font-medium">
+                          Esta ação não poderá ser desfeita.
+                        </p>
+                      </div>
+                      
+                      <div className="flex gap-3 px-6 pb-6 bg-slate-50/50 pt-3 border-t border-slate-100">
+                        <button
+                          type="button"
+                          disabled={isDeletingGlicemia}
+                          onClick={() => setGlicemiaToDelete(null)}
+                          className="flex-1 px-4 py-2.5 border border-slate-300 rounded-xl text-sm font-semibold text-slate-700 hover:bg-slate-100 transition-colors disabled:opacity-50"
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isDeletingGlicemia}
+                          onClick={confirmDeleteGlicemia}
+                          className="flex-1 px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-sm font-semibold transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {isDeletingGlicemia ? 'Excluindo...' : 'Excluir'}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}
