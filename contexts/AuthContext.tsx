@@ -29,6 +29,7 @@ export interface AuthContextValue {
   addUser: (user: Omit<AuthUser, 'id'> & { employeeId?: string }) => Promise<string | undefined>;
   deleteUser: (id: string) => Promise<void>;
   resetUserPassword: (id: string, newPassword: string) => Promise<void>;
+  updatePassword: (newPassword: string) => Promise<void>;
   updateUser: (user: AuthUser) => Promise<void>;
   updateUserCertificate: (userId: string, cert: DigitalCertificate | null) => Promise<void>;
   /** true quando o acesso deve ser bloqueado (pagamento pendente ou trial expirado). */
@@ -864,6 +865,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const updatePassword = async (newPassword: string) => {
+    if (!newPassword || newPassword.trim().length < 8) {
+      throw new Error('A nova senha deve ter no mínimo 8 caracteres.');
+    }
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    if (error) {
+      throw new Error(error.message || 'Erro ao redefinir a senha.');
+    }
+  };
+
   const updateUser = async (updatedUser: AuthUser) => {
     try {
       // Se o e-mail mudou, atualiza em auth.users via Edge Function (requer service_role)
@@ -947,7 +958,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ currentUser, users, profiles, loading, login, logout, resetPassword, confirmPasswordReset, hasPermission, updateProfile, addProfile, deleteProfile, addUser, deleteUser, resetUserPassword, updateUser, updateUserCertificate, accessBlocked, trialInfo, refreshAccessStatus, modeloBoletim, refreshModeloBoletim }}>
+    <AuthContext.Provider value={{ currentUser, users, profiles, loading, login, logout, resetPassword, confirmPasswordReset, hasPermission, updateProfile, addProfile, deleteProfile, addUser, deleteUser, resetUserPassword, updatePassword, updateUser, updateUserCertificate, accessBlocked, trialInfo, refreshAccessStatus, modeloBoletim, refreshModeloBoletim }}>
       {children}
     </AuthContext.Provider>
   );

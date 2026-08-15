@@ -2075,9 +2075,13 @@ function AppInner() {
                 onClick={() => setProfileMenuOpen(!profileMenuOpen)}
                 className="flex items-center gap-2 pl-1.5 pr-2 py-1.5 rounded-xl hover:bg-slate-100 transition-colors select-none"
               >
-                <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-                  {userInitials}
-                </div>
+                {currentUser.avatarUrl ? (
+                  <img src={currentUser.avatarUrl} alt={currentUser.name} className="w-8 h-8 rounded-full object-cover shrink-0 border border-slate-200" />
+                ) : (
+                  <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                    {userInitials}
+                  </div>
+                )}
                 <div className="hidden sm:block text-left">
                   <p className="text-sm font-semibold text-slate-800 leading-tight">{currentUser.name}</p>
                   <p className="text-[11px] text-slate-400">{currentUser.profile.name}</p>
