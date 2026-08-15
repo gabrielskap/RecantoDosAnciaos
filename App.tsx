@@ -1273,17 +1273,17 @@ function AppInner() {
         }
 
         if (updated.glucoseReadings.length > 0) {
-          const glicemiaToUpsert = updated.glucoseReadings.map(g => {
-            const isGlicemiaMock = g.id.length < 15;
+          const glicemiaToUpsert = updated.glucoseReadings.map((g: any) => {
+            const isGlicemiaMock = !g.id || g.id.length < 15;
             const item: any = {
               resident_id: updated.id,
-              timestamp: g.timestamp,
-              valor_mg_dl: g.value,
-              momento: g.moment,
-              insulina_aplicada: g.insulinApplied || false,
-              insulina_unidades: g.insulinUnits ?? null,
-              tipo_insulina: g.insulinApplied ? (g.insulinType || null) : null,
-              observacoes: g.notes || null
+              timestamp: g.timestamp || new Date().toISOString(),
+              valor_mg_dl: g.value ?? g.valor_mg_dl ?? 0,
+              momento: g.moment ?? g.momento ?? 'outro',
+              insulina_aplicada: Boolean(g.insulinApplied ?? g.insulina_aplicada ?? false),
+              insulina_unidades: (g.insulinUnits ?? g.insulina_unidades) != null ? parseFloat(String(g.insulinUnits ?? g.insulina_unidades)) : null,
+              tipo_insulina: (g.insulinApplied ?? g.insulina_aplicada) ? (g.insulinType ?? g.tipo_insulina ?? null) : null,
+              observacoes: g.notes ?? g.observacoes ?? null
             };
             if (!isGlicemiaMock) item.id = g.id;
             return item;

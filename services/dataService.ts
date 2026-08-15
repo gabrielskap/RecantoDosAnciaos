@@ -133,16 +133,16 @@ function mapResidentRow(r: any, heavy: ResidentHeavyData): Resident {
         spo2: v.spo2 || 0,
         painLevel: v.pain_level || undefined
       })),
-      glucoseReadings: rGlucoseReadings
+      glucoseReadings: (rGlucoseReadings || [])
         .map((g: any) => ({
-          id: g.id,
-          timestamp: g.timestamp,
-          value: g.valor_mg_dl,
-          moment: g.momento,
-          insulinApplied: g.insulina_aplicada || false,
-          insulinUnits: g.insulina_unidades != null ? parseFloat(g.insulina_unidades) : undefined,
-          insulinType: g.tipo_insulina || undefined,
-          notes: g.observacoes || undefined
+          id: g.id || Math.random().toString(36).substr(2, 9),
+          timestamp: g.timestamp || g.created_at || new Date().toISOString(),
+          value: g.valor_mg_dl != null ? Number(g.valor_mg_dl) : (g.value != null ? Number(g.value) : 0),
+          moment: (g.momento || g.moment || 'outro') as any,
+          insulinApplied: Boolean(g.insulina_aplicada ?? g.insulinApplied ?? false),
+          insulinUnits: g.insulina_unidades != null ? parseFloat(g.insulina_unidades) : (g.insulinUnits != null ? parseFloat(g.insulinUnits) : undefined),
+          insulinType: g.tipo_insulina || g.insulinType || undefined,
+          notes: g.observacoes || g.notes || undefined
         }))
         .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()),
       carePlan: (r.carePlan || []).map((cp: any) => ({

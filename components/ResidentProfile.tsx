@@ -4514,7 +4514,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                         <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${latestClassification.badgeClass}`}>
                           {latestClassification.label}
                         </span>
-                        <span className="text-[10px] text-slate-400">{GLICEMIA_MOMENTO_LABELS[latestReading.moment]}</span>
+                        <span className="text-[10px] text-slate-400">{GLICEMIA_MOMENTO_LABELS[latestReading.moment] || latestReading.moment || 'Outro'}</span>
                       </div>
                     )}
                   </div>
@@ -4789,7 +4789,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                                     </span>
                                   </div>
                                 </td>
-                                <td className="px-4 py-3 text-xs text-slate-600">{GLICEMIA_MOMENTO_LABELS[reading.moment]}</td>
+                                <td className="px-4 py-3 text-xs text-slate-600">{GLICEMIA_MOMENTO_LABELS[reading.moment] || reading.moment || 'Outro'}</td>
                                 <td className="px-4 py-3 text-xs text-slate-600">
                                   {reading.insulinApplied ? (
                                     <div className="flex flex-col gap-0.5">
