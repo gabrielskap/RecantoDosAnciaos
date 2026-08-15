@@ -67,8 +67,6 @@ interface SystemSettings {
   boletim: BoletimSettings;
 }
 
-const getCompatibilityStorageKey = (empresaId: string) => `recanto_system_settings_${empresaId}`;
-
 const defaultSettings: SystemSettings = {
   institution: {
     name: 'Recanto dos Anciãos',
@@ -127,16 +125,6 @@ const STATES_BR = [
   'MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC',
   'SP','SE','TO'
 ];
-
-// O cache existe apenas enquanto fluxos legados de impressão são migrados.
-// Ele é escrito exclusivamente após confirmação do banco e nunca é lido aqui.
-function writeVerifiedSettingsCache(empresaId: string, settings: SystemSettings) {
-  try {
-    localStorage.setItem(getCompatibilityStorageKey(empresaId), JSON.stringify(settings));
-  } catch (error) {
-    console.warn('Não foi possível atualizar o cache de compatibilidade das configurações:', error);
-  }
-}
 
 // ── Main Settings Component ───────────────────────────────────────────────────
 
@@ -281,7 +269,6 @@ const SettingsModule: React.FC = () => {
 
       if (error) throw error;
 
-      writeVerifiedSettingsCache(currentUser.empresaId, settings);
       setDirty(false);
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
@@ -325,7 +312,6 @@ const SettingsModule: React.FC = () => {
         if (error) throw error;
 
         setSettings(defaultSettings);
-        writeVerifiedSettingsCache(currentUser.empresaId, defaultSettings);
         setDirty(false);
         await refreshModeloBoletim();
       } catch (err: any) {

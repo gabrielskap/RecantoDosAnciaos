@@ -1124,7 +1124,11 @@ function AppInner() {
             .filter(m => !updatedMedIds.includes(m.id) && m.id.length >= 15)
             .map(m => m.id);
           if (deletedMedIds.length > 0) {
-            await supabase.from('Recanto_Medicacoes').delete().in('id', deletedMedIds);
+            const { error: deletedMedsError } = await supabase
+              .from('Recanto_Medicacoes')
+              .delete()
+              .in('id', deletedMedIds);
+            if (deletedMedsError) throw deletedMedsError;
           }
         }
 
@@ -1180,7 +1184,10 @@ function AppInner() {
             }
           }
           if (newLogsToInsert.length > 0) {
-            await supabase.from('Recanto_LogsMedicacao').insert(newLogsToInsert);
+            const { error: medicationLogsError } = await supabase
+              .from('Recanto_LogsMedicacao')
+              .insert(newLogsToInsert);
+            if (medicationLogsError) throw medicationLogsError;
           }
         }
       }
@@ -1197,7 +1204,11 @@ function AppInner() {
           .filter(p => !updatedIds.includes(p.id))
           .map(p => p.id);
         if (deletedPrescIds.length > 0) {
-          await supabase.from('Recanto_Receitas').delete().in('id', deletedPrescIds);
+          const { error: deletedPrescriptionsError } = await supabase
+            .from('Recanto_Receitas')
+            .delete()
+            .in('id', deletedPrescIds);
+          if (deletedPrescriptionsError) throw deletedPrescriptionsError;
         }
 
         const newPrescriptions = updated.prescriptions.filter(p => p.id.length < 15);
@@ -1209,7 +1220,10 @@ function AppInner() {
             file_url: p.fileUrl,
             file_name: p.fileName
           }));
-          await supabase.from('Recanto_Receitas').insert(prescToInsert);
+          const { error: prescriptionsError } = await supabase
+            .from('Recanto_Receitas')
+            .insert(prescToInsert);
+          if (prescriptionsError) throw prescriptionsError;
         }
       }
 
@@ -1235,9 +1249,7 @@ function AppInner() {
           const { error: vitErr } = await supabase
             .from('Recanto_SinaisVitais')
             .upsert(vitalsToUpsert, { onConflict: 'resident_id,timestamp' });
-          if (vitErr) {
-            console.warn('Aviso/Erro ao sincronizar sinais vitais:', vitErr);
-          }
+          if (vitErr) throw vitErr;
         }
       }
 
@@ -1330,10 +1342,11 @@ function AppInner() {
 
           // Acompanhamento de planos em lote
           const allChecklistIds = upsertedChecklists.map((c: any) => c.id);
-          await supabase
+          const { error: adherenceDeleteError } = await supabase
             .from('Recanto_AcompanhamentoPlano')
             .delete()
             .in('checklist_id', allChecklistIds);
+          if (adherenceDeleteError) throw adherenceDeleteError;
 
           const adherenceToInsert: any[] = [];
           for (const chk of updated.dailyChecklists) {
@@ -1350,7 +1363,10 @@ function AppInner() {
             }
           }
           if (adherenceToInsert.length > 0) {
-            await supabase.from('Recanto_AcompanhamentoPlano').insert(adherenceToInsert);
+            const { error: adherenceInsertError } = await supabase
+              .from('Recanto_AcompanhamentoPlano')
+              .insert(adherenceToInsert);
+            if (adherenceInsertError) throw adherenceInsertError;
           }
 
           // Baixa do inventário de medicamentos a partir dos boletins
@@ -1406,11 +1422,12 @@ function AppInner() {
         if (keptRealIds.length > 0) {
           delQuery = delQuery.not('id', 'in', `(${keptRealIds.join(',')})`);
         }
-        await delQuery;
+        const { error: foldersDeleteError } = await delQuery;
+        if (foldersDeleteError) throw foldersDeleteError;
 
         for (const folder of updated.documentFolders) {
           const isFolderMock = folder.id.length < 15;
-          const { data: folderData } = await supabase
+          const { data: folderData, error: folderError } = await supabase
             .from('Recanto_DocumentosPastas')
             .upsert({
               id: isFolderMock ? undefined : folder.id,
@@ -1419,7 +1436,10 @@ function AppInner() {
             })
             .select()
             .single();
-          if (folderData) folderIdMap.set(folder.id, folderData.id);
+          if (folderError || !folderData) {
+            throw folderError || new Error('Não foi possível salvar a pasta de documentos.');
+          }
+          folderIdMap.set(folder.id, folderData.id);
         }
       }
 
@@ -1440,7 +1460,10 @@ function AppInner() {
           if (!isDocMock) item.id = doc.id;
           return item;
         });
-        await supabase.from('Recanto_Documentos').upsert(docsToUpsert);
+        const { error: documentsError } = await supabase
+          .from('Recanto_Documentos')
+          .upsert(docsToUpsert);
+        if (documentsError) throw documentsError;
       }
 
       // 10. Plano de Dieta
@@ -1451,18 +1474,23 @@ function AppInner() {
           .eq('resident_id', updated.id);
         if (delDpErr) throw delDpErr;
       } else if (updated.dietPlan) {
-        const { data: existingDps } = await supabase
+        const { data: existingDps, error: existingDpsError } = await supabase
           .from('Recanto_PlanosDieta')
           .select('id, updated_at')
           .eq('resident_id', updated.id)
           .order('updated_at', { ascending: false });
+        if (existingDpsError) throw existingDpsError;
 
         let targetDpId: string | null = null;
         if (existingDps && existingDps.length > 0) {
           targetDpId = existingDps[0].id;
           if (existingDps.length > 1) {
             const dupes = existingDps.slice(1).map(d => d.id);
-            await supabase.from('Recanto_PlanosDieta').delete().in('id', dupes);
+            const { error: duplicateDietPlansError } = await supabase
+              .from('Recanto_PlanosDieta')
+              .delete()
+              .in('id', dupes);
+            if (duplicateDietPlansError) throw duplicateDietPlansError;
           }
         }
 
@@ -1534,7 +1562,10 @@ function AppInner() {
           if (!isNutMock) item.id = n.id;
           return item;
         });
-        await supabase.from('Recanto_LogsNutricao').upsert(nutToUpsert);
+        const { error: nutritionLogsError } = await supabase
+          .from('Recanto_LogsNutricao')
+          .upsert(nutToUpsert);
+        if (nutritionLogsError) throw nutritionLogsError;
       }
 
       // 12. Visitas (Bulk delete & bulk upsert)
@@ -1549,7 +1580,11 @@ function AppInner() {
           .filter(v => !updatedVisitIds.includes(v.id))
           .map(v => v.id);
         if (deletedVisitIds.length > 0) {
-          await supabase.from('Recanto_Visitas').delete().in('id', deletedVisitIds);
+          const { error: deletedVisitsError } = await supabase
+            .from('Recanto_Visitas')
+            .delete()
+            .in('id', deletedVisitIds);
+          if (deletedVisitsError) throw deletedVisitsError;
         }
 
         if (updated.visits.length > 0) {
@@ -1569,7 +1604,10 @@ function AppInner() {
             if (!isVisMock) item.id = vis.id;
             return item;
           });
-          await supabase.from('Recanto_Visitas').upsert(visitsToUpsert);
+          const { error: visitsError } = await supabase
+            .from('Recanto_Visitas')
+            .upsert(visitsToUpsert);
+          if (visitsError) throw visitsError;
         }
       }
 

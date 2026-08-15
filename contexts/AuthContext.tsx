@@ -161,12 +161,12 @@ const fetchUserProfile = async (authUserId: string): Promise<AuthUser | null> =>
   };
 };
 
-// Configurações institucionais são mantidas no banco. O localStorage abaixo é
-// somente um espelho de compatibilidade para pontos legados de impressão.
-const COMPANY_SETTINGS_CACHE_PREFIX = 'recanto_system_settings_';
+// Configurações institucionais são mantidas no banco. A chave abaixo só é
+// lida uma vez para migrar instalações antigas que ainda tinham um cache local.
+const COMPANY_SETTINGS_LEGACY_PREFIX = 'recanto_system_settings_';
 const COMPANY_SETTINGS_MIGRATION_PREFIX = 'recanto_settings_migrated_to_db_';
 
-const getCompanySettingsCacheKey = (empresaId: string) => `${COMPANY_SETTINGS_CACHE_PREFIX}${empresaId}`;
+const getCompanySettingsLegacyKey = (empresaId: string) => `${COMPANY_SETTINGS_LEGACY_PREFIX}${empresaId}`;
 const getCompanySettingsMigrationKey = (empresaId: string) => `${COMPANY_SETTINGS_MIGRATION_PREFIX}${empresaId}`;
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
@@ -255,47 +255,6 @@ const buildMissingCompanySettingsUpdate = (company: any, legacy: unknown): Recor
 
   return updates;
 };
-
-const buildCompanySettingsCache = (company: any) => ({
-  institution: {
-    name: company.nome_instituicao || '',
-    cnpj: company.cnpj || '',
-    phone: company.telefone || '',
-    email: company.email_comercial || '',
-    address: company.endereco || '',
-    city: company.cidade || '',
-    state: company.estado || 'SP',
-    cep: company.cep || '',
-    capacity: company.capacidade_maxima ?? 30,
-    directorName: company.diretor_geral || '',
-    technicalDirector: company.responsavel_tecnico || '',
-    anvisa: company.registro_anvisa || '',
-    watermarkImage: company.papel_timbrado || '',
-  },
-  notifications: isPlainObject(company.config_notificacoes) ? company.config_notificacoes : {
-    stockAlertThreshold: 5,
-    medicationReminderEnabled: true,
-    medicationReminderMinutes: 30,
-    birthdayRemindersEnabled: true,
-    contractDueDaysWarning: 30,
-    checklistMissedAlerts: true,
-    lowOccupancyThreshold: 20,
-  },
-  security: isPlainObject(company.config_seguranca) ? company.config_seguranca : {
-    sessionTimeoutMinutes: 60,
-    requirePasswordChange: false,
-    passwordChangeDays: 90,
-    twoFactorEnabled: false,
-    auditLogRetentionDays: 365,
-    maxLoginAttempts: 5,
-  },
-  documents: {
-    tipoAssinatura: company.tipo_assinatura_documentos === 'certificado_a1' ? 'certificado_a1' : 'simples',
-  },
-  boletim: {
-    modelo: company.modelo_boletim === 'diario' ? 'diario' : 'diurno_noturno',
-  },
-});
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
@@ -625,7 +584,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (!active) return;
 
         let company = data as any;
-        const localKey = getCompanySettingsCacheKey(empresaId);
+        const localKey = getCompanySettingsLegacyKey(empresaId);
         const migrationKey = getCompanySettingsMigrationKey(empresaId);
         let migrationDone = false;
         try {
@@ -678,6 +637,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             } catch (storageError) {
               console.warn('Não foi possível registrar a migração local:', storageError);
             }
+
+            try {
+              localStorage.removeItem(localKey);
+            } catch (storageError) {
+              console.warn('Não foi possível remover o cache local já migrado:', storageError);
+            }
           } catch (parseError) {
             console.warn('Cache legado de configurações inválido; mantendo o banco como fonte:', parseError);
             // Um cache inválido não é usado para atualizar o banco. Como ele
@@ -688,6 +653,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             } catch (storageError) {
               console.warn('Não foi possível registrar a migração local:', storageError);
             }
+
+            try {
+              localStorage.removeItem(localKey);
+            } catch (storageError) {
+              console.warn('Não foi possível remover o cache local inválido:', storageError);
+            }
+          }
+        }
+
+        if (migrationDone) {
+          try {
+            localStorage.removeItem(localKey);
+          } catch (storageError) {
+            console.warn('Não foi possível limpar o cache local de configurações:', storageError);
           }
         }
 
@@ -695,15 +674,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setModeloBoletim(company.modelo_boletim === 'diario' ? 'diario' : 'diurno_noturno');
         }
 
-        // Compatibilidade temporária para telas legadas: nunca lemos este
-        // espelho para decidir o estado do sistema; ele é derivado do banco.
-        if (migrationDone || currentUser?.profile.type === 'Administrador') {
-          try {
-            localStorage.setItem(localKey, JSON.stringify(buildCompanySettingsCache(company)));
-          } catch (storageError) {
-            console.warn('Não foi possível atualizar o espelho local de configurações:', storageError);
-          }
-        }
       } catch (err) {
         console.error('Erro ao sincronizar configurações da empresa:', err);
       }

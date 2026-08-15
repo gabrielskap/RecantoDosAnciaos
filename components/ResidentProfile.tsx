@@ -66,6 +66,76 @@ const getInitialEvolutionArea = (role?: string): EvolutionArea => {
   return 'enfermagem';
 };
 
+type PrintInstitution = {
+  name: string;
+  cnpj: string;
+  phone: string;
+  email: string;
+  address: string;
+  city: string;
+  state: string;
+  cep: string;
+  directorName: string;
+  technicalDirector: string;
+  anvisa: string;
+};
+
+const getDefaultPrintInstitution = (): PrintInstitution => ({
+  name: 'Recanto dos Anciãos',
+  cnpj: '',
+  phone: '',
+  email: '',
+  address: '',
+  city: '',
+  state: 'SP',
+  cep: '',
+  directorName: '',
+  technicalDirector: '',
+  anvisa: '',
+});
+
+const fetchPrintInstitution = async (empresaId?: string) => {
+  const inst = getDefaultPrintInstitution();
+  if (!empresaId) {
+    return { inst, watermarkSrc: '', hasLetterhead: false };
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('Recanto_Empresas')
+      .select('nome_instituicao, cnpj, telefone, email_comercial, endereco, cidade, estado, cep, diretor_geral, responsavel_tecnico, registro_anvisa, papel_timbrado')
+      .eq('empresa_id', empresaId)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!data) return { inst, watermarkSrc: '', hasLetterhead: false };
+
+    const watermarkSrc = data.papel_timbrado || '';
+    return {
+      inst: {
+        name: data.nome_instituicao || inst.name,
+        cnpj: data.cnpj || '',
+        phone: data.telefone || '',
+        email: data.email_comercial || '',
+        address: data.endereco || '',
+        city: data.cidade || '',
+        state: data.estado || inst.state,
+        cep: data.cep || '',
+        directorName: data.diretor_geral || '',
+        technicalDirector: data.responsavel_tecnico || '',
+        anvisa: data.registro_anvisa || '',
+      },
+      watermarkSrc,
+      hasLetterhead: Boolean(watermarkSrc),
+    };
+  } catch (error) {
+    // A impressão continua disponível sem dados institucionais se a leitura
+    // canônica falhar; o navegador não é usado como fonte alternativa.
+    console.error('Erro ao carregar dados institucionais do banco para impressão:', error);
+    return { inst, watermarkSrc: '', hasLetterhead: false };
+  }
+};
+
 // ── Glicemia helpers ─────────────────────────────────────────────────────────
 
 const generateUUID = (): string => {
@@ -1766,48 +1836,21 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     }
   };
 
-  const handlePrintChecklist = () => {
+  const handlePrintChecklist = async () => {
     if (!selectedChecklist) return;
-
-    let watermarkSrc = '';
-    let hasLetterhead = false;
-    let inst = {
-      name: 'Recanto dos Anciãos',
-      cnpj: '',
-      phone: '',
-      email: '',
-      address: '',
-      city: '',
-      state: 'SP',
-      cep: '',
-      directorName: '',
-      technicalDirector: '',
-      anvisa: '',
-    };
-
-    try {
-      const settingsKey = `recanto_system_settings_${currentUser?.empresaId ?? currentUser?.id ?? 'anon'}`;
-      const raw = localStorage.getItem(settingsKey);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed?.institution) {
-          inst = { ...inst, ...parsed.institution };
-          const src = parsed.institution.watermarkImage;
-          if (src) {
-            hasLetterhead = true;
-            watermarkSrc = src;
-          }
-        }
-      }
-    } catch (e) {
-      console.error('Erro ao carregar dados da instituição ou papel timbrado:', e);
-    }
 
     const win = window.open('', '_blank', 'width=960,height=720');
     if (!win) {
       toast.warning('Permita popups para gerar a impressão.');
       return;
     }
+
+    win.document.open();
+    win.document.write('<!DOCTYPE html><html lang="pt-BR"><head><title>Gerando documento…</title></head><body><p>Gerando documento…</p></body></html>');
+    win.document.close();
+
+    const { inst, watermarkSrc, hasLetterhead } = await fetchPrintInstitution(currentUser?.empresaId);
+    if (win.closed) return;
 
     const parsedMeds = parseMedications(selectedChecklist.medicacoesAdministradas);
     const shiftLabel = getShiftLabel(selectedShift);
@@ -2432,46 +2475,19 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     win.document.close();
   };
 
-  const handlePrintVitalsAverages = (periodType: 'day' | 'week' | 'month') => {
-    let watermarkSrc = '';
-    let hasLetterhead = false;
-    let inst = {
-      name: 'Recanto dos Anciãos',
-      cnpj: '',
-      phone: '',
-      email: '',
-      address: '',
-      city: '',
-      state: 'SP',
-      cep: '',
-      directorName: '',
-      technicalDirector: '',
-      anvisa: '',
-    };
-
-    try {
-      const settingsKey = `recanto_system_settings_${currentUser?.empresaId ?? currentUser?.id ?? 'anon'}`;
-      const raw = localStorage.getItem(settingsKey);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed?.institution) {
-          inst = { ...inst, ...parsed.institution };
-          const src = parsed.institution.watermarkImage;
-          if (src) {
-            hasLetterhead = true;
-            watermarkSrc = src;
-          }
-        }
-      }
-    } catch (e) {
-      console.error('Erro ao carregar dados da instituição ou papel timbrado:', e);
-    }
-
+  const handlePrintVitalsAverages = async (periodType: 'day' | 'week' | 'month') => {
     const win = window.open('', '_blank', 'width=960,height=720');
     if (!win) {
       toast.warning('Permita popups para gerar a impressão.');
       return;
     }
+
+    win.document.open();
+    win.document.write('<!DOCTYPE html><html lang="pt-BR"><head><title>Gerando documento…</title></head><body><p>Gerando documento…</p></body></html>');
+    win.document.close();
+
+    const { inst, watermarkSrc, hasLetterhead } = await fetchPrintInstitution(currentUser?.empresaId);
+    if (win.closed) return;
 
     // Helper classification
     const classify = (sys: number, dia: number) => {
@@ -3002,46 +3018,19 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     win.document.close();
   };
 
-  const handlePrintGlicemiaAverages = (periodType: 'day' | 'week' | 'month') => {
-    let watermarkSrc = '';
-    let hasLetterhead = false;
-    let inst = {
-      name: 'Recanto dos Anciãos',
-      cnpj: '',
-      phone: '',
-      email: '',
-      address: '',
-      city: '',
-      state: 'SP',
-      cep: '',
-      directorName: '',
-      technicalDirector: '',
-      anvisa: '',
-    };
-
-    try {
-      const settingsKey = `recanto_system_settings_${currentUser?.empresaId ?? currentUser?.id ?? 'anon'}`;
-      const raw = localStorage.getItem(settingsKey);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed?.institution) {
-          inst = { ...inst, ...parsed.institution };
-          const src = parsed.institution.watermarkImage;
-          if (src) {
-            hasLetterhead = true;
-            watermarkSrc = src;
-          }
-        }
-      }
-    } catch (e) {
-      console.error('Erro ao carregar dados da instituição ou papel timbrado:', e);
-    }
-
+  const handlePrintGlicemiaAverages = async (periodType: 'day' | 'week' | 'month') => {
     const win = window.open('', '_blank', 'width=960,height=720');
     if (!win) {
       toast.warning('Permita popups para gerar a impressão.');
       return;
     }
+
+    win.document.open();
+    win.document.write('<!DOCTYPE html><html lang="pt-BR"><head><title>Gerando documento…</title></head><body><p>Gerando documento…</p></body></html>');
+    win.document.close();
+
+    const { inst, watermarkSrc, hasLetterhead } = await fetchPrintInstitution(currentUser?.empresaId);
+    if (win.closed) return;
 
     const getWeekMonday = (d: Date) => {
       const temp = new Date(d);
