@@ -6,6 +6,14 @@ import CustomSelect from './CustomSelect';
 import { useAuth } from '../contexts/AuthContext';
 import { deleteContractDocument, getContractDocumentUrl, uploadContractDocument } from '../services/supabaseClient';
 import { toast } from '../services/toast';
+import { residentAvatarSrc } from '../lib/avatar';
+
+const LEGACY_FINANCE_DRAFT_STORAGE_KEYS = [
+  'modal_finance_record_open',
+  'modal_finance_contract_open',
+  'modal_finance_new_record',
+  'modal_finance_new_contract',
+];
 
 interface FinanceModuleProps {
   records: FinancialRecord[];
@@ -17,11 +25,13 @@ interface FinanceModuleProps {
   onAddContract: (contract: Contract) => Promise<void>;
   onUpdateContractFile: (contractId: string, fileUrl: string | null) => Promise<void>;
   onUpdateInvoice: (invoice: Invoice) => Promise<void>;
+  onSelectResident?: (resident: Resident) => void;
 }
 
 const FinanceModule: React.FC<FinanceModuleProps> = ({
   records, contracts, invoices, residents,
   onAddRecord, onDeleteRecord, onAddContract, onUpdateContractFile, onUpdateInvoice,
+  onSelectResident,
 }) => {
   const { hasPermission } = useAuth();
   const canCreate = hasPermission(ViewState.FINANCE, 'create');
@@ -38,6 +48,8 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
     return saved && ['overview', 'contracts', 'invoices', 'expenses'].includes(saved) ? saved : 'overview';
   });
 
+  const containerRef = useRef<HTMLDivElement>(null);
+
   React.useEffect(() => {
     localStorage.setItem('recanto_finance_active_tab', activeTab);
     const url = new URL(window.location.href);
@@ -45,20 +57,28 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
       url.searchParams.set('tab', activeTab);
       window.history.replaceState(null, '', url.pathname + url.search);
     }
+    if (containerRef.current) {
+      const scrollParent = containerRef.current.closest('.overflow-y-auto');
+      if (scrollParent) {
+        scrollParent.scrollTop = 0;
+      }
+    }
+    window.scrollTo(0, 0);
   }, [activeTab]);
-  const [isRecordModalOpen, setIsRecordModalOpen] = useState(() => {
-    return localStorage.getItem('modal_finance_record_open') === 'true';
+  const [isRecordModalOpen, setIsRecordModalOpen] = useState(false);
+  const [isContractModalOpen, setIsContractModalOpen] = useState(false);
+  const [newRecord, setNewRecord] = useState({
+    type: 'despesa',
+    description: '',
+    category: '',
+    amount: '',
+    date: new Date().toISOString().split('T')[0],
   });
-  const [isContractModalOpen, setIsContractModalOpen] = useState(() => {
-    return localStorage.getItem('modal_finance_contract_open') === 'true';
-  });
-  const [newRecord, setNewRecord] = useState(() => {
-    const saved = localStorage.getItem('modal_finance_new_record');
-    return saved ? JSON.parse(saved) : { type: 'despesa', description: '', category: '', amount: '', date: new Date().toISOString().split('T')[0] };
-  });
-  const [newContract, setNewContract] = useState(() => {
-    const saved = localStorage.getItem('modal_finance_new_contract');
-    return saved ? JSON.parse(saved) : { residentId: '', monthlyValue: '', dueDay: '5', startDate: new Date().toISOString().split('T')[0] };
+  const [newContract, setNewContract] = useState({
+    residentId: '',
+    monthlyValue: '',
+    dueDay: '5',
+    startDate: new Date().toISOString().split('T')[0],
   });
   const [contractFile, setContractFile] = useState<File | null>(null);
   const [uploadingContractId, setUploadingContractId] = useState<string | null>(null);
@@ -66,24 +86,8 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
   const modalMouseDown = useRef(false);
 
   React.useEffect(() => {
-    if (isRecordModalOpen) {
-      localStorage.setItem('modal_finance_record_open', 'true');
-      localStorage.setItem('modal_finance_new_record', JSON.stringify(newRecord));
-    } else {
-      localStorage.removeItem('modal_finance_record_open');
-      localStorage.removeItem('modal_finance_new_record');
-    }
-  }, [isRecordModalOpen, newRecord]);
-
-  React.useEffect(() => {
-    if (isContractModalOpen) {
-      localStorage.setItem('modal_finance_contract_open', 'true');
-      localStorage.setItem('modal_finance_new_contract', JSON.stringify(newContract));
-    } else {
-      localStorage.removeItem('modal_finance_contract_open');
-      localStorage.removeItem('modal_finance_new_contract');
-    }
-  }, [isContractModalOpen, newContract]);
+    LEGACY_FINANCE_DRAFT_STORAGE_KEYS.forEach((key) => localStorage.removeItem(key));
+  }, []);
 
   const totalIncome = records.filter(r => r.type === 'receita').reduce((acc, cur) => acc + cur.amount, 0);
   const totalExpense = records.filter(r => r.type === 'despesa').reduce((acc, cur) => acc + cur.amount, 0);
@@ -233,7 +237,7 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
   ];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" ref={containerRef}>
 
       {/* Header */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -323,15 +327,55 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
         <div className="bg-white rounded-2xl shadow-sm shadow-blue-100/40 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="border-b border-slate-100">
+              <thead className="border-b border-slate-100 bg-slate-50/70 sticky top-0 backdrop-blur z-10">
                 <tr>{['Residente', 'Início', 'Valor Mensal', 'Vencimento', 'Status', 'Ações'].map(h => (
-                  <th key={h} className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">{h}</th>
+                  <th key={h} className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                 ))}</tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {contracts.map(c => (
-                  <tr key={c.id} className="hover:bg-slate-50/60 transition-colors">
-                    <td className="px-6 py-4 font-semibold text-slate-800">{c.residentName}</td>
+                {contracts.map(c => {
+                  const resident = residents.find(r => r.id === c.residentId || (c.residentName && r.name.toLowerCase() === c.residentName.toLowerCase()));
+                  const photoSrc = residentAvatarSrc(c.residentName, resident?.photoUrl);
+                  const residentHref = resident ? `/residents/${resident.id}` : '#';
+
+                  return (
+                    <tr key={c.id} className="hover:bg-slate-50/60 transition-colors">
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-3">
+                          {resident ? (
+                            <a
+                              href={residentHref}
+                              onClick={(e) => {
+                                if (!e.ctrlKey && !e.metaKey && !e.shiftKey) {
+                                  e.preventDefault();
+                                  if (onSelectResident) {
+                                    onSelectResident(resident);
+                                  } else {
+                                    window.location.href = residentHref;
+                                  }
+                                }
+                              }}
+                              className="inline-flex items-center gap-3 font-semibold text-slate-800 hover:text-blue-600 group transition-colors"
+                            >
+                              <img
+                                src={photoSrc}
+                                alt={c.residentName}
+                                className="w-9 h-9 rounded-full object-cover shrink-0 border border-slate-200 shadow-sm group-hover:ring-2 group-hover:ring-blue-400 transition-all"
+                              />
+                              <span className="group-hover:underline">{c.residentName}</span>
+                            </a>
+                          ) : (
+                            <div className="inline-flex items-center gap-3 font-semibold text-slate-800">
+                              <img
+                                src={photoSrc}
+                                alt={c.residentName}
+                                className="w-9 h-9 rounded-full object-cover shrink-0 border border-slate-200 shadow-sm"
+                              />
+                              <span>{c.residentName}</span>
+                            </div>
+                          )}
+                        </div>
+                      </td>
                     <td className="px-6 py-4 text-slate-500">{new Date(c.startDate + 'T00:00:00').toLocaleDateString('pt-BR')}</td>
                     <td className="px-6 py-4 font-semibold text-emerald-700">R$ {c.monthlyValue.toLocaleString('pt-BR')}</td>
                     <td className="px-6 py-4 text-slate-500">Dia {c.dueDay}</td>
@@ -375,7 +419,8 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
                       )}
                     </td>
                   </tr>
-                ))}
+                );
+              })}
               </tbody>
             </table>
           </div>
@@ -410,9 +455,50 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
                   ))}</tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {invoices.map(inv => (
-                    <tr key={inv.id} className="hover:bg-slate-50/60 transition-colors">
-                      <td className="px-6 py-4 font-semibold text-slate-800">{inv.residentName}</td>
+                  {invoices.map(inv => {
+                    const contract = contracts.find(c => c.id === inv.contractId);
+                    const resident = residents.find(r => (contract && r.id === contract.residentId) || (inv.residentName && r.name.toLowerCase() === inv.residentName.toLowerCase()));
+                    const photoSrc = residentAvatarSrc(inv.residentName, resident?.photoUrl);
+                    const residentHref = resident ? `/residents/${resident.id}` : '#';
+
+                    return (
+                      <tr key={inv.id} className="hover:bg-slate-50/60 transition-colors">
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-3">
+                            {resident ? (
+                              <a
+                                href={residentHref}
+                                onClick={(e) => {
+                                  if (!e.ctrlKey && !e.metaKey && !e.shiftKey) {
+                                    e.preventDefault();
+                                    if (onSelectResident) {
+                                      onSelectResident(resident);
+                                    } else {
+                                      window.location.href = residentHref;
+                                    }
+                                  }
+                                }}
+                                className="inline-flex items-center gap-3 font-semibold text-slate-800 hover:text-blue-600 group transition-colors"
+                              >
+                                <img
+                                  src={photoSrc}
+                                  alt={inv.residentName}
+                                  className="w-9 h-9 rounded-full object-cover shrink-0 border border-slate-200 shadow-sm group-hover:ring-2 group-hover:ring-blue-400 transition-all"
+                                />
+                                <span className="group-hover:underline">{inv.residentName}</span>
+                              </a>
+                            ) : (
+                              <div className="inline-flex items-center gap-3 font-semibold text-slate-800">
+                                <img
+                                  src={photoSrc}
+                                  alt={inv.residentName}
+                                  className="w-9 h-9 rounded-full object-cover shrink-0 border border-slate-200 shadow-sm"
+                                />
+                                <span>{inv.residentName}</span>
+                              </div>
+                            )}
+                          </div>
+                        </td>
                       <td className="px-6 py-4 text-slate-500">{new Date(inv.dueDate + 'T00:00:00').toLocaleDateString('pt-BR')}</td>
                       <td className="px-6 py-4 font-semibold">R$ {inv.amount.toLocaleString('pt-BR')}</td>
                       <td className="px-6 py-4">
@@ -428,7 +514,8 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
                           : <span className="text-xs text-slate-400">Quitado</span>}
                       </td>
                     </tr>
-                  ))}
+                  );
+                })}
                 </tbody>
               </table>
             </div>

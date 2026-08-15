@@ -490,6 +490,7 @@ const TrialEnvironment: React.FC = () => {
             onAddContract={async () => {}}
             onUpdateContractFile={async () => {}}
             onUpdateInvoice={handleUpdateInvoice}
+            onSelectResident={handleSelectResident}
           />
         );
       case ViewState.TEAM:

@@ -7,6 +7,14 @@ import { toast } from '../services/toast';
 import CustomSelect from './CustomSelect';
 import UsersModule from './UsersModule';
 
+const LEGACY_TEAM_DRAFT_STORAGE_KEYS = [
+  'modal_team_emp_open',
+  'modal_team_train_open',
+  'modal_team_editing_emp_id',
+  'modal_team_new_emp',
+  'modal_team_new_train',
+];
+
 interface TeamModuleProps {
   employees: Employee[];
   trainings: TrainingRecord[];
@@ -52,19 +60,18 @@ const TeamModule: React.FC<TeamModuleProps> = ({
       window.history.replaceState(null, '', url.pathname + url.search);
     }
   }, [activeTab]);
+
+  useEffect(() => {
+    LEGACY_TEAM_DRAFT_STORAGE_KEYS.forEach((key) => localStorage.removeItem(key));
+  }, []);
+
   const [logsPage, setLogsPage] = useState(1);
   const [logsItemsPerPage, setLogsItemsPerPage] = useState(10);
-  const [isEmpModalOpen, setIsEmpModalOpen] = useState(() => {
-    return localStorage.getItem('modal_team_emp_open') === 'true';
-  });
-  const [isTrainModalOpen, setIsTrainModalOpen] = useState(() => {
-    return localStorage.getItem('modal_team_train_open') === 'true';
-  });
+  const [isEmpModalOpen, setIsEmpModalOpen] = useState(false);
+  const [isTrainModalOpen, setIsTrainModalOpen] = useState(false);
   const modalMouseDown = useRef(false);
 
-  const [editingEmpId, setEditingEmpId] = useState<string | null>(() => {
-    return localStorage.getItem('modal_team_editing_emp_id') || null;
-  });
+  const [editingEmpId, setEditingEmpId] = useState<string | null>(null);
 
   // New Employee Form State
   const SHIFT_TIMES: Record<string, { shiftStart: string; shiftEnd: string }> = {
@@ -74,20 +81,17 @@ const TeamModule: React.FC<TeamModuleProps> = ({
     '12x36':   { shiftStart: '', shiftEnd: '' },
   };
 
-  const [newEmp, setNewEmp] = useState<Partial<Employee>>(() => {
-    const saved = localStorage.getItem('modal_team_new_emp');
-    return saved ? JSON.parse(saved) : {
-      name: '',
-      role: 'Cuidador',
-      cpf: '',
-      email: '',
-      phone: '',
-      shift: 'Matutino',
-      shiftStart: '07:00',
-      shiftEnd: '13:00',
-      isTechnicalLead: false,
-      status: 'Ativo'
-    };
+  const [newEmp, setNewEmp] = useState<Partial<Employee>>({
+    name: '',
+    role: 'Cuidador',
+    cpf: '',
+    email: '',
+    phone: '',
+    shift: 'Matutino',
+    shiftStart: '07:00',
+    shiftEnd: '13:00',
+    isTechnicalLead: false,
+    status: 'Ativo'
   });
 
   const [linkUserMode, setLinkUserMode] = useState<string>('none');
@@ -138,40 +142,13 @@ const TeamModule: React.FC<TeamModuleProps> = ({
     : null;
 
   // New Training Form State
-  const [newTrain, setNewTrain] = useState<Partial<TrainingRecord>>(() => {
-    const saved = localStorage.getItem('modal_team_new_train');
-    return saved ? JSON.parse(saved) : {
-      title: '',
-      instructor: '',
-      date: '',
-      description: '',
-      validUntil: ''
-    };
+  const [newTrain, setNewTrain] = useState<Partial<TrainingRecord>>({
+    title: '',
+    instructor: '',
+    date: '',
+    description: '',
+    validUntil: ''
   });
-
-  React.useEffect(() => {
-    if (isEmpModalOpen) {
-      localStorage.setItem('modal_team_emp_open', 'true');
-      localStorage.setItem('modal_team_new_emp', JSON.stringify(newEmp));
-      if (editingEmpId) {
-        localStorage.setItem('modal_team_editing_emp_id', editingEmpId);
-      }
-    } else {
-      localStorage.removeItem('modal_team_emp_open');
-      localStorage.removeItem('modal_team_new_emp');
-      localStorage.removeItem('modal_team_editing_emp_id');
-    }
-  }, [isEmpModalOpen, newEmp, editingEmpId]);
-
-  React.useEffect(() => {
-    if (isTrainModalOpen) {
-      localStorage.setItem('modal_team_train_open', 'true');
-      localStorage.setItem('modal_team_new_train', JSON.stringify(newTrain));
-    } else {
-      localStorage.removeItem('modal_team_train_open');
-      localStorage.removeItem('modal_team_new_train');
-    }
-  }, [isTrainModalOpen, newTrain]);
 
   const handleNewEmployeeClick = () => {
     setEditingEmpId(null);

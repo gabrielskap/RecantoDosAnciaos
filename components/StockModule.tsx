@@ -7,6 +7,12 @@ import { useAuth } from '../contexts/AuthContext';
 import MedicationInventoryTab from './MedicationInventoryTab';
 import MedicationAutocomplete from './MedicationAutocomplete';
 
+const LEGACY_STOCK_DRAFT_STORAGE_KEYS = [
+  'modal_stock_item_open',
+  'modal_stock_history_item',
+  'modal_stock_new_item',
+];
+
 interface StockModuleProps {
   items: StockItem[];
   residents: Resident[];
@@ -53,43 +59,23 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
       window.history.replaceState(null, '', url.pathname + url.search);
     }
   }, [activeTab]);
+  useEffect(() => {
+    LEGACY_STOCK_DRAFT_STORAGE_KEYS.forEach((key) => localStorage.removeItem(key));
+  }, []);
+
   const [selectedResident, setSelectedResident] = useState<Resident | null>(null);
   const [residentSearch, setResidentSearch] = useState('');
   
-  const [isModalOpen, setIsModalOpen] = useState(() => {
-    return localStorage.getItem('modal_stock_item_open') === 'true';
-  });
-  const [selectedHistoryItem, setSelectedHistoryItem] = useState<StockItem | null>(() => {
-    const saved = localStorage.getItem('modal_stock_history_item');
-    return saved ? JSON.parse(saved) : null;
-  });
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedHistoryItem, setSelectedHistoryItem] = useState<StockItem | null>(null);
   const modalMouseDown = useRef(false);
 
-  const [newItem, setNewItem] = useState(() => {
-    const saved = localStorage.getItem('modal_stock_new_item');
-    return saved ? JSON.parse(saved) : { name: '', category: 'medicamento', quantity: '', unit: '', minThreshold: '10', expirationDate: '', residentId: undefined };
+  const [newItem, setNewItem] = useState({
+    name: '', category: 'medicamento', quantity: '', unit: '', minThreshold: '10', expirationDate: '', residentId: undefined
   });
 
   const [editingItem, setEditingItem] = useState<StockItem | null>(null);
   const [editForm, setEditForm] = useState({ name: '', category: 'medicamento', unit: '', minThreshold: '10', expirationDate: '' });
-
-  React.useEffect(() => {
-    if (isModalOpen) {
-      localStorage.setItem('modal_stock_item_open', 'true');
-      localStorage.setItem('modal_stock_new_item', JSON.stringify(newItem));
-    } else {
-      localStorage.removeItem('modal_stock_item_open');
-      localStorage.removeItem('modal_stock_new_item');
-    }
-  }, [isModalOpen, newItem]);
-
-  React.useEffect(() => {
-    if (selectedHistoryItem) {
-      localStorage.setItem('modal_stock_history_item', JSON.stringify(selectedHistoryItem));
-    } else {
-      localStorage.removeItem('modal_stock_history_item');
-    }
-  }, [selectedHistoryItem]);
 
   const handleOpenModal = (resId?: string) => {
     setNewItem({

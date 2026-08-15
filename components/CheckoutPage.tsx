@@ -133,6 +133,8 @@ const EMPTY_FORM: CheckoutFormData = {
 };
 
 const RASCUNHO_KEY = 'rascunhoCheckout';
+const LEGACY_CHECKOUT_PII_KEYS = ['rc_emp', 'rc_adm'] as const;
+const RASCUNHO_TOKEN_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const irParaLogin = () => { window.history.pushState(null, '', '/login'); window.location.reload(); };
 
@@ -159,6 +161,13 @@ const CheckoutPage: React.FC = () => {
   const [rascunhoToken, setRascunhoToken] = useState<string>(() =>
     sessionStorage.getItem(RASCUNHO_KEY) ?? ''
   );
+
+  // Versões anteriores mantinham dados cadastrais (inclusive CPF) na sessão.
+  // O rascunho persistente agora fica apenas no banco; no navegador, mantemos
+  // somente o token opaco necessário para finalizar o checkout.
+  useEffect(() => {
+    LEGACY_CHECKOUT_PII_KEYS.forEach((key) => sessionStorage.removeItem(key));
+  }, []);
 
   // CAPTCHA (hCaptcha) — opcional
   const [captchaToken, setCaptchaToken] = useState('');
@@ -350,30 +359,48 @@ const CheckoutPage: React.FC = () => {
   };
 
   // ── Salva rascunho no banco ──────────────────────────────────────────────
-  const saveRascunho = async (step: 'empresa' | 'admin' | 'plano', data: Record<string, unknown>) => {
+  const dadosEmpresaRascunho = (): Record<string, unknown> => ({
+    nomeInstituicao: form.nomeInstituicao,
+    cnpj: form.cnpj.replace(/\D/g, ''),
+    razaoSocial: form.razaoSocial,
+    nomeFantasia: form.nomeFantasia,
+    telefoneEmpresa: form.telefoneEmpresa,
+    emailComercial: form.emailComercial,
+    endereco: form.endereco,
+    cidade: form.cidade,
+    estado: form.estado,
+    cep: form.cep,
+    qtdResidentes: form.qtdResidentes,
+    qtdUsuarios: form.qtdUsuarios,
+  });
+
+  const dadosAdminRascunho = (): Record<string, unknown> => ({
+    nomeAdmin: form.nomeAdmin,
+    cpfAdmin: form.cpfAdmin,
+    emailAdmin: form.emailAdmin,
+    telefoneAdmin: form.telefoneAdmin,
+    cargo: form.cargo,
+  });
+
+  const saveRascunho = async (step: 'empresa' | 'admin' | 'plano') => {
     setSavingRascunho(true);
     try {
       let token = rascunhoToken;
-      if (!token) {
+      if (!RASCUNHO_TOKEN_PATTERN.test(token)) {
         token = crypto.randomUUID();
         setRascunhoToken(token);
         sessionStorage.setItem(RASCUNHO_KEY, token);
       }
-      const update: Record<string, unknown> = { rascunho_token: token, dados_empresa: {} };
-      if (step === 'empresa') update.dados_empresa = data;
-      if (step === 'admin') {
-        update.dados_empresa = JSON.parse(sessionStorage.getItem('rc_emp') ?? '{}');
-        update.dados_admin = data;
-      }
-      if (step === 'plano') {
-        update.dados_empresa = JSON.parse(sessionStorage.getItem('rc_emp') ?? '{}');
-        update.dados_admin = JSON.parse(sessionStorage.getItem('rc_adm') ?? '{}');
-        update.dados_plano = data;
-      }
 
       const { error } = await supabase
-        .from('Recanto_Checkout_Rascunhos')
-        .upsert(update, { onConflict: 'rascunho_token' });
+        .rpc('recanto_save_checkout_rascunho', {
+          p_rascunho_token: token,
+          p_dados_empresa: dadosEmpresaRascunho(),
+          p_dados_admin: step === 'empresa' ? null : dadosAdminRascunho(),
+          p_dados_plano: step === 'plano'
+            ? { planoId: form.planoId, periodicidade: form.periodicidade }
+            : null,
+        });
       if (error) throw error;
     } finally {
       setSavingRascunho(false);
@@ -428,48 +455,29 @@ const CheckoutPage: React.FC = () => {
   // ─── Navegação ─────────────────────────────────────────────────────────────
   const next = async () => {
     if (step === 'empresa' && validateEmpresa()) {
-      // Salva dados da empresa no rascunho
-      const empData = {
-        nomeInstituicao: form.nomeInstituicao,
-        cnpj: form.cnpj.replace(/\D/g, ''),
-        razaoSocial: form.razaoSocial,
-        nomeFantasia: form.nomeFantasia,
-        telefoneEmpresa: form.telefoneEmpresa,
-        emailComercial: form.emailComercial,
-        endereco: form.endereco,
-        cidade: form.cidade,
-        estado: form.estado,
-        cep: form.cep,
-        qtdResidentes: form.qtdResidentes,
-        qtdUsuarios: form.qtdUsuarios,
-      };
       try {
-        await saveRascunho('empresa', empData);
-        sessionStorage.setItem('rc_emp', JSON.stringify(empData));
+        await saveRascunho('empresa');
         setStep('admin');
       } catch (error) {
         console.error('Erro ao salvar rascunho de cadastro da empresa:', error);
         setErrorMsg('Não foi possível salvar seus dados no servidor. Tente novamente.');
       }
     } else if (step === 'admin' && validateAdmin()) {
-      // Salva dados do admin no rascunho (sem senha)
-      const admData = {
-        nomeAdmin: form.nomeAdmin,
-        cpfAdmin: form.cpfAdmin,
-        emailAdmin: form.emailAdmin,
-        telefoneAdmin: form.telefoneAdmin,
-        cargo: form.cargo,
-      };
       try {
-        await saveRascunho('admin', admData);
-        sessionStorage.setItem('rc_adm', JSON.stringify(admData));
+        await saveRascunho('admin');
         setStep('plano');
       } catch (error) {
         console.error('Erro ao salvar rascunho de cadastro do administrador:', error);
         setErrorMsg('Não foi possível salvar seus dados no servidor. Tente novamente.');
       }
     } else if (step === 'plano' && validarLimitesPlano()) {
-      setStep('pagamento');
+      try {
+        await saveRascunho('plano');
+        setStep('pagamento');
+      } catch (error) {
+        console.error('Erro ao salvar rascunho do plano:', error);
+        setErrorMsg('Não foi possível salvar seus dados no servidor. Tente novamente.');
+      }
     } else if (step === 'pagamento' && validatePagamento()) {
       finalizar(false);
     }
@@ -488,9 +496,8 @@ const CheckoutPage: React.FC = () => {
       return;
     }
     if (!validarLimitesPlano()) return;
-    const planoData = { planoId: form.planoId, periodicidade: form.periodicidade };
     try {
-      await saveRascunho('plano', planoData);
+      await saveRascunho('plano');
       finalizar(true);
     } catch (error) {
       console.error('Erro ao salvar rascunho do plano:', error);
@@ -581,8 +588,6 @@ const CheckoutPage: React.FC = () => {
       setResult(data as CheckoutResult);
       // Limpa rascunho da sessão após sucesso
       sessionStorage.removeItem(RASCUNHO_KEY);
-      sessionStorage.removeItem('rc_emp');
-      sessionStorage.removeItem('rc_adm');
       setStep(payLater ? 'resultado_trial' : 'resultado');
     } catch (err: any) {
       const msg = err.message || 'Erro inesperado ao processar o cadastro.';

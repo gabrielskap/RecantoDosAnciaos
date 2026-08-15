@@ -876,6 +876,15 @@ function AppInner() {
     document.title = `${pageName} | Recanto dos Anciãos`;
   }, [currentView, selectedResident, loading, currentUser]);
 
+  const mainContentRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (mainContentRef.current) {
+      mainContentRef.current.scrollTop = 0;
+    }
+    window.scrollTo(0, 0);
+  }, [currentView]);
+
   // Logic Handlers
   const handleSelectResident = (resident: Resident) => {
     navigateTo(ViewState.RESIDENT_DETAIL, resident.id);
@@ -2226,6 +2235,7 @@ function AppInner() {
             onAddContract={handleAddContract}
             onUpdateContractFile={handleUpdateContractFile}
             onUpdateInvoice={handleUpdateInvoice}
+            onSelectResident={handleSelectResident}
           />
         );
       case ViewState.TEAM:
@@ -2339,7 +2349,7 @@ function AppInner() {
   }
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-slate-50 text-slate-900">
+    <div className="flex h-full w-full max-w-full overflow-hidden bg-slate-50 text-slate-900 fixed inset-0">
       <Sidebar
         currentView={currentView}
         onChangeView={navigateTo}
@@ -2355,8 +2365,8 @@ function AppInner() {
             onAssinar={() => setSubscriptionModalOpen(true)}
           />
         )}
-        {/* Mobile Header - Sticky */}
-        <div className="sticky top-0 z-20 lg:hidden px-4 py-3 bg-white border-b border-slate-100 flex justify-between items-center shadow-sm select-none">
+        {/* Mobile Header - Fixed top */}
+        <div className="shrink-0 z-20 lg:hidden px-4 py-3 bg-white border-b border-slate-100 flex justify-between items-center shadow-sm select-none">
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 bg-blue-600 rounded-lg flex items-center justify-center">
               <HeartPulse className="h-4 w-4 text-white" />
@@ -2387,8 +2397,8 @@ function AppInner() {
           </div>
         </div>
 
-        {/* Desktop Top Bar */}
-        <div className="hidden lg:flex sticky top-0 z-20 px-8 py-3 bg-white/80 backdrop-blur-sm border-b border-slate-100 items-center justify-between shadow-sm">
+        {/* Desktop Top Bar - Fixed top */}
+        <div className="hidden lg:flex shrink-0 z-20 px-8 py-3 bg-white/80 backdrop-blur-sm border-b border-slate-100 items-center justify-between shadow-sm">
           {/* Left: Institution Info */}
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center shrink-0">
@@ -2462,7 +2472,7 @@ function AppInner() {
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 md:p-8">
+        <div className="flex-1 overflow-y-auto p-4 md:p-8" ref={mainContentRef}>
           <div className="w-full">
             {renderContent()}
           </div>

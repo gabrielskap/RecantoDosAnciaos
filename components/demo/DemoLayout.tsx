@@ -268,6 +268,7 @@ const DemoLayoutInner: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
             onAddContract={handleAddContract}
             onUpdateContractFile={handleUpdateContractFile}
             onUpdateInvoice={handleUpdateInvoice}
+            onSelectResident={r => navigateTo(ViewState.RESIDENT_DETAIL, r.id)}
           />
         );
 

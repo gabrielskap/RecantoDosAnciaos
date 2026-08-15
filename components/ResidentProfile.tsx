@@ -1411,86 +1411,54 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     setChecklistDraft(null);
   };
 
-  // Keep track of the loaded edit resident key to prevent race conditions
-  const lastLoadedEditResidentKeyRef = React.useRef<string | null>(null);
-
   React.useEffect(() => {
     const keyPrefix = `recanto_edit_resident_${resident.id}`;
-    const openKey = `${keyPrefix}_open`;
     const tabKey = `${keyPrefix}_tab`;
-    const formKey = `${keyPrefix}_form`;
-    const contactKey = `${keyPrefix}_contact`;
-    const allergiesKey = `${keyPrefix}_allergies`;
 
-    if (lastLoadedEditResidentKeyRef.current !== resident.id) {
-      lastLoadedEditResidentKeyRef.current = resident.id;
-      
-      const savedOpen = localStorage.getItem(openKey) === 'true';
-      setIsEditModalOpen(savedOpen);
+    // Não restaura dados pessoais, contatos ou informações clínicas de uma
+    // edição não confirmada. As chaves antigas são removidas ao abrir/trocar o
+    // prontuário; somente a aba do formulário é uma preferência de UI.
+    [
+      `${keyPrefix}_open`,
+      `${keyPrefix}_form`,
+      `${keyPrefix}_contact`,
+      `${keyPrefix}_allergies`,
+    ].forEach(key => localStorage.removeItem(key));
 
-      const savedTab = localStorage.getItem(tabKey) as any || 'personal';
-      setModalActiveTab(savedTab);
+    setIsEditModalOpen(false);
+    setFormData({});
+    setContactTemp({ name: '', relation: '', phone: '' });
+    setAllergiesText('');
 
-      const savedForm = localStorage.getItem(formKey);
-      setFormData(savedForm ? JSON.parse(savedForm) : {});
+    const savedTab = localStorage.getItem(tabKey);
+    setModalActiveTab(
+      savedTab === 'contacts' || savedTab === 'clinical' || savedTab === 'routine'
+        ? savedTab
+        : 'personal'
+    );
+  }, [resident.id]);
 
-      const savedContact = localStorage.getItem(contactKey);
-      setContactTemp(savedContact ? JSON.parse(savedContact) : { name: '', relation: '', phone: '' });
-
-      const savedAllergies = localStorage.getItem(allergiesKey) || '';
-      setAllergiesText(savedAllergies);
-      return;
-    }
-
-    if (isEditModalOpen) {
-      localStorage.setItem(openKey, 'true');
-      localStorage.setItem(tabKey, modalActiveTab);
-      localStorage.setItem(formKey, JSON.stringify(formData));
-      localStorage.setItem(contactKey, JSON.stringify(contactTemp));
-      localStorage.setItem(allergiesKey, allergiesText);
-    } else {
-      localStorage.removeItem(openKey);
-      localStorage.removeItem(tabKey);
-      localStorage.removeItem(formKey);
-      localStorage.removeItem(contactKey);
-      localStorage.removeItem(allergiesKey);
-    }
-  }, [isEditModalOpen, modalActiveTab, formData, contactTemp, allergiesText, resident.id]);
-
-  // Keep track of the loaded visit key to prevent race conditions
-  const lastLoadedVisitKeyRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    localStorage.setItem(`recanto_edit_resident_${resident.id}_tab`, modalActiveTab);
+  }, [modalActiveTab, resident.id]);
 
   React.useEffect(() => {
     const openKey = `recanto_visit_open_${resident.id}`;
     const dataKey = `recanto_visit_data_${resident.id}`;
 
-    if (lastLoadedVisitKeyRef.current !== resident.id) {
-      lastLoadedVisitKeyRef.current = resident.id;
-
-      const savedOpen = localStorage.getItem(openKey) === 'true';
-      setIsVisitModalOpen(savedOpen);
-
-      const savedData = localStorage.getItem(dataKey);
-      setVisitData(savedData ? JSON.parse(savedData) : {
-        visitorName: '',
-        relation: '',
-        cpf: '',
-        phone: '',
-        date: new Date().toLocaleString('sv-SE').replace(' ', 'T').slice(0, 16),
-        temperature: '',
-        observations: ''
-      });
-      return;
-    }
-
-    if (isVisitModalOpen) {
-      localStorage.setItem(openKey, 'true');
-      localStorage.setItem(dataKey, JSON.stringify(visitData));
-    } else {
-      localStorage.removeItem(openKey);
-      localStorage.removeItem(dataKey);
-    }
-  }, [isVisitModalOpen, visitData, resident.id]);
+    localStorage.removeItem(openKey);
+    localStorage.removeItem(dataKey);
+    setIsVisitModalOpen(false);
+    setVisitData({
+      visitorName: '',
+      relation: '',
+      cpf: '',
+      phone: '',
+      date: new Date().toLocaleString('sv-SE').replace(' ', 'T').slice(0, 16),
+      temperature: '',
+      observations: ''
+    });
+  }, [resident.id]);
 
   // Prescription Form Modal States
   const [isPrescriptionModalOpen, setIsPrescriptionModalOpen] = useState(false);
@@ -1508,44 +1476,27 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     documentName: ''
   });
 
-  // Keep track of the loaded prescription key to prevent race conditions
-  const lastLoadedPrescriptionKeyRef = React.useRef<string | null>(null);
-
   React.useEffect(() => {
     const openKey = `recanto_prescription_open_${resident.id}`;
     const dataKey = `recanto_prescription_data_${resident.id}`;
 
-    if (lastLoadedPrescriptionKeyRef.current !== resident.id) {
-      lastLoadedPrescriptionKeyRef.current = resident.id;
-
-      const savedOpen = localStorage.getItem(openKey) === 'true';
-      setIsPrescriptionModalOpen(savedOpen);
-
-      const savedData = localStorage.getItem(dataKey);
-      setPrescriptionData(savedData ? JSON.parse(savedData) : {
-        name: '',
-        dosage: '',
-        route: 'Oral',
-        frequency: '12h em 12h',
-        nextDose: '08:00',
-        startDate: new Date().toISOString().split('T')[0],
-        endDate: '',
-        isTemporary: false,
-        observations: '',
-        documentUrl: '',
-        documentName: ''
-      });
-      return;
-    }
-
-    if (isPrescriptionModalOpen) {
-      localStorage.setItem(openKey, 'true');
-      localStorage.setItem(dataKey, JSON.stringify(prescriptionData));
-    } else {
-      localStorage.removeItem(openKey);
-      localStorage.removeItem(dataKey);
-    }
-  }, [isPrescriptionModalOpen, prescriptionData, resident.id]);
+    localStorage.removeItem(openKey);
+    localStorage.removeItem(dataKey);
+    setIsPrescriptionModalOpen(false);
+    setPrescriptionData({
+      name: '',
+      dosage: '',
+      route: 'Oral',
+      frequency: '12h em 12h',
+      nextDose: '08:00',
+      startDate: new Date().toISOString().split('T')[0],
+      endDate: '',
+      isTemporary: false,
+      observations: '',
+      documentUrl: '',
+      documentName: ''
+    });
+  }, [resident.id]);
 
   // Receitas Médicas
   const [isReceitaModalOpen, setIsReceitaModalOpen] = useState(false);
@@ -1629,67 +1580,31 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     }
   };
 
-  // Keep track of the loaded care plan key to prevent race conditions
-  const lastLoadedCarePlanKeyRef = React.useRef<string | null>(null);
-
   React.useEffect(() => {
     const openKey = `recanto_careplan_open_${resident.id}`;
     const dataKey = `recanto_careplan_data_${resident.id}`;
     const freqKey = `recanto_careplan_freq_${resident.id}`;
 
-    if (lastLoadedCarePlanKeyRef.current !== resident.id) {
-      lastLoadedCarePlanKeyRef.current = resident.id;
-
-      const savedOpen = localStorage.getItem(openKey) === 'true';
-      setShowPlanForm(savedOpen);
-
-      const savedData = localStorage.getItem(dataKey);
-      setNewPlan(savedData ? JSON.parse(savedData) : { title: '', description: '', frequency: '', assignedTo: '' });
-
-      const savedFreq = localStorage.getItem(freqKey);
-      setFrequencyDays(savedFreq ? JSON.parse(savedFreq) : {
-        segunda: { checked: false, times: 1 },
-        terca: { checked: false, times: 1 },
-        quarta: { checked: false, times: 1 },
-        quinta: { checked: false, times: 1 },
-        sexta: { checked: false, times: 1 },
-        sabado: { checked: false, times: 1 },
-        domingo: { checked: false, times: 1 }
-      });
-      return;
-    }
-
-    if (showPlanForm) {
-      localStorage.setItem(openKey, 'true');
-      localStorage.setItem(dataKey, JSON.stringify(newPlan));
-      localStorage.setItem(freqKey, JSON.stringify(frequencyDays));
-    } else {
-      localStorage.removeItem(openKey);
-      localStorage.removeItem(dataKey);
-      localStorage.removeItem(freqKey);
-    }
-  }, [showPlanForm, newPlan, frequencyDays, resident.id]);
-
-  // Keep track of the loaded clinical note key to prevent race conditions
-  const lastLoadedClinicalNoteKeyRef = React.useRef<string | null>(null);
+    [openKey, dataKey, freqKey].forEach(key => localStorage.removeItem(key));
+    setShowPlanForm(false);
+    setNewPlan({ title: '', description: '', frequency: '', assignedTo: '' });
+    setFrequencyDays({
+      segunda: { checked: false, times: 1 },
+      terca: { checked: false, times: 1 },
+      quarta: { checked: false, times: 1 },
+      quinta: { checked: false, times: 1 },
+      sexta: { checked: false, times: 1 },
+      sabado: { checked: false, times: 1 },
+      domingo: { checked: false, times: 1 }
+    });
+  }, [resident.id]);
 
   React.useEffect(() => {
     const key = `recanto_clinical_note_${resident.id}`;
 
-    if (lastLoadedClinicalNoteKeyRef.current !== resident.id) {
-      lastLoadedClinicalNoteKeyRef.current = resident.id;
-
-      const saved = localStorage.getItem(key);
-      setNewNoteText(saved || '');
-      return;
-    }
-
-    if (newNoteText) {
-      localStorage.setItem(key, newNoteText);
-    } else {
-      localStorage.removeItem(key);
-    }
-  }, [newNoteText, resident.id]);
+    localStorage.removeItem(key);
+    setNewNoteText('');
+  }, [resident.id]);
 
   const handleRequestSign = async (context: 'read' | 'edit') => {
     let mode: 'simples' | 'certificado_a1' = 'simples';

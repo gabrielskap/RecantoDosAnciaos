@@ -55,7 +55,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, isOpen, se
       )}
 
       {/* Sidebar */}
-      <div className={`fixed inset-y-0 left-0 z-30 w-72 bg-blue-50 border-r border-blue-100 flex flex-col transform transition-transform duration-200 ease-in-out lg:translate-x-0 lg:static lg:inset-0 ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+      <div className={`fixed inset-y-0 left-0 z-30 w-72 h-full bg-blue-50 border-r border-blue-100 flex flex-col transform transition-transform duration-200 ease-in-out lg:translate-x-0 lg:static lg:h-full lg:shrink-0 ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
 
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-4 border-b border-blue-100 shrink-0">

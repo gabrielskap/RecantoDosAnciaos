@@ -8,6 +8,19 @@ import { Room, Resident, RoomStatus, ViewState } from '../types';
 import CustomSelect from './CustomSelect';
 import { useAuth } from '../contexts/AuthContext';
 
+const LEGACY_ROOMS_DRAFT_STORAGE_KEYS = [
+  'modal_rooms_open',
+  'modal_rooms_editing',
+  'modal_link_resident_open',
+  'modal_link_room',
+  'modal_rooms_number',
+  'modal_rooms_type',
+  'modal_rooms_capacity',
+  'modal_rooms_selected_assets',
+  'modal_rooms_custom_asset',
+  'modal_rooms_manual_status',
+];
+
 interface RoomsModuleProps {
   rooms: Room[];
   residents: Resident[];
@@ -56,22 +69,11 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
   const canEdit   = hasPermission(ViewState.ROOMS, 'edit');
   const canDelete = hasPermission(ViewState.ROOMS, 'delete');
 
-  // Session storage state persistence for persistent modal open
-  const [isRoomModalOpen, setIsRoomModalOpen] = useState(() => {
-    return localStorage.getItem('modal_rooms_open') === 'true';
-  });
-  const [editingRoom, setEditingRoom] = useState<Room | null>(() => {
-    const saved = localStorage.getItem('modal_rooms_editing');
-    return saved ? JSON.parse(saved) : null;
-  });
+  const [isRoomModalOpen, setIsRoomModalOpen] = useState(false);
+  const [editingRoom, setEditingRoom] = useState<Room | null>(null);
 
-  const [isLinkModalOpen, setIsLinkModalOpen] = useState(() => {
-    return localStorage.getItem('modal_link_resident_open') === 'true';
-  });
-  const [linkingRoom, setLinkingRoom] = useState<Room | null>(() => {
-    const saved = localStorage.getItem('modal_link_room');
-    return saved ? JSON.parse(saved) : null;
-  });
+  const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
+  const [linkingRoom, setLinkingRoom] = useState<Room | null>(null);
 
   const modalMouseDown = useRef(false);
 
@@ -81,29 +83,16 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
   const [statusFilter, setStatusFilter] = useState<string>('Todos');
 
   // Room Form State
-  const [roomNumber, setRoomNumber] = useState(() => localStorage.getItem('modal_rooms_number') || '');
-  const [roomType, setRoomType] = useState<'Individual' | 'Compartilhado'>(() => (localStorage.getItem('modal_rooms_type') as any) || 'Individual');
-  const [roomCapacity, setRoomCapacity] = useState(() => Number(localStorage.getItem('modal_rooms_capacity')) || 1);
-  const [selectedAssets, setSelectedAssets] = useState<string[]>(() => {
-    const saved = localStorage.getItem('modal_rooms_selected_assets');
-    return saved ? JSON.parse(saved) : [];
-  });
-  const [customAsset, setCustomAsset] = useState(() => localStorage.getItem('modal_rooms_custom_asset') || '');
-  const [manualStatus, setManualStatus] = useState<RoomStatus | ''>(() => (localStorage.getItem('modal_rooms_manual_status') as any) || '');
+  const [roomNumber, setRoomNumber] = useState('');
+  const [roomType, setRoomType] = useState<'Individual' | 'Compartilhado'>('Individual');
+  const [roomCapacity, setRoomCapacity] = useState(1);
+  const [selectedAssets, setSelectedAssets] = useState<string[]>([]);
+  const [customAsset, setCustomAsset] = useState('');
+  const [manualStatus, setManualStatus] = useState<RoomStatus | ''>('');
 
-  // Save states to session storage to comply with modal persistence
   useEffect(() => {
-    localStorage.setItem('modal_rooms_open', isRoomModalOpen.toString());
-    localStorage.setItem('modal_rooms_editing', editingRoom ? JSON.stringify(editingRoom) : '');
-    localStorage.setItem('modal_link_resident_open', isLinkModalOpen.toString());
-    localStorage.setItem('modal_link_room', linkingRoom ? JSON.stringify(linkingRoom) : '');
-    localStorage.setItem('modal_rooms_number', roomNumber);
-    localStorage.setItem('modal_rooms_type', roomType);
-    localStorage.setItem('modal_rooms_capacity', roomCapacity.toString());
-    localStorage.setItem('modal_rooms_selected_assets', JSON.stringify(selectedAssets));
-    localStorage.setItem('modal_rooms_custom_asset', customAsset);
-    localStorage.setItem('modal_rooms_manual_status', manualStatus);
-  }, [isRoomModalOpen, editingRoom, isLinkModalOpen, linkingRoom, roomNumber, roomType, roomCapacity, selectedAssets, customAsset, manualStatus]);
+    LEGACY_ROOMS_DRAFT_STORAGE_KEYS.forEach((key) => localStorage.removeItem(key));
+  }, []);
 
   // Sync capacity when room type is changed to individual
   useEffect(() => {
@@ -122,14 +111,6 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
     setSelectedAssets([]);
     setCustomAsset('');
     setManualStatus('');
-    localStorage.removeItem('modal_rooms_number');
-    localStorage.removeItem('modal_rooms_type');
-    localStorage.removeItem('modal_rooms_capacity');
-    localStorage.removeItem('modal_rooms_selected_assets');
-    localStorage.removeItem('modal_rooms_custom_asset');
-    localStorage.removeItem('modal_rooms_manual_status');
-    localStorage.removeItem('modal_rooms_open');
-    localStorage.removeItem('modal_rooms_editing');
   };
 
   // Load editing room data into form

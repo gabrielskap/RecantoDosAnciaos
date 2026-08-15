@@ -4,6 +4,12 @@ import { CalendarEvent, EventType, Resident, ViewState } from '../types';
 import CustomSelect from './CustomSelect';
 import { useAuth } from '../contexts/AuthContext';
 
+const LEGACY_AGENDA_DRAFT_STORAGE_KEYS = [
+  'modal_agenda_open',
+  'modal_agenda_editing_id',
+  'modal_agenda_new_event',
+];
+
 interface AgendaModuleProps {
   events: CalendarEvent[];
   residents: Resident[];
@@ -38,20 +44,13 @@ const AgendaModule: React.FC<AgendaModuleProps> = ({ events, residents, onAddEve
 
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
-  const [isModalOpen, setIsModalOpen] = useState(() => {
-    return localStorage.getItem('modal_agenda_open') === 'true';
-  });
-  const [editingEventId, setEditingEventId] = useState<string | null>(() => {
-    return localStorage.getItem('modal_agenda_editing_id') || null;
-  });
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingEventId, setEditingEventId] = useState<string | null>(null);
   const [filterType, setFilterType] = useState<EventType | 'all'>('all');
   const modalMouseDown = useRef(false);
 
-  const [newEvent, setNewEvent] = useState<Partial<CalendarEvent>>(() => {
-    const saved = localStorage.getItem('modal_agenda_new_event');
-    return saved ? JSON.parse(saved) : {
-      title: '', type: 'atividade', start: '', end: '', residentId: '', location: '', description: '',
-    };
+  const [newEvent, setNewEvent] = useState<Partial<CalendarEvent>>({
+    title: '', type: 'atividade', start: '', end: '', residentId: '', location: '', description: '',
   });
 
   // Estado de confirmação de cancelamento — não persistido no localStorage
@@ -61,20 +60,8 @@ const AgendaModule: React.FC<AgendaModuleProps> = ({ events, residents, onAddEve
   const [cancelMotivo, setCancelMotivo] = useState('');
 
   React.useEffect(() => {
-    if (isModalOpen) {
-      localStorage.setItem('modal_agenda_open', 'true');
-      localStorage.setItem('modal_agenda_new_event', JSON.stringify(newEvent));
-      if (editingEventId) {
-        localStorage.setItem('modal_agenda_editing_id', editingEventId);
-      } else {
-        localStorage.removeItem('modal_agenda_editing_id');
-      }
-    } else {
-      localStorage.removeItem('modal_agenda_open');
-      localStorage.removeItem('modal_agenda_new_event');
-      localStorage.removeItem('modal_agenda_editing_id');
-    }
-  }, [isModalOpen, newEvent, editingEventId]);
+    LEGACY_AGENDA_DRAFT_STORAGE_KEYS.forEach((key) => localStorage.removeItem(key));
+  }, []);
 
   const daysInMonth  = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate();
   const firstDayOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1).getDay();
