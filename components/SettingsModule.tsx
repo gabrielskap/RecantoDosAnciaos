@@ -67,9 +67,7 @@ interface SystemSettings {
   boletim: BoletimSettings;
 }
 
-function getStorageKey(id: string | undefined): string {
-  return `recanto_system_settings_${id ?? 'anon'}`;
-}
+const getCompatibilityStorageKey = (empresaId: string) => `recanto_system_settings_${empresaId}`;
 
 const defaultSettings: SystemSettings = {
   institution: {
@@ -130,37 +128,20 @@ const STATES_BR = [
   'SP','SE','TO'
 ];
 
-function loadSettings(key: string): SystemSettings {
+// O cache existe apenas enquanto fluxos legados de impressão são migrados.
+// Ele é escrito exclusivamente após confirmação do banco e nunca é lido aqui.
+function writeVerifiedSettingsCache(empresaId: string, settings: SystemSettings) {
   try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return defaultSettings;
-    const parsed = JSON.parse(raw);
-    const rawTipo = parsed.documents?.tipoAssinatura;
-    const tipoAssinatura: DocumentSignatureType =
-      rawTipo === 'certificado_a1' ? 'certificado_a1' : 'simples';
-    const rawModelo = parsed.boletim?.modelo;
-    const modelo: BoletimModelType = rawModelo === 'diario' ? 'diario' : 'diurno_noturno';
-    return {
-      institution: { ...defaultSettings.institution, ...parsed.institution },
-      notifications: { ...defaultSettings.notifications, ...parsed.notifications },
-      security: { ...defaultSettings.security, ...parsed.security },
-      documents: { tipoAssinatura },
-      boletim: { modelo },
-    };
-  } catch {
-    return defaultSettings;
+    localStorage.setItem(getCompatibilityStorageKey(empresaId), JSON.stringify(settings));
+  } catch (error) {
+    console.warn('Não foi possível atualizar o cache de compatibilidade das configurações:', error);
   }
-}
-
-function saveSettings(key: string, settings: SystemSettings) {
-  localStorage.setItem(key, JSON.stringify(settings));
 }
 
 // ── Main Settings Component ───────────────────────────────────────────────────
 
 const SettingsModule: React.FC = () => {
   const { currentUser, refreshModeloBoletim } = useAuth();
-  const storageKey = getStorageKey(currentUser?.empresaId ?? currentUser?.id);
   const [activeTab, setActiveTab] = useState<TabId>(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const tabParam = urlParams.get('tab') as TabId | null;
@@ -180,7 +161,7 @@ const SettingsModule: React.FC = () => {
       window.history.replaceState(null, '', url.pathname + url.search);
     }
   }, [activeTab]);
-  const [settings, setSettings] = useState<SystemSettings>(() => loadSettings(storageKey));
+  const [settings, setSettings] = useState<SystemSettings>(defaultSettings);
   const [saved, setSaved] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -188,14 +169,31 @@ const SettingsModule: React.FC = () => {
   const isAdmin = currentUser?.profile.type === 'Administrador';
 
   useEffect(() => {
+    let active = true;
+
     const fetchCompanySettings = async () => {
-      if (!currentUser?.empresaId) return;
+      const empresaId = currentUser?.empresaId;
+      if (!empresaId) {
+        if (active) {
+          setSettings(defaultSettings);
+          setDirty(false);
+          setLoading(false);
+        }
+        return;
+      }
+
       try {
-        setLoading(true);
+        if (active) {
+          // Evita que a configuração de outra empresa fique visível ou possa
+          // ser salva enquanto a consulta da nova empresa está em andamento.
+          setSettings(defaultSettings);
+          setDirty(false);
+          setLoading(true);
+        }
         const { data, error } = await supabase
           .from('Recanto_Empresas')
           .select('*')
-          .eq('empresa_id', currentUser.empresaId)
+          .eq('empresa_id', empresaId)
           .single();
         
         if (error) {
@@ -230,18 +228,21 @@ const SettingsModule: React.FC = () => {
             documents: { tipoAssinatura },
             boletim: { modelo },
           };
-          setSettings(loaded);
-          localStorage.setItem(storageKey, JSON.stringify(loaded));
+          if (active) {
+            setSettings(loaded);
+            setDirty(false);
+          }
         }
       } catch (err) {
         console.error('Erro no fetch das configurações:', err);
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     };
 
-    fetchCompanySettings();
-  }, [currentUser]);
+    void fetchCompanySettings();
+    return () => { active = false; };
+  }, [currentUser?.empresaId]);
 
   const update = <K extends keyof SystemSettings>(section: K, patch: Partial<SystemSettings[K]>) => {
     setSettings(prev => ({
@@ -280,7 +281,7 @@ const SettingsModule: React.FC = () => {
 
       if (error) throw error;
 
-      saveSettings(storageKey, settings);
+      writeVerifiedSettingsCache(currentUser.empresaId, settings);
       setDirty(false);
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
@@ -324,7 +325,7 @@ const SettingsModule: React.FC = () => {
         if (error) throw error;
 
         setSettings(defaultSettings);
-        saveSettings(storageKey, defaultSettings);
+        writeVerifiedSettingsCache(currentUser.empresaId, defaultSettings);
         setDirty(false);
         await refreshModeloBoletim();
       } catch (err: any) {

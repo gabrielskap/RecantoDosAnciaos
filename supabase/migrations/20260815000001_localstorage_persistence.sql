@@ -18,8 +18,8 @@ CREATE TABLE IF NOT EXISTS public."Recanto_DocumentosConformidade" (
                   REFERENCES public."Recanto_Empresas"(empresa_id) ON DELETE CASCADE
                   DEFAULT public.recanto_get_empresa_id(),
   tipo          TEXT NOT NULL CHECK (tipo IN ('licenca', 'ilpi')),
-  caminho_arquivo TEXT,
-  nome_arquivo  TEXT,
+  caminho_arquivo TEXT NOT NULL,
+  nome_arquivo  TEXT NOT NULL,
   mime_type     TEXT,
   size_bytes    BIGINT CHECK (size_bytes IS NULL OR size_bytes >= 0),
   validade      DATE,
@@ -31,8 +31,7 @@ CREATE TABLE IF NOT EXISTS public."Recanto_DocumentosConformidade" (
   -- formato exigido pelas policies do Storage. URLs HTTP/data já existentes
   -- são aceitas apenas para a migração única do navegador para o banco.
   CONSTRAINT documentos_conformidade_caminho_tenant_check CHECK (
-    caminho_arquivo IS NULL
-    OR caminho_arquivo ~* '^(https?:|data:)'
+    caminho_arquivo ~* '^(https?:|data:)'
     OR (
       caminho_arquivo <> ''
       AND POSITION('/' IN caminho_arquivo) > 1
@@ -40,7 +39,7 @@ CREATE TABLE IF NOT EXISTS public."Recanto_DocumentosConformidade" (
     )
   ),
   CONSTRAINT documentos_conformidade_nome_arquivo_check CHECK (
-    caminho_arquivo IS NULL OR NULLIF(BTRIM(nome_arquivo), '') IS NOT NULL
+    NULLIF(BTRIM(nome_arquivo), '') IS NOT NULL
   ),
   CONSTRAINT documentos_conformidade_empresa_tipo_key UNIQUE (empresa_id, tipo)
 );

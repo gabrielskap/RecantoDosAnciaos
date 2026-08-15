@@ -10,10 +10,10 @@ import MedicationAutocomplete from './MedicationAutocomplete';
 interface StockModuleProps {
   items: StockItem[];
   residents: Resident[];
-  onUpdateStock: (id: string, quantity: number) => void;
-  onAddItem: (item: StockItem) => void;
-  onEditItem: (item: StockItem) => void;
-  onDeleteItem: (id: string) => void;
+  onUpdateStock: (id: string, quantity: number) => Promise<void>;
+  onAddItem: (item: StockItem) => Promise<void>;
+  onEditItem: (item: StockItem) => Promise<void>;
+  onDeleteItem: (id: string) => Promise<void>;
 }
 
 const categoryConfig: Record<string, { bg: string; text: string; label: string }> = {
@@ -104,22 +104,27 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
     setIsModalOpen(true);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newItem.name || !newItem.quantity) return;
     if (newItem.category === 'medicamento' && !newItem.expirationDate) return;
-    onAddItem({
-      id: Math.random().toString(36).substr(2, 9),
-      name: newItem.name,
-      category: newItem.category as any,
-      quantity: parseInt(newItem.quantity),
-      unit: newItem.unit || 'unid',
-      minThreshold: parseInt(newItem.minThreshold) || 10,
-      expirationDate: newItem.category === 'medicamento' ? newItem.expirationDate : undefined,
-      residentId: newItem.residentId,
-      history: [],
-    });
-    setNewItem({ name: '', category: 'medicamento', quantity: '', unit: '', minThreshold: '10', expirationDate: '', residentId: undefined });
+    try {
+      await onAddItem({
+        id: Math.random().toString(36).substr(2, 9),
+        name: newItem.name,
+        category: newItem.category as any,
+        quantity: parseInt(newItem.quantity),
+        unit: newItem.unit || 'unid',
+        minThreshold: parseInt(newItem.minThreshold) || 10,
+        expirationDate: newItem.category === 'medicamento' ? newItem.expirationDate : undefined,
+        residentId: newItem.residentId,
+        history: [],
+      });
+      setNewItem({ name: '', category: 'medicamento', quantity: '', unit: '', minThreshold: '10', expirationDate: '', residentId: undefined });
+    } catch (error) {
+      // Mantém o rascunho preenchido para permitir uma nova tentativa.
+      console.error('Erro ao cadastrar item de estoque:', error);
+    }
   };
 
   const handleOpenEditModal = (item: StockItem) => {
@@ -133,25 +138,40 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
     setEditingItem(item);
   };
 
-  const handleEditSubmit = (e: React.FormEvent) => {
+  const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingItem || !editForm.name) return;
     if (editForm.category === 'medicamento' && !editForm.expirationDate) return;
-    onEditItem({
-      ...editingItem,
-      name: editForm.name,
-      category: editForm.category as any,
-      unit: editForm.unit || 'unid',
-      minThreshold: parseInt(editForm.minThreshold) || 10,
-      expirationDate: editForm.category === 'medicamento' ? editForm.expirationDate : undefined,
-    });
-    setEditingItem(null);
+    try {
+      await onEditItem({
+        ...editingItem,
+        name: editForm.name,
+        category: editForm.category as any,
+        unit: editForm.unit || 'unid',
+        minThreshold: parseInt(editForm.minThreshold) || 10,
+        expirationDate: editForm.category === 'medicamento' ? editForm.expirationDate : undefined,
+      });
+      setEditingItem(null);
+    } catch (error) {
+      // Não fecha a edição antes da confirmação de persistência.
+      console.error('Erro ao atualizar item de estoque:', error);
+    }
   };
 
-  const handleDeleteItem = (item: StockItem) => {
+  const handleDeleteItem = async (item: StockItem) => {
     if (window.confirm(`Tem certeza que deseja excluir "${item.name}" do estoque?`)) {
-      onDeleteItem(item.id);
+      try {
+        await onDeleteItem(item.id);
+      } catch (error) {
+        console.error('Erro ao excluir item de estoque:', error);
+      }
     }
+  };
+
+  const handleStockAdjustment = (id: string, quantity: number) => {
+    void onUpdateStock(id, quantity).catch(error => {
+      console.error('Erro ao ajustar quantidade em estoque:', error);
+    });
   };
 
   // Filter items for general stock (residentId is null or undefined)
@@ -287,10 +307,10 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
                     </div>
                     {canEdit && (
                       <div className="flex items-center gap-2">
-                        <button onClick={() => onUpdateStock(item.id, item.quantity - 1)} className="w-11 h-11 flex items-center justify-center rounded-xl bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 transition-colors shadow-sm">
+                        <button onClick={() => handleStockAdjustment(item.id, item.quantity - 1)} className="w-11 h-11 flex items-center justify-center rounded-xl bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 transition-colors shadow-sm">
                           <Minus className="h-4 w-4" />
                         </button>
-                        <button onClick={() => onUpdateStock(item.id, item.quantity + 1)} className="w-11 h-11 flex items-center justify-center rounded-xl bg-blue-50 border border-blue-100 text-blue-600 hover:bg-blue-100 transition-colors shadow-sm">
+                        <button onClick={() => handleStockAdjustment(item.id, item.quantity + 1)} className="w-11 h-11 flex items-center justify-center rounded-xl bg-blue-50 border border-blue-100 text-blue-600 hover:bg-blue-100 transition-colors shadow-sm">
                           <Plus className="h-4 w-4" />
                         </button>
                       </div>
@@ -365,10 +385,10 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
                       <td className="px-6 py-4">
                         {canEdit ? (
                           <div className="flex items-center justify-center gap-2">
-                            <button onClick={() => onUpdateStock(item.id, item.quantity - 1)} className="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition-colors">
+                            <button onClick={() => handleStockAdjustment(item.id, item.quantity - 1)} className="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition-colors">
                               <Minus className="h-3.5 w-3.5 text-slate-600" />
                             </button>
-                            <button onClick={() => onUpdateStock(item.id, item.quantity + 1)} className="w-8 h-8 rounded-lg bg-blue-50 hover:bg-blue-100 flex items-center justify-center transition-colors">
+                            <button onClick={() => handleStockAdjustment(item.id, item.quantity + 1)} className="w-8 h-8 rounded-lg bg-blue-50 hover:bg-blue-100 flex items-center justify-center transition-colors">
                               <Plus className="h-3.5 w-3.5 text-blue-600" />
                             </button>
                           </div>
@@ -561,10 +581,10 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
                           </div>
                           {canEdit && (
                             <div className="flex items-center gap-2">
-                              <button onClick={() => onUpdateStock(item.id, item.quantity - 1)} className="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-50 border border-slate-200 text-slate-650 hover:bg-slate-100 transition-colors shadow-sm">
+                              <button onClick={() => handleStockAdjustment(item.id, item.quantity - 1)} className="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-50 border border-slate-200 text-slate-650 hover:bg-slate-100 transition-colors shadow-sm">
                                 <Minus className="h-4 w-4" />
                               </button>
-                              <button onClick={() => onUpdateStock(item.id, item.quantity + 1)} className="w-10 h-10 flex items-center justify-center rounded-xl bg-blue-50 border border-blue-100 text-blue-700 hover:bg-blue-100 transition-colors shadow-sm">
+                              <button onClick={() => handleStockAdjustment(item.id, item.quantity + 1)} className="w-10 h-10 flex items-center justify-center rounded-xl bg-blue-50 border border-blue-100 text-blue-700 hover:bg-blue-100 transition-colors shadow-sm">
                                 <Plus className="h-4 w-4" />
                               </button>
                             </div>
@@ -640,10 +660,10 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
                             <td className="px-6 py-4">
                               {canEdit ? (
                                 <div className="flex items-center justify-center gap-2">
-                                  <button onClick={() => onUpdateStock(item.id, item.quantity - 1)} className="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition-colors">
+                                  <button onClick={() => handleStockAdjustment(item.id, item.quantity - 1)} className="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition-colors">
                                     <Minus className="h-3.5 w-3.5 text-slate-650" />
                                   </button>
-                                  <button onClick={() => onUpdateStock(item.id, item.quantity + 1)} className="w-8 h-8 rounded-lg bg-blue-50 hover:bg-blue-100 flex items-center justify-center transition-colors">
+                                  <button onClick={() => handleStockAdjustment(item.id, item.quantity + 1)} className="w-8 h-8 rounded-lg bg-blue-50 hover:bg-blue-100 flex items-center justify-center transition-colors">
                                     <Plus className="h-3.5 w-3.5 text-blue-700" />
                                   </button>
                                 </div>

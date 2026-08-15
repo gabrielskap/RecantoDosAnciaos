@@ -739,11 +739,10 @@ function AppInner() {
   }, [currentUser?.id, currentUser?.empresaId, currentUser?.profile.type, currentView]);
 
   // Navigate function that pushes state
-  const navigateTo = (view: ViewState, residentId?: string) => {
+  const navigateTo = (view: ViewState, residentId?: string, searchParams: string = '') => {
     const path = viewToPath(view, residentId);
-    const search = window.location.search;
-    if (window.location.pathname !== path) {
-      window.history.pushState(null, '', path + search);
+    if (window.location.pathname !== path || (searchParams && window.location.search !== searchParams)) {
+      window.history.pushState(null, '', path + searchParams);
     }
     setCurrentView(view);
     if (view === ViewState.RESIDENT_DETAIL && residentId) {
@@ -789,7 +788,7 @@ function AppInner() {
       if (path === '/' || path === '/login') {
         const savedPath = localStorage.getItem('recanto_last_active_path');
         if (savedPath && savedPath !== '/' && savedPath !== '/login' && savedPath !== '/portal') {
-          window.history.replaceState(null, '', savedPath + window.location.search);
+          window.history.replaceState(null, '', savedPath);
           path = savedPath;
         }
       }
@@ -798,7 +797,7 @@ function AppInner() {
       const expectedPath = viewToPath(view, residentId);
 
       if (path !== expectedPath && view !== ViewState.RESIDENT_DETAIL) {
-        window.history.replaceState(null, '', expectedPath + window.location.search);
+        window.history.replaceState(null, '', expectedPath);
       }
       setCurrentView(view);
 
@@ -964,6 +963,7 @@ function AppInner() {
     } catch (err: any) {
       console.error('Error adding resident:', err);
       toast.error(err.message || 'Erro ao cadastrar residente no servidor.');
+      throw err;
     }
   };
 
@@ -1700,8 +1700,10 @@ function AppInner() {
         });
       if (error) throw error;
       await fetchFinancials();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error adding financial record:', err);
+      toast.error(err.message || 'Erro ao registrar a movimentação financeira.');
+      throw err;
     }
   };
 
@@ -1713,8 +1715,10 @@ function AppInner() {
         .eq('id', id);
       if (error) throw error;
       await fetchFinancials();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error deleting financial record:', err);
+      toast.error(err.message || 'Erro ao excluir a movimentação financeira.');
+      throw err;
     }
   };
 
@@ -1734,9 +1738,10 @@ function AppInner() {
       if (error) throw error;
       await fetchContracts();
       await fetchInvoices(); // Trigger creates the invoice automatically
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error adding contract:', err);
-      toast.error('Erro ao criar contrato.');
+      toast.error(err.message || 'Erro ao criar contrato.');
+      throw err;
     }
   };
 
@@ -1761,15 +1766,17 @@ function AppInner() {
       if (error) throw error;
       await fetchInvoices();
       await fetchFinancials(); // Trigger syncs financial record automatically
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error updating invoice:', err);
+      toast.error(err.message || 'Erro ao atualizar a mensalidade.');
+      throw err;
     }
   };
 
   const handleUpdateStock = async (id: string, newQuantity: number) => {
     try {
       const item = stockItems.find(i => i.id === id);
-      if (!item) return;
+      if (!item) throw new Error('Item de estoque não encontrado.');
       const diff = newQuantity - item.quantity;
       if (diff === 0) return;
 
@@ -1785,8 +1792,10 @@ function AppInner() {
         });
       if (error) throw error;
       await fetchStockItems();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error updating stock:', err);
+      toast.error(err.message || 'Erro ao atualizar a quantidade em estoque.');
+      throw err;
     }
   };
 
@@ -1806,7 +1815,7 @@ function AppInner() {
         .select()
         .single();
 
-      if (itemErr || !itemData) throw itemErr;
+      if (itemErr || !itemData) throw itemErr || new Error('Não foi possível cadastrar o item de estoque.');
 
       const { error: txErr } = await supabase
         .from('Recanto_MovimentacoesEstoque')
@@ -1821,8 +1830,10 @@ function AppInner() {
       if (txErr) throw txErr;
 
       await fetchStockItems();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error adding stock item:', err);
+      toast.error(err.message || 'Erro ao cadastrar o item de estoque.');
+      throw err;
     }
   };
 
@@ -1843,6 +1854,7 @@ function AppInner() {
     } catch (err: any) {
       console.error('Error updating stock item:', err);
       toast.error(err.message || 'Erro ao atualizar o item de estoque.');
+      throw err;
     }
   };
 
@@ -1857,6 +1869,7 @@ function AppInner() {
     } catch (err: any) {
       console.error('Error deleting stock item:', err);
       toast.error(err.message || 'Erro ao excluir o item de estoque.');
+      throw err;
     }
   };
 
@@ -1984,7 +1997,7 @@ function AppInner() {
         .select()
         .single();
 
-      if (tErr || !tData) throw tErr;
+      if (tErr || !tData) throw tErr || new Error('Não foi possível registrar o treinamento.');
 
       if (newTraining.participants && newTraining.participants.length > 0) {
         const { error: pErr } = await supabase
@@ -2001,8 +2014,10 @@ function AppInner() {
       }
 
       await fetchTrainingRecords();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error adding training:', err);
+      toast.error(err.message || 'Erro ao registrar o treinamento.');
+      throw err;
     }
   };
 
@@ -2041,8 +2056,10 @@ function AppInner() {
         });
       if (error) throw error;
       await fetchEvents();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error adding event:', err);
+      toast.error(err.message || 'Erro ao criar o evento.');
+      throw err;
     }
   };
 
@@ -2065,6 +2082,7 @@ function AppInner() {
     } catch (err: any) {
       console.error('Error updating event:', err);
       toast.error(err.message || 'Erro ao atualizar o evento.');
+      throw err;
     }
   };
 
@@ -2079,6 +2097,7 @@ function AppInner() {
     } catch (err: any) {
       console.error('Error cancelling event:', err);
       toast.error(err.message || 'Erro ao cancelar o evento.');
+      throw err;
     }
   };
 

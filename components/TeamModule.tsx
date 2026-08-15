@@ -14,7 +14,7 @@ interface TeamModuleProps {
   onAddEmployee: (emp: Omit<Employee, 'id'>) => Promise<Employee>;
   onUpdateEmployee: (emp: Employee) => Promise<Employee>;
   onDeleteEmployee: (id: string) => Promise<void>;
-  onAddTraining: (training: TrainingRecord) => void;
+  onAddTraining: (training: TrainingRecord) => Promise<void>;
   residents: Resident[];
   onAddAccessLog: (log: SystemAccessLog) => void;
 }
@@ -285,7 +285,7 @@ const TeamModule: React.FC<TeamModuleProps> = ({
     }
   };
 
-  const handleTrainSubmit = (e: React.FormEvent) => {
+  const handleTrainSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTrain.title || !newTrain.date) return;
 
@@ -299,8 +299,13 @@ const TeamModule: React.FC<TeamModuleProps> = ({
       validUntil: newTrain.validUntil
     };
 
-    onAddTraining(training);
-    setNewTrain({ title: '', instructor: '', date: '', description: '', validUntil: '' });
+    try {
+      await onAddTraining(training);
+      setNewTrain({ title: '', instructor: '', date: '', description: '', validUntil: '' });
+    } catch (error) {
+      // Mantém os dados do treinamento no modal para uma nova tentativa.
+      console.error('Erro ao registrar treinamento:', error);
+    }
   };
 
   const inputClass = 'w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white';

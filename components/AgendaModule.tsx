@@ -139,11 +139,11 @@ const AgendaModule: React.FC<AgendaModuleProps> = ({ events, residents, onAddEve
     if (!eventToCancel || !cancelMotivo.trim()) return;
     try {
       await onCancelEvent(eventToCancel.id, cancelMotivo.trim());
-    } catch (err) {
-      console.error('Error cancelling event:', err);
-    } finally {
       setEventToCancel(null);
       setCancelMotivo('');
+    } catch (err) {
+      // Não descarta o motivo digitado até que o cancelamento esteja confirmado.
+      console.error('Error cancelling event:', err);
     }
   };
 

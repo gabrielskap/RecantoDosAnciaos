@@ -596,137 +596,122 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setProfiles([]);
       setAccessBlocked(false);
     }
-  }, [currentUser?.id]);  // Sincroniza as configurações da empresa com o localStorage para compatibilidade retroativa e migra do local se necessário
+  }, [currentUser?.id]);
+
+  // O banco é a fonte canônica. A chave de migração é isolada por empresa e
+  // o espelho local só é atualizado depois de uma leitura/escrita confirmada.
   useEffect(() => {
+    let active = true;
+
     const syncCompanySettings = async () => {
-      if (!currentUser?.empresaId) { setModeloBoletim('diurno_noturno'); return; }
+      const empresaId = currentUser?.empresaId;
+      if (!empresaId) {
+        if (active) setModeloBoletim('diurno_noturno');
+        return;
+      }
+
       try {
         const { data, error } = await supabase
           .from('Recanto_Empresas')
           .select('*')
-          .eq('empresa_id', currentUser.empresaId)
+          .eq('empresa_id', empresaId)
           .single();
 
-        if (error) {
+        if (error || !data) {
           console.warn('Erro ao buscar configurações da empresa:', error);
           return;
         }
 
-        if (data) {
-          setModeloBoletim(data.modelo_boletim === 'diario' ? 'diario' : 'diurno_noturno');
+        if (!active) return;
 
-          const migrationDone = localStorage.getItem('recanto_settings_migrated_to_db') === 'true';
-          const localKey = `recanto_system_settings_${currentUser.empresaId}`;
-          const localRaw = localStorage.getItem(localKey) || localStorage.getItem('recanto_system_settings');
+        let company = data as any;
+        const localKey = getCompanySettingsCacheKey(empresaId);
+        const migrationKey = getCompanySettingsMigrationKey(empresaId);
+        let migrationDone = false;
+        try {
+          migrationDone = localStorage.getItem(migrationKey) === 'true';
+        } catch (storageError) {
+          console.warn('Não foi possível acessar o cache local de configurações:', storageError);
+        }
 
-          // Se ainda não foi feita a migração para o banco E houver dados locais válidos no localStorage
-          if (!migrationDone && localRaw) {
-            try {
-              const localSettings = JSON.parse(localRaw);
-              
-              const { error: updateError } = await supabase
+        // A migração é restrita a dados já separados por empresa. A antiga
+        // chave global não possui contexto de tenant e não pode ser usada sem
+        // risco de vazar ou sobrescrever outra instituição.
+        if (!migrationDone && currentUser?.profile.type === 'Administrador') {
+          let localRaw: string | null = null;
+          try {
+            localRaw = localStorage.getItem(localKey);
+          } catch (storageError) {
+            console.warn('Não foi possível ler o cache legado de configurações:', storageError);
+          }
+
+          try {
+            const legacy = localRaw ? JSON.parse(localRaw) : null;
+            const updates = buildMissingCompanySettingsUpdate(company, legacy);
+
+            if (Object.keys(updates).length > 0) {
+              const { data: updatedCompany, error: updateError } = await supabase
                 .from('Recanto_Empresas')
-                .update({
-                  nome_instituicao: localSettings.institution?.name || data.nome_instituicao,
-                  cnpj: localSettings.institution?.cnpj || data.cnpj,
-                  telefone: localSettings.institution?.phone || data.telefone,
-                  email_comercial: localSettings.institution?.email || data.email_comercial,
-                  endereco: localSettings.institution?.address || data.endereco,
-                  cidade: localSettings.institution?.city || data.cidade,
-                  estado: localSettings.institution?.state || data.estado,
-                  cep: localSettings.institution?.cep || data.cep,
-                  capacidade_maxima: localSettings.institution?.capacity || data.capacidade_maxima,
-                  diretor_geral: localSettings.institution?.directorName || data.diretor_geral,
-                  responsavel_tecnico: localSettings.institution?.technicalDirector || data.responsavel_tecnico,
-                  registro_anvisa: localSettings.institution?.anvisa || data.registro_anvisa,
-                  papel_timbrado: localSettings.institution?.watermarkImage || data.papel_timbrado,
-                  config_notificacoes: localSettings.notifications || data.config_notificacoes,
-                  config_seguranca: localSettings.security || data.config_seguranca,
-                })
-                .eq('empresa_id', currentUser.empresaId);
+                .update(updates)
+                .eq('empresa_id', empresaId)
+                .select('*')
+                .single();
 
-              if (!updateError) {
-                localStorage.setItem('recanto_settings_migrated_to_db', 'true');
-                // Recarrega os dados pós-migração
-                const { data: freshData } = await supabase
-                  .from('Recanto_Empresas')
-                  .select('*')
-                  .eq('empresa_id', currentUser.empresaId)
-                  .single();
-
-                if (freshData) {
-                  const settings = {
-                    institution: {
-                      name: freshData.nome_instituicao || '',
-                      cnpj: freshData.cnpj || '',
-                      phone: freshData.telefone || '',
-                      email: freshData.email_comercial || '',
-                      address: freshData.endereco || '',
-                      city: freshData.cidade || '',
-                      state: freshData.estado || 'SP',
-                      cep: freshData.cep || '',
-                      capacity: freshData.capacidade_maxima ?? 30,
-                      directorName: freshData.diretor_geral || '',
-                      technicalDirector: freshData.responsavel_tecnico || '',
-                      anvisa: freshData.registro_anvisa || '',
-                      watermarkImage: freshData.papel_timbrado || '',
-                    },
-                    notifications: freshData.config_notificacoes || {},
-                    security: freshData.config_seguranca || {},
-                  };
-                  localStorage.setItem(localKey, JSON.stringify(settings));
+              if (updateError || !updatedCompany) {
+                console.warn('Erro ao migrar configurações locais para o banco:', updateError);
+                // Mantém o cache intacto para permitir nova tentativa; não
+                // assumimos persistência quando a operação no banco falha.
+                if (active) {
+                  setModeloBoletim(company.modelo_boletim === 'diario' ? 'diario' : 'diurno_noturno');
                 }
                 return;
               }
-            } catch (errParse) {
-              console.error('Erro ao processar migração local:', errParse);
+
+              company = updatedCompany as any;
+            }
+
+            // Marca apenas depois de uma migração bem-sucedida (ou de concluir
+            // que não há nada seguro para migrar), sempre no escopo da empresa.
+            try {
+              localStorage.setItem(migrationKey, 'true');
+              migrationDone = true;
+            } catch (storageError) {
+              console.warn('Não foi possível registrar a migração local:', storageError);
+            }
+          } catch (parseError) {
+            console.warn('Cache legado de configurações inválido; mantendo o banco como fonte:', parseError);
+            // Um cache inválido não é usado para atualizar o banco. Como ele
+            // não pode ser migrado com segurança, evitamos repetições infinitas.
+            try {
+              localStorage.setItem(migrationKey, 'true');
+              migrationDone = true;
+            } catch (storageError) {
+              console.warn('Não foi possível registrar a migração local:', storageError);
             }
           }
+        }
 
-          // Se a migração já foi feita ou não havia dados, apenas atualiza o localStorage com o que está no banco
-          const settings = {
-            institution: {
-              name: data.nome_instituicao || '',
-              cnpj: data.cnpj || '',
-              phone: data.telefone || '',
-              email: data.email_comercial || '',
-              address: data.endereco || '',
-              city: data.cidade || '',
-              state: data.estado || 'SP',
-              cep: data.cep || '',
-              capacity: data.capacidade_maxima ?? 30,
-              directorName: data.diretor_geral || '',
-              technicalDirector: data.responsavel_tecnico || '',
-              anvisa: data.registro_anvisa || '',
-              watermarkImage: data.papel_timbrado || '',
-            },
-            notifications: data.config_notificacoes || {
-              stockAlertThreshold: 5,
-              medicationReminderEnabled: true,
-              medicationReminderMinutes: 30,
-              birthdayRemindersEnabled: true,
-              contractDueDaysWarning: 30,
-              checklistMissedAlerts: true,
-              lowOccupancyThreshold: 20
-            },
-            security: data.config_seguranca || {
-              sessionTimeoutMinutes: 60,
-              requirePasswordChange: false,
-              passwordChangeDays: 90,
-              twoFactorEnabled: false,
-              auditLogRetentionDays: 365,
-              maxLoginAttempts: 5
-            }
-          };
-          localStorage.setItem(localKey, JSON.stringify(settings));
+        if (active) {
+          setModeloBoletim(company.modelo_boletim === 'diario' ? 'diario' : 'diurno_noturno');
+        }
+
+        // Compatibilidade temporária para telas legadas: nunca lemos este
+        // espelho para decidir o estado do sistema; ele é derivado do banco.
+        if (migrationDone || currentUser?.profile.type === 'Administrador') {
+          try {
+            localStorage.setItem(localKey, JSON.stringify(buildCompanySettingsCache(company)));
+          } catch (storageError) {
+            console.warn('Não foi possível atualizar o espelho local de configurações:', storageError);
+          }
         }
       } catch (err) {
-        console.error('Erro ao sincronizar configurações locais:', err);
+        console.error('Erro ao sincronizar configurações da empresa:', err);
       }
     };
 
-    syncCompanySettings();
-  }, [currentUser]);
+    void syncCompanySettings();
+    return () => { active = false; };
+  }, [currentUser?.empresaId, currentUser?.profile.type]);
 
   const login = async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({

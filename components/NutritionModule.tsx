@@ -11,6 +11,17 @@ interface NutritionModuleProps {
   onUpdateResident: (resident: Resident) => Promise<void> | void;
 }
 
+const LEGACY_NUTRITION_PLAN_DRAFT_KEYS = [
+  'recanto_nutrition_show_modal',
+  'recanto_nutrition_new_plan_resident_id',
+  'recanto_nutrition_new_plan_consistency',
+  'recanto_nutrition_new_plan_type',
+  'recanto_nutrition_new_plan_fluid_restriction',
+  'recanto_nutrition_new_plan_restrictions',
+  'recanto_nutrition_new_plan_restriction_input',
+  'recanto_nutrition_new_plan_observations',
+];
+
 const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateResident }) => {
   const { hasPermission } = useAuth();
   const canCreate = hasPermission(ViewState.NUTRITION, 'create');
@@ -35,35 +46,14 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
   });
 
   // New plan modal state
-  const [showNewPlanModal, setShowNewPlanModal] = useState(() => {
-    return localStorage.getItem('recanto_nutrition_show_modal') === 'true';
-  });
-  const [newPlanResidentId, setNewPlanResidentId] = useState(() => {
-    return localStorage.getItem('recanto_nutrition_new_plan_resident_id') || '';
-  });
-  const [newPlanConsistency, setNewPlanConsistency] = useState<DietConsistency>(() => {
-    return (localStorage.getItem('recanto_nutrition_new_plan_consistency') as DietConsistency) || 'Geral';
-  });
-  const [newPlanType, setNewPlanType] = useState<DietType>(() => {
-    return (localStorage.getItem('recanto_nutrition_new_plan_type') as DietType) || 'Livre';
-  });
-  const [newPlanFluidRestriction, setNewPlanFluidRestriction] = useState(() => {
-    return localStorage.getItem('recanto_nutrition_new_plan_fluid_restriction') || '';
-  });
-  const [newPlanRestrictions, setNewPlanRestrictions] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem('recanto_nutrition_new_plan_restrictions');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
-  const [newPlanRestrictionInput, setNewPlanRestrictionInput] = useState(() => {
-    return localStorage.getItem('recanto_nutrition_new_plan_restriction_input') || '';
-  });
-  const [newPlanObservations, setNewPlanObservations] = useState(() => {
-    return localStorage.getItem('recanto_nutrition_new_plan_observations') || '';
-  });
+  const [showNewPlanModal, setShowNewPlanModal] = useState(false);
+  const [newPlanResidentId, setNewPlanResidentId] = useState('');
+  const [newPlanConsistency, setNewPlanConsistency] = useState<DietConsistency>('Geral');
+  const [newPlanType, setNewPlanType] = useState<DietType>('Livre');
+  const [newPlanFluidRestriction, setNewPlanFluidRestriction] = useState('');
+  const [newPlanRestrictions, setNewPlanRestrictions] = useState<string[]>([]);
+  const [newPlanRestrictionInput, setNewPlanRestrictionInput] = useState('');
+  const [newPlanObservations, setNewPlanObservations] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [editingResidentId, setEditingResidentId] = useState<string | null>(null);
   const [deletingResident, setDeletingResident] = useState<Resident | null>(null);
@@ -86,35 +76,14 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
     localStorage.setItem('recanto_nutrition_daily_group', dailyGroup);
   }, [dailyGroup]);
 
+  // Rascunhos nutricionais contêm restrições e observações clínicas. A partir
+  // daqui eles ficam só no state até o plano ser confirmado no banco.
   useEffect(() => {
-    localStorage.setItem('recanto_nutrition_show_modal', showNewPlanModal.toString());
-    localStorage.setItem('recanto_nutrition_new_plan_resident_id', newPlanResidentId);
-    localStorage.setItem('recanto_nutrition_new_plan_consistency', newPlanConsistency);
-    localStorage.setItem('recanto_nutrition_new_plan_type', newPlanType);
-    localStorage.setItem('recanto_nutrition_new_plan_fluid_restriction', newPlanFluidRestriction);
-    localStorage.setItem('recanto_nutrition_new_plan_restrictions', JSON.stringify(newPlanRestrictions));
-    localStorage.setItem('recanto_nutrition_new_plan_restriction_input', newPlanRestrictionInput);
-    localStorage.setItem('recanto_nutrition_new_plan_observations', newPlanObservations);
-  }, [
-    showNewPlanModal,
-    newPlanResidentId,
-    newPlanConsistency,
-    newPlanType,
-    newPlanFluidRestriction,
-    newPlanRestrictions,
-    newPlanRestrictionInput,
-    newPlanObservations
-  ]);
+    LEGACY_NUTRITION_PLAN_DRAFT_KEYS.forEach(key => localStorage.removeItem(key));
+  }, []);
 
   const clearNewPlanForm = () => {
-    localStorage.removeItem('recanto_nutrition_show_modal');
-    localStorage.removeItem('recanto_nutrition_new_plan_resident_id');
-    localStorage.removeItem('recanto_nutrition_new_plan_consistency');
-    localStorage.removeItem('recanto_nutrition_new_plan_type');
-    localStorage.removeItem('recanto_nutrition_new_plan_fluid_restriction');
-    localStorage.removeItem('recanto_nutrition_new_plan_restrictions');
-    localStorage.removeItem('recanto_nutrition_new_plan_restriction_input');
-    localStorage.removeItem('recanto_nutrition_new_plan_observations');
+    LEGACY_NUTRITION_PLAN_DRAFT_KEYS.forEach(key => localStorage.removeItem(key));
 
     setShowNewPlanModal(false);
     setEditingResidentId(null);

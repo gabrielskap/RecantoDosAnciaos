@@ -12,11 +12,11 @@ interface FinanceModuleProps {
   contracts: Contract[];
   invoices: Invoice[];
   residents: Resident[];
-  onAddRecord: (record: FinancialRecord) => void;
-  onDeleteRecord: (id: string) => void;
-  onAddContract: (contract: Contract) => void | Promise<void>;
-  onUpdateContractFile: (contractId: string, fileUrl: string | null) => void | Promise<void>;
-  onUpdateInvoice: (invoice: Invoice) => void;
+  onAddRecord: (record: FinancialRecord) => Promise<void>;
+  onDeleteRecord: (id: string) => Promise<void>;
+  onAddContract: (contract: Contract) => Promise<void>;
+  onUpdateContractFile: (contractId: string, fileUrl: string | null) => Promise<void>;
+  onUpdateInvoice: (invoice: Invoice) => Promise<void>;
 }
 
 const FinanceModule: React.FC<FinanceModuleProps> = ({
@@ -106,11 +106,32 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
     });
   }, [records]);
 
-  const handleRecordSubmit = (e: React.FormEvent) => {
+  const handleRecordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newRecord.description || !newRecord.amount) return;
-    onAddRecord({ id: Math.random().toString(36).substr(2, 9), type: newRecord.type as any, description: newRecord.description, category: newRecord.category, amount: parseFloat(newRecord.amount), date: newRecord.date, status: 'pago' });
-    setNewRecord({ type: 'despesa', description: '', category: '', amount: '', date: new Date().toISOString().split('T')[0] });
+    try {
+      await onAddRecord({ id: Math.random().toString(36).substr(2, 9), type: newRecord.type as any, description: newRecord.description, category: newRecord.category, amount: parseFloat(newRecord.amount), date: newRecord.date, status: 'pago' });
+      setNewRecord({ type: 'despesa', description: '', category: '', amount: '', date: new Date().toISOString().split('T')[0] });
+    } catch (error) {
+      // Mantém o formulário aberto e preenchido quando a escrita falhar.
+      console.error('Erro ao registrar movimentação financeira:', error);
+    }
+  };
+
+  const handleDeleteRecord = async (id: string) => {
+    try {
+      await onDeleteRecord(id);
+    } catch (error) {
+      console.error('Erro ao excluir movimentação financeira:', error);
+    }
+  };
+
+  const handleInvoicePayment = async (invoice: Invoice) => {
+    try {
+      await onUpdateInvoice({ ...invoice, status: 'Pago', paidDate: new Date().toISOString() });
+    } catch (error) {
+      console.error('Erro ao confirmar mensalidade:', error);
+    }
   };
 
   const validateContractFile = (file: File) => {
@@ -402,7 +423,7 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
                       <td className="px-6 py-4">
                         {inv.status !== 'Pago'
                           ? canEdit
-                            ? <button onClick={() => onUpdateInvoice({ ...inv, status: 'Pago', paidDate: new Date().toISOString() })} className="text-xs font-semibold text-emerald-600 hover:text-emerald-800 border border-emerald-200 px-3 py-1.5 rounded-lg hover:bg-emerald-50 transition-colors">Confirmar</button>
+                            ? <button onClick={() => void handleInvoicePayment(inv)} className="text-xs font-semibold text-emerald-600 hover:text-emerald-800 border border-emerald-200 px-3 py-1.5 rounded-lg hover:bg-emerald-50 transition-colors">Confirmar</button>
                             : <span className="text-xs text-slate-400">Pendente</span>
                           : <span className="text-xs text-slate-400">Quitado</span>}
                       </td>
@@ -436,7 +457,7 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
                     <td className="px-6 py-4">
                       {canDelete && (
                         <button
-                          onClick={() => { if (window.confirm('Confirmar exclusão desta despesa?')) onDeleteRecord(rec.id); }}
+                          onClick={() => { if (window.confirm('Confirmar exclusão desta despesa?')) void handleDeleteRecord(rec.id); }}
                           className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
                           title="Excluir despesa"
                         >

@@ -1,4 +1,5 @@
 import { toast } from './toast';
+import { supabase } from './supabaseClient';
 
 // ─── PDF print styles & window (paginação A4 real, papel timbrado, marca d'água) ──
 
@@ -94,29 +95,46 @@ tr:last-child td { border-bottom: none; }
 }
 `;
 
-export const openPrintWindow = (title: string, body: string, settingsOwnerId: string) => {
+export const openPrintWindow = (title: string, body: string, empresaId: string) => {
   const win = window.open('', '_blank', 'width=960,height=720');
   if (!win) { toast.warning('Permita popups para gerar o PDF.'); return; }
 
+  // A janela precisa ser aberta durante o gesto do usuário; o conteúdo é
+  // preenchido em seguida, após buscar o papel timbrado no banco.
+  win.document.open();
+  win.document.write('<!DOCTYPE html><html lang="pt-BR"><head><title>Gerando documento…</title></head><body><p>Gerando documento…</p></body></html>');
+  win.document.close();
+
+  void renderPrintWindow(win, title, body, empresaId);
+};
+
+const renderPrintWindow = async (win: Window, title: string, body: string, empresaId: string) => {
   let watermarkSrc = '';
-  let hasLetterhead = false;
   try {
-    const settingsKey = `recanto_system_settings_${settingsOwnerId}`;
-    const raw = localStorage.getItem(settingsKey);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      const src = parsed?.institution?.watermarkImage;
-      if (src) {
-        hasLetterhead = true;
-        watermarkSrc = src;
-      }
+    const { data, error } = await supabase
+      .from('Recanto_Empresas')
+      .select('papel_timbrado')
+      .eq('empresa_id', empresaId)
+      .maybeSingle();
+
+    if (error) {
+      throw error;
     }
+
+    watermarkSrc = data?.papel_timbrado || '';
   } catch (e) {
-    console.error('Erro ao carregar papel timbrado:', e);
+    // A impressão permanece disponível sem papel timbrado caso a consulta
+    // falhe; o armazenamento local não é usado como fonte alternativa.
+    console.error('Erro ao carregar papel timbrado do banco:', e);
   }
 
+  if (win.closed) return;
+
+  const hasLetterhead = watermarkSrc !== '';
+  const serializedWatermarkSrc = JSON.stringify(watermarkSrc).replace(/</g, '\\u003c');
   const now = new Date().toLocaleString('pt-BR');
 
+  win.document.open();
   win.document.write(`<!DOCTYPE html><html lang="pt-BR"><head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -135,7 +153,7 @@ export const openPrintWindow = (title: string, body: string, settingsOwnerId: st
 
     <script>
       const hasLetterhead = ${hasLetterhead};
-      const letterheadSrc = '${watermarkSrc}';
+      const letterheadSrc = ${serializedWatermarkSrc};
 
       window.onload = () => {
         const pxPerMm = 96 / 25.4;

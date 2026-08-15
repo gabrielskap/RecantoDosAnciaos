@@ -11,8 +11,8 @@ interface ResidentsListProps {
   residents: Resident[];
   rooms: Room[];
   onSelectResident: (resident: Resident) => void;
-  onAddResident: (resident: Resident) => void;
-  onUpdateResident?: (resident: Resident) => void;
+  onAddResident: (resident: Resident) => Promise<void>;
+  onUpdateResident: (resident: Resident) => Promise<void>;
 }
 
 const careLevelConfig = {
@@ -86,17 +86,8 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
   const canCreate = hasPermission(ViewState.RESIDENTS, 'create');
   const canEdit = hasPermission(ViewState.RESIDENTS, 'edit');
 
-  const [isModalOpen, setIsModalOpen] = useState(() => {
-    if (localStorage.getItem('modal_residents_list_open') !== 'true') return false;
-    const wasEditing = !!localStorage.getItem('modal_residents_editing_id');
-    // só restaura se o usuário ainda tiver a permissão necessária
-    return wasEditing
-      ? hasPermission(ViewState.RESIDENTS, 'edit')
-      : hasPermission(ViewState.RESIDENTS, 'create');
-  });
-  const [editingResidentId, setEditingResidentId] = useState<string | null>(() => {
-    return localStorage.getItem('modal_residents_editing_id') || null;
-  });
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingResidentId, setEditingResidentId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'personal' | 'contacts' | 'clinical' | 'offboarding'>(() => {
     return (localStorage.getItem('modal_residents_active_tab') as any) || 'personal';
   });
@@ -118,9 +109,7 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
     return () => document.removeEventListener('click', close);
   }, [showSortMenu]);
 
-  const [formData, setFormData] = useState<Partial<Resident>>(() => {
-    const saved = localStorage.getItem('modal_residents_form_data');
-    return saved ? JSON.parse(saved) : {
+  const [formData, setFormData] = useState<Partial<Resident>>({
       name: '', age: 0, room: '', careLevel: 'I', cpf: '', rg: '', birthDate: '', admissionDate: '', photoUrl: '',
       addressCep: '', addressState: '', addressCity: '', addressNeighborhood: '',
       addressStreet: '', addressNumber: '', addressComplement: '',
@@ -143,17 +132,11 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
       dataDesligamento: '',
       motivoDesligamento: '',
       documentoDesligamento: '',
-    };
-  });
-  const [contactTemp, setContactTemp] = useState(() => {
-    const saved = localStorage.getItem('modal_residents_contact_temp');
-    return saved ? JSON.parse(saved) : { name: '', relation: '', phone: '' };
-  });
+    });
+  const [contactTemp, setContactTemp] = useState({ name: '', relation: '', phone: '' });
   const [loadingCep, setLoadingCep] = useState(false);
   const [cepError, setCepError] = useState('');
-  const [allergiesText, setAllergiesText] = useState(() => {
-    return localStorage.getItem('modal_residents_allergies_text') || '';
-  });
+  const [allergiesText, setAllergiesText] = useState('');
 
   const handleCepChange = async (value: string) => {
     const raw = value.replace(/\D/g, '');
@@ -196,27 +179,23 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
     }
   };
 
+  // Dados cadastrais, de contato e clínicos só existem em memória até a
+  // confirmação do cadastro. Remove cópias legadas que podiam ficar expostas
+  // no navegador entre sessões.
   React.useEffect(() => {
-    if (isModalOpen) {
-      localStorage.setItem('modal_residents_list_open', 'true');
-      localStorage.setItem('modal_residents_active_tab', activeTab);
-      localStorage.setItem('modal_residents_form_data', JSON.stringify(formData));
-      localStorage.setItem('modal_residents_contact_temp', JSON.stringify(contactTemp));
-      localStorage.setItem('modal_residents_allergies_text', allergiesText);
-      if (editingResidentId) {
-        localStorage.setItem('modal_residents_editing_id', editingResidentId);
-      } else {
-        localStorage.removeItem('modal_residents_editing_id');
-      }
-    } else {
-      localStorage.removeItem('modal_residents_list_open');
-      localStorage.removeItem('modal_residents_active_tab');
-      localStorage.removeItem('modal_residents_form_data');
-      localStorage.removeItem('modal_residents_contact_temp');
-      localStorage.removeItem('modal_residents_allergies_text');
-      localStorage.removeItem('modal_residents_editing_id');
-    }
-  }, [isModalOpen, activeTab, formData, contactTemp, allergiesText, editingResidentId]);
+    [
+      'modal_residents_list_open',
+      'modal_residents_editing_id',
+      'modal_residents_form_data',
+      'modal_residents_contact_temp',
+      'modal_residents_allergies_text',
+    ].forEach(key => localStorage.removeItem(key));
+  }, []);
+
+  // A aba é apenas uma preferência de interface, sem conteúdo do prontuário.
+  React.useEffect(() => {
+    localStorage.setItem('modal_residents_active_tab', activeTab);
+  }, [activeTab]);
 
   const careLevelOrder = { I: 1, II: 2, III: 3 };
 
@@ -363,7 +342,7 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name || !formData.room) {
       // Nome/Quarto ficam na aba "Dados Pessoais" — se estiverem vazios
@@ -410,6 +389,7 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
       }
     }
 
+    try {
     if (editingResidentId) {
       if (onUpdateResident) {
         const original = originalResident;
@@ -455,10 +435,13 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
             motivoDesligamento: formData.motivoDesligamento || undefined,
             documentoDesligamento: formData.documentoDesligamento || undefined,
           };
-          onUpdateResident(updated);
+          await onUpdateResident(updated);
           if (formData.status === 'inativo') {
             toast.success(`Residente ${formData.name} foi desligado(a) com sucesso.`);
           }
+        } else {
+          toast.error('O residente não foi encontrado para atualização.');
+          return;
         }
       }
     } else {
@@ -500,7 +483,7 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
         motivoDesligamento: formData.motivoDesligamento || undefined,
         documentoDesligamento: formData.documentoDesligamento || undefined,
       };
-      onAddResident(resident);
+      await onAddResident(resident);
     }
     setEditingResidentId(null);
     setFormData({
@@ -529,6 +512,10 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
     });
     setAllergiesText('');
     setIsModalOpen(false);
+    } catch (err) {
+      // O formulário e seu rascunho local são mantidos para uma nova tentativa.
+      console.error('Error saving resident:', err);
+    }
   };
 
   const inputClass = 'w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white';
