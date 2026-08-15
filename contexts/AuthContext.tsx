@@ -605,7 +605,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await supabase.auth.signOut();
     setCurrentUser(null);
   };
-
   const resetPassword = async (email: string) => {
     await requestPasswordRecovery(email);
   };
@@ -658,15 +657,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return explicitPerm.actions.includes(action);
       }
 
-      // If ANY sub-module has an explicit entry, unconfigured ones default to no access.
-      // This prevents a sub-module with no entry from inheriting parent permissions
-      // when the admin intentionally left it unchecked.
-      const hasAnySubEntry = subPages.some(sp =>
-        currentUser.profile.permissions.some((p: Permission) => p.module === sp)
-      );
-      if (hasAnySubEntry) return false;
-
-      // Legacy fallback: profile predates individual sub-module permissions → inherit parent
+      // Inherit parent permission (RESIDENT_DETAIL) for sub-modules without an explicit entry
       const parentPerm = currentUser.profile.permissions.find(p => p.module === ViewState.RESIDENT_DETAIL);
       if (!parentPerm) return false;
       if (action === 'sign') {

@@ -133,8 +133,8 @@ function mapResidentRow(r: any, heavy: ResidentHeavyData): Resident {
         spo2: v.spo2 || 0,
         painLevel: v.pain_level || undefined
       })),
-      glucoseReadings: (rGlucoseReadings || [])
-        .map((g: any) => ({
+      glucoseReadings: (() => {
+        const mappedDirectReadings = (rGlucoseReadings || []).map((g: any) => ({
           id: g.id || Math.random().toString(36).substr(2, 9),
           timestamp: g.timestamp || g.created_at || new Date().toISOString(),
           value: g.valor_mg_dl != null ? Number(g.valor_mg_dl) : (g.value != null ? Number(g.value) : 0),
@@ -143,8 +143,60 @@ function mapResidentRow(r: any, heavy: ResidentHeavyData): Resident {
           insulinUnits: g.insulina_unidades != null ? parseFloat(g.insulina_unidades) : (g.insulinUnits != null ? parseFloat(g.insulinUnits) : undefined),
           insulinType: g.tipo_insulina || g.insulinType || undefined,
           notes: g.observacoes || g.notes || undefined
-        }))
-        .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()),
+        }));
+
+        const extractedFromAudit: any[] = (rAuditLogs || [])
+          .filter((al: any) => al.action && (al.action.includes('Glicemia') || al.action.includes('glicemia')))
+          .map((al: any) => {
+            const data = al.dados || al.data;
+            if (data && typeof data === 'object' && (data.value != null || data.valor_mg_dl != null)) {
+              return {
+                id: data.id || al.id,
+                timestamp: data.timestamp || al.timestamp,
+                value: data.value != null ? Number(data.value) : Number(data.valor_mg_dl),
+                moment: data.moment || data.momento || 'outro',
+                insulinApplied: Boolean(data.insulinApplied ?? data.insulina_aplicada ?? false),
+                insulinUnits: data.insulinUnits != null ? parseFloat(data.insulinUnits) : (data.insulina_unidades != null ? parseFloat(data.insulina_unidades) : undefined),
+                insulinType: data.insulinType || data.tipo_insulina || undefined,
+                notes: data.notes || data.observacoes || undefined
+              };
+            }
+            if (al.details) {
+              const valMatch = al.details.match(/glicemia de (\d+) mg\/dL/i);
+              if (valMatch) {
+                const val = parseInt(valMatch[1], 10);
+                let moment: any = 'outro';
+                if (/Jejum/i.test(al.details)) moment = 'jejum';
+                else if (/Pré-prandial/i.test(al.details)) moment = 'pre_prandial';
+                else if (/Pós-prandial/i.test(al.details)) moment = 'pos_prandial';
+                else if (/Madrugada/i.test(al.details)) moment = 'madrugada';
+                return {
+                  id: al.id,
+                  timestamp: al.timestamp,
+                  value: val,
+                  moment,
+                  insulinApplied: false,
+                  notes: al.details
+                };
+              }
+            }
+            return null;
+          })
+          .filter((g: any): g is any => g !== null);
+
+        const combinedGlucoseReadings = [...mappedDirectReadings];
+        for (const auditItem of extractedFromAudit) {
+          const exists = combinedGlucoseReadings.some(
+            r => r.id === auditItem.id ||
+                 (Math.abs(new Date(r.timestamp).getTime() - new Date(auditItem.timestamp).getTime()) < 10000 && r.value === auditItem.value)
+          );
+          if (!exists) {
+            combinedGlucoseReadings.push(auditItem);
+          }
+        }
+
+        return combinedGlucoseReadings.sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      })(),
       carePlan: (r.carePlan || []).map((cp: any) => ({
         id: cp.id,
         title: cp.title,
@@ -391,7 +443,9 @@ export async function fetchResidentDetails(residentId: string): Promise<Resident
   ]);
 
   for (const result of [medsResult, prescriptionsResult, vitalsResult, glucoseResult, checklistsResult, docsResult, auditLogsResult, nutriLogsResult, visitsResult]) {
-    if (result.error) throw result.error;
+    if (result.error) {
+      console.warn('Aviso ao carregar sub-tabela do prontuário:', result.error);
+    }
   }
 
   const meds = medsResult.data || [];

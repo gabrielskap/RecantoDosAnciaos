@@ -5,7 +5,7 @@ import {
   ClipboardList, History, Plus, User, Clock, File, Paperclip, CalendarCheck, AlertOctagon,
   BedDouble, Home, Wrench, PaintRoller, Edit2, X, Phone, FileHeart, Trash2, Users, Camera, Sun, Moon,
   Key, Printer, Upload, Wind, UserCheck, UserX, UploadCloud, ExternalLink, Droplet, Syringe, Check,
-  Folder, FolderPlus, FolderOpen, ChevronDown, ChevronRight, ChevronLeft, Search
+  Folder, FolderPlus, FolderOpen, ChevronDown, ChevronRight, ChevronLeft, Search, Loader2
 } from 'lucide-react';
 import { Resident, CarePlan, AuditLog, DailyChecklist, Medication, ResidentPrescriptionRecord, RoomStatus, Room, ViewState, GlucoseReading, GlicemiaMomento, DocumentFolder, ResidentDocument, INSULINA_TIPO_OPTIONS } from '../types';
 import { residentAvatarSrc } from '../lib/avatar';
@@ -506,13 +506,14 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   const [activeTab, setActiveTab] = useState<'info' | 'meds' | 'vitals' | 'glicemia' | 'routine' | 'care_plan' | 'visits' | 'docs' | 'evolution' | 'history'>(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const tabParam = urlParams.get('tab');
-    if (tabParam && visibleTabs.some(t => t.id === tabParam)) {
+    if (tabParam && rawTabs.some(t => t.id === tabParam)) {
       return tabParam as any;
     }
     const saved = localStorage.getItem(`recanto_resident_profile_active_tab_${resident.id}`);
-    const initialTab = (saved as any) || 'vitals';
-    const isVisible = visibleTabs.some(t => t.id === initialTab);
-    return isVisible ? initialTab : (visibleTabs[0]?.id || 'vitals');
+    if (saved && rawTabs.some(t => t.id === saved)) {
+      return saved as any;
+    }
+    return 'vitals';
   });
 
   React.useEffect(() => {
@@ -4418,6 +4419,16 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
           })()}
 
           {activeTab === 'glicemia' && (() => {
+            if (resident.isDetailLoaded === false) {
+              return (
+                <div className="bg-white p-12 rounded-xl border border-slate-200 shadow-sm flex flex-col items-center justify-center text-center space-y-3">
+                  <Loader2 className="h-8 w-8 text-rose-500 animate-spin" />
+                  <p className="text-sm font-semibold text-slate-700">Carregando histórico de glicemia...</p>
+                  <p className="text-xs text-slate-400">Buscando medições e histórico clínico do residente no banco de dados.</p>
+                </div>
+              );
+            }
+
             const sortedReadings = [...(resident.glucoseReadings || [])].sort(
               (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
             );
@@ -4547,9 +4558,9 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                       <Droplet className="h-3.5 w-3.5 text-rose-500" /> Histórico de Glicemia
                     </h4>
                     <p className="text-[11px] text-slate-400 mb-2">Últimas medições · horário real</p>
-                    <div className="flex-1 min-h-0">
+                    <div className="flex-1 min-h-[200px]">
                       {chartData.length > 0 ? (
-                        <ResponsiveContainer width="100%" height="100%">
+                        <ResponsiveContainer width="99%" height={200}>
                           <LineChart data={chartData} margin={{ top: 5, right: 8, left: 0, bottom: 0 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                             <XAxis dataKey="formattedDate" stroke="#94a3b8" fontSize={10} interval={xAxisInterval} />
@@ -4571,9 +4582,9 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                       <AlertOctagon className="h-3.5 w-3.5 text-rose-500" /> Hipoglicemias
                     </h4>
                     <p className="text-[11px] text-slate-400 mb-2">Limite: {'<'} {GLICEMIA_HIPO_LIMIT} mg/dL</p>
-                    <div className="h-40 shrink-0">
+                    <div className="h-40 shrink-0 min-h-[160px]">
                       {chartData.length > 0 ? (
-                        <ResponsiveContainer width="100%" height="100%">
+                        <ResponsiveContainer width="99%" height={160}>
                           <LineChart data={chartData} margin={{ top: 5, right: 8, left: 0, bottom: 0 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                             <XAxis dataKey="formattedDate" stroke="#94a3b8" fontSize={10} interval={xAxisInterval} />
@@ -4620,9 +4631,9 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                       <AlertOctagon className="h-3.5 w-3.5 text-amber-500" /> Hiperglicemias
                     </h4>
                     <p className="text-[11px] text-slate-400 mb-2">Limite: {'≥'} {GLICEMIA_HIPER_LIMIT} mg/dL</p>
-                    <div className="h-40 shrink-0">
+                    <div className="h-40 shrink-0 min-h-[160px]">
                       {chartData.length > 0 ? (
-                        <ResponsiveContainer width="100%" height="100%">
+                        <ResponsiveContainer width="99%" height={160}>
                           <LineChart data={chartData} margin={{ top: 5, right: 8, left: 0, bottom: 0 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                             <XAxis dataKey="formattedDate" stroke="#94a3b8" fontSize={10} interval={xAxisInterval} />
