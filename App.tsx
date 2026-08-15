@@ -704,6 +704,26 @@ function AppInner() {
 
   const handleUpdateResident = async (updated: Resident) => {
     try {
+      const generateUUID = () => {
+        if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+          return crypto.randomUUID();
+        }
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+          const r = (Math.random() * 16) | 0;
+          const v = c === 'x' ? r : (r & 0x3) | 0x8;
+          return v.toString(16);
+        });
+      };
+
+      const normalizeTimestampStr = (raw: any): string => {
+        if (!raw) return new Date().toISOString();
+        try {
+          const d = new Date(raw);
+          if (!isNaN(d.getTime())) return d.toISOString();
+        } catch (e) {}
+        return String(raw).trim();
+      };
+
       // Sincronizar sinais vitais dos boletins com a tabela de sinais vitais
       if (updated.dailyChecklists) {
         const extractedVitals = updated.dailyChecklists
@@ -727,10 +747,16 @@ function AppInner() {
 
         const vitalsMap = new Map<string, any>();
         (updated.vitals || []).forEach(v => {
-          vitalsMap.set(v.timestamp, v);
+          if (v.timestamp) {
+            const normTs = normalizeTimestampStr(v.timestamp);
+            vitalsMap.set(normTs, { ...v, timestamp: normTs });
+          }
         });
         extractedVitals.forEach(v => {
-          vitalsMap.set(v.timestamp, v);
+          if (v.timestamp) {
+            const normTs = normalizeTimestampStr(v.timestamp);
+            vitalsMap.set(normTs, { ...v, timestamp: normTs });
+          }
         });
         updated.vitals = Array.from(vitalsMap.values());
       }
@@ -913,21 +939,32 @@ function AppInner() {
         }
       }
 
-      // 6. Sinais Vitais (Bulk Upsert em 1 única requisição)
+      // 6. Sinais Vitais (Bulk Upsert com deduplicação por timestamp)
       if (updated.vitals && updated.vitals.length > 0) {
-        const vitalsToUpsert = updated.vitals.map(vit => ({
-          resident_id: updated.id,
-          timestamp: vit.timestamp,
-          bp: vit.bp,
-          hr: vit.hr,
-          temp: vit.temp,
-          spo2: vit.spo2,
-          pain_level: vit.painLevel || null
-        }));
-        const { error: vitErr } = await supabase
-          .from('Recanto_SinaisVitais')
-          .upsert(vitalsToUpsert, { onConflict: 'resident_id,timestamp' });
-        if (vitErr) throw vitErr;
+        const uniqueVitalsMap = new Map<string, any>();
+        updated.vitals.forEach(vit => {
+          if (vit.timestamp) {
+            const normTs = normalizeTimestampStr(vit.timestamp);
+            uniqueVitalsMap.set(normTs, {
+              resident_id: updated.id,
+              timestamp: normTs,
+              bp: vit.bp,
+              hr: vit.hr,
+              temp: vit.temp,
+              spo2: vit.spo2,
+              pain_level: vit.painLevel || null
+            });
+          }
+        });
+        const vitalsToUpsert = Array.from(uniqueVitalsMap.values());
+        if (vitalsToUpsert.length > 0) {
+          const { error: vitErr } = await supabase
+            .from('Recanto_SinaisVitais')
+            .upsert(vitalsToUpsert, { onConflict: 'resident_id,timestamp' });
+          if (vitErr) {
+            console.warn('Aviso/Erro ao sincronizar sinais vitais:', vitErr);
+          }
+        }
       }
 
       // 7. Planos de Assistência (Bulk Upsert em 1 única requisição)
@@ -951,53 +988,58 @@ function AppInner() {
         if (cpErr) throw cpErr;
       }
 
-      // 8. Checklist Diário (Bulk Upsert & Acompanhamento de Planos em lote)
+      // 8. Checklist Diário (Bulk Upsert com deduplicação por data/turno & Acompanhamento de Planos em lote)
       let didDebitMedication = false;
       if (updated.dailyChecklists && updated.dailyChecklists.length > 0) {
-        const checklistsToUpsert = updated.dailyChecklists.map(chk => ({
-          resident_id: updated.id,
-          date: chk.date,
-          shift: chk.shift || 'diurno',
-          hygiene: chk.hygiene,
-          oral_care: chk.oralCare,
-          feeding: chk.feeding,
-          hydration: chk.hydration,
-          mobility: chk.mobility,
-          dressings: chk.dressings,
-          leisure: chk.leisure,
-          queixa_dor: chk.queixaDor || null,
-          queixa_dor_desc: chk.queixaDorDesc || null,
-          estado_neurologico: chk.estadoNeurologico || null,
-          ar_ambiente: chk.arAmbiente !== undefined ? chk.arAmbiente : null,
-          alimentacao: chk.alimentacao || null,
-          alimentacao_desc: chk.alimentacaoDesc || null,
-          agitado: chk.agitado !== undefined ? chk.agitado : null,
-          prostrado: chk.prostrado !== undefined ? chk.prostrado : null,
-          sonolento: chk.sonolento !== undefined ? chk.sonolento : null,
-          eliminacao_evacuacao: chk.eliminacaoEvacuacao || null,
-          eliminacao_evacuacao_dias: chk.eliminacaoEvacuacaoDias || null,
-          aspecto_evacuacoes: chk.aspectoEvacuacoes || null,
-          diurese: chk.diurese || null,
-          diurese_aspecto: chk.diureseAspecto || null,
-          uso_fraldas: chk.usoFraldas || null,
-          mobilidade_set: chk.mobilidadeSet || null,
-          higiene_corporal: chk.higieneCorporal || null,
-          higiene_oral_vestir: chk.higieneOralVestir || null,
-          alteracoes_pele: chk.alteracoesPele || null,
-          alteracoes_pele_desc: chk.alteracoesPeleDesc || null,
-          sono: chk.sono || null,
-          sono_desc: chk.sonoDesc || null,
-          medicacoes_administradas: chk.medicacoesAdministradas || null,
-          atividades_consulta: chk.atividadesConsulta || null,
-          intercorrencia: chk.intercorrencia || null,
-          intercorrencia_desc: chk.intercorrenciaDesc || null,
-          photo_url: chk.photoUrls?.[0] || null,
-          photo_urls: chk.photoUrls && chk.photoUrls.length > 0 ? chk.photoUrls : null,
-          signed_by: chk.signedBy || null,
-          signed_at: chk.signedAt || null,
-          signature_info: chk.signatureInfo || null
-        }));
+        const uniqueChecklistsMap = new Map<string, any>();
+        updated.dailyChecklists.forEach(chk => {
+          const key = `${chk.date}_${chk.shift || 'diurno'}`;
+          uniqueChecklistsMap.set(key, {
+            resident_id: updated.id,
+            date: chk.date,
+            shift: chk.shift || 'diurno',
+            hygiene: chk.hygiene,
+            oral_care: chk.oralCare,
+            feeding: chk.feeding,
+            hydration: chk.hydration,
+            mobility: chk.mobility,
+            dressings: chk.dressings,
+            leisure: chk.leisure,
+            queixa_dor: chk.queixaDor || null,
+            queixa_dor_desc: chk.queixaDorDesc || null,
+            estado_neurologico: chk.estadoNeurologico || null,
+            ar_ambiente: chk.arAmbiente !== undefined ? chk.arAmbiente : null,
+            alimentacao: chk.alimentacao || null,
+            alimentacao_desc: chk.alimentacaoDesc || null,
+            agitado: chk.agitado !== undefined ? chk.agitado : null,
+            prostrado: chk.prostrado !== undefined ? chk.prostrado : null,
+            sonolento: chk.sonolento !== undefined ? chk.sonolento : null,
+            eliminacao_evacuacao: chk.eliminacaoEvacuacao || null,
+            eliminacao_evacuacao_dias: chk.eliminacaoEvacuacaoDias || null,
+            aspecto_evacuacoes: chk.aspectoEvacuacoes || null,
+            diurese: chk.diurese || null,
+            diurese_aspecto: chk.diureseAspecto || null,
+            uso_fraldas: chk.usoFraldas || null,
+            mobilidade_set: chk.mobilidadeSet || null,
+            higiene_corporal: chk.higieneCorporal || null,
+            higiene_oral_vestir: chk.higieneOralVestir || null,
+            alteracoes_pele: chk.alteracoesPele || null,
+            alteracoes_pele_desc: chk.alteracoesPeleDesc || null,
+            sono: chk.sono || null,
+            sono_desc: chk.sonoDesc || null,
+            medicacoes_administradas: chk.medicacoesAdministradas || null,
+            atividades_consulta: chk.atividadesConsulta || null,
+            intercorrencia: chk.intercorrencia || null,
+            intercorrencia_desc: chk.intercorrenciaDesc || null,
+            photo_url: chk.photoUrls?.[0] || null,
+            photo_urls: chk.photoUrls && chk.photoUrls.length > 0 ? chk.photoUrls : null,
+            signed_by: chk.signedBy || null,
+            signed_at: chk.signedAt || null,
+            signature_info: chk.signatureInfo || null
+          });
+        });
 
+        const checklistsToUpsert = Array.from(uniqueChecklistsMap.values());
         const { data: upsertedChecklists, error: chkErr } = await supabase
           .from('Recanto_ChecklistDiario')
           .upsert(checklistsToUpsert, { onConflict: 'resident_id,date,shift' })
@@ -1273,9 +1315,13 @@ function AppInner() {
         }
 
         if (updated.glucoseReadings.length > 0) {
-          const glicemiaToUpsert = updated.glucoseReadings.map((g: any) => {
+          const uniqueGlicemiaMap = new Map<string, any>();
+
+          updated.glucoseReadings.forEach((g: any) => {
             const isGlicemiaMock = !g.id || g.id.length < 15;
+            const validId = !isGlicemiaMock ? g.id : generateUUID();
             const item: any = {
+              id: validId,
               resident_id: updated.id,
               timestamp: g.timestamp || new Date().toISOString(),
               valor_mg_dl: g.value ?? g.valor_mg_dl ?? 0,
@@ -1285,10 +1331,14 @@ function AppInner() {
               tipo_insulina: (g.insulinApplied ?? g.insulina_aplicada) ? (g.insulinType ?? g.tipo_insulina ?? null) : null,
               observacoes: g.notes ?? g.observacoes ?? null
             };
-            if (!isGlicemiaMock) item.id = g.id;
-            return item;
+            uniqueGlicemiaMap.set(validId, item);
           });
-          await supabase.from('Recanto_Glicemia').upsert(glicemiaToUpsert);
+
+          const glicemiaToUpsert = Array.from(uniqueGlicemiaMap.values());
+          if (glicemiaToUpsert.length > 0) {
+            const { error: glicErr } = await supabase.from('Recanto_Glicemia').upsert(glicemiaToUpsert);
+            if (glicErr) throw glicErr;
+          }
         }
       }
 

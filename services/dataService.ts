@@ -126,6 +126,7 @@ function mapResidentRow(r: any, heavy: ResidentHeavyData): Resident {
       ),
       allergies: (r.allergies || []).map((a: any) => a.description),
       vitals: rVitals.map((v: any) => ({
+        id: v.id || undefined,
         timestamp: v.timestamp,
         bp: v.bp || '',
         hr: v.hr || 0,
