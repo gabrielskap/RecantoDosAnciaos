@@ -575,7 +575,7 @@ const TrialEnvironment: React.FC = () => {
           stockAlertCount={lowStockItems.length}
         />
 
-        <main className="flex-1 max-w-full lg:max-w-[calc(100vw-256px)] flex flex-col h-full overflow-hidden transition-all">
+        <main className="flex-1 max-w-full lg:max-w-[calc(100vw-288px)] flex flex-col h-full overflow-hidden transition-all">
           {/* Mobile header */}
           <div className="sticky top-0 z-20 lg:hidden px-4 py-3 bg-slate-900 text-white flex justify-between items-center shadow-md select-none border-b border-slate-800">
             <div className="flex items-center space-x-2">

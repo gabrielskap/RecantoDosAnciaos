@@ -1999,7 +1999,7 @@ function AppInner() {
         stockAlertCount={lowStockItems.length}
       />
 
-      <main className="flex-1 min-w-0 max-w-full lg:max-w-[calc(100vw-256px)] flex flex-col h-full overflow-hidden transition-all">
+      <main className="flex-1 min-w-0 max-w-full lg:max-w-[calc(100vw-288px)] flex flex-col h-full overflow-hidden transition-all">
         {trialInfo?.isInTrial && !trialInfo.isExpired && (
           <TrialBanner
             daysRemaining={trialInfo.daysRemaining}
