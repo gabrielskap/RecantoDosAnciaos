@@ -725,7 +725,7 @@ function AppInner() {
             };
           });
 
-        const vitalsMap = new Map();
+        const vitalsMap = new Map<string, any>();
         (updated.vitals || []).forEach(v => {
           vitalsMap.set(v.timestamp, v);
         });
@@ -735,6 +735,7 @@ function AppInner() {
         updated.vitals = Array.from(vitalsMap.values());
       }
 
+      // Atualizar cadastro base do residente
       const { error: resError } = await supabase
         .from('Recanto_Residentes')
         .update({
@@ -776,7 +777,7 @@ function AppInner() {
 
       if (resError) throw resError;
 
-      // 1. Alergias
+      // 1. Alergias (Bulk delete & insert)
       const { error: allergiesDeleteError } = await supabase.from('Recanto_Alergias').delete().eq('resident_id', updated.id);
       if (allergiesDeleteError) throw allergiesDeleteError;
       if (updated.allergies && updated.allergies.length > 0) {
@@ -786,7 +787,7 @@ function AppInner() {
         if (allergiesInsertError) throw allergiesInsertError;
       }
 
-      // 2. Contatos de emergência
+      // 2. Contatos de emergência (Bulk delete & insert)
       const { error: contactsDeleteError } = await supabase.from('Recanto_ContatosEmergencia').delete().eq('resident_id', updated.id);
       if (contactsDeleteError) throw contactsDeleteError;
       if (updated.emergencyContacts && updated.emergencyContacts.length > 0) {
@@ -801,7 +802,7 @@ function AppInner() {
         if (contactsInsertError) throw contactsInsertError;
       }
 
-      // 3. Responsável Legal
+      // 3. Responsável Legal (Upsert)
       if (updated.legalGuardian && updated.legalGuardian.name) {
         const { error: guardianError } = await supabase.from('Recanto_ResponsaveisLegais').upsert({
           resident_id: updated.id,
@@ -814,29 +815,23 @@ function AppInner() {
         if (guardianError) throw guardianError;
       }
 
-      // 4. Medicações
+      // 4. Medicações (Bulk delete, bulk upsert e bulk insert de logs)
       if (updated.medications) {
-        // Excluir medicações removidas no front-end
         const originalResident = residents.find(r => r.id === updated.id);
         if (originalResident && originalResident.medications) {
           const updatedMedIds = updated.medications.map(m => m.id);
-          const deletedMeds = originalResident.medications.filter(m => !updatedMedIds.includes(m.id));
-          for (const dMed of deletedMeds) {
-            if (dMed.id.length >= 15) { // Verifica se é um UUID do banco e não um ID temporário do front
-              await supabase
-                .from('Recanto_Medicacoes')
-                .delete()
-                .eq('id', dMed.id);
-            }
+          const deletedMedIds = originalResident.medications
+            .filter(m => !updatedMedIds.includes(m.id) && m.id.length >= 15)
+            .map(m => m.id);
+          if (deletedMedIds.length > 0) {
+            await supabase.from('Recanto_Medicacoes').delete().in('id', deletedMedIds);
           }
         }
 
-        for (const med of updated.medications) {
-          const isMockId = med.id.length < 15;
-          const { data: medData, error: medErr } = await supabase
-            .from('Recanto_Medicacoes')
-            .upsert({
-              id: isMockId ? undefined : med.id,
+        if (updated.medications.length > 0) {
+          const medsToUpsert = updated.medications.map(med => {
+            const isMockId = med.id.length < 15;
+            const item: any = {
               resident_id: updated.id,
               name: med.name,
               dosage: med.dosage,
@@ -847,217 +842,244 @@ function AppInner() {
               end_date: med.endDate || null,
               observations: med.observations || null,
               document_url: med.documentUrl || null
-            })
-            .select()
-            .single();
+            };
+            if (!isMockId) item.id = med.id;
+            return item;
+          });
 
-          if (!medErr && medData && med.logs && med.logs.length > 0) {
-            // Logs são somente-anexação (nunca editados após criados), então só
-            // é preciso inserir os novos (id mock). Re-enviar logs já persistidos
-            // forçaria um UPDATE via upsert, que a RLS de Recanto_LogsMedicacao
-            // não permite (só há política de INSERT/SELECT) e retornava 403.
-            const newLogs = med.logs.filter(log => log.id.length < 15);
-            for (const log of newLogs) {
-              await supabase
-                .from('Recanto_LogsMedicacao')
-                .insert({
-                  medication_id: medData.id,
-                  timestamp: log.timestamp,
-                  administered_by: log.administeredBy,
-                  status: log.status,
-                  note: log.note || null
-                });
+          const { data: upsertedMeds, error: medErr } = await supabase
+            .from('Recanto_Medicacoes')
+            .upsert(medsToUpsert)
+            .select();
+
+          if (medErr) throw medErr;
+
+          // Inserir novos logs de medicação em lote
+          const newLogsToInsert: any[] = [];
+          if (upsertedMeds) {
+            for (const med of updated.medications) {
+              if (med.logs && med.logs.length > 0) {
+                const newLogs = med.logs.filter(log => log.id.length < 15);
+                if (newLogs.length > 0) {
+                  const realDbMed = upsertedMeds.find((m: any) =>
+                    (med.id.length >= 15 && m.id === med.id) || m.name === med.name
+                  );
+                  if (realDbMed) {
+                    for (const log of newLogs) {
+                      newLogsToInsert.push({
+                        medication_id: realDbMed.id,
+                        timestamp: log.timestamp,
+                        administered_by: log.administeredBy,
+                        status: log.status,
+                        note: log.note || null
+                      });
+                    }
+                  }
+                }
+              }
             }
+          }
+          if (newLogsToInsert.length > 0) {
+            await supabase.from('Recanto_LogsMedicacao').insert(newLogsToInsert);
           }
         }
       }
 
-      // 5. Receitas Médicas
-      // Only sync when `updated` came from fetchResidentDetails (full
-      // clinical history). The lightweight summary always sends
-      // prescriptions as [], and diffing that against the database would
-      // delete every real prescription the resident has.
+      // 5. Receitas Médicas (Bulk delete & insert)
       if (updated.isDetailLoaded && updated.prescriptions !== undefined) {
-        // Prescriptions are no longer part of the lightweight resident list
-        // state (see fetchResidentsSummary), so check what's currently in
-        // the database directly instead of diffing against client state —
-        // this is also more correct than the old approach, since it can't
-        // go stale/incomplete depending on what happened to be loaded.
         const { data: existingPrescriptions, error: existingPrescError } = await supabase
           .from('Recanto_Receitas')
           .select('id')
           .eq('resident_id', updated.id);
         if (existingPrescError) throw existingPrescError;
         const updatedIds = updated.prescriptions.map(p => p.id);
-        const deletedPrescriptions = (existingPrescriptions || []).filter(p => !updatedIds.includes(p.id));
-        for (const dp of deletedPrescriptions) {
-          await supabase.from('Recanto_Receitas').delete().eq('id', dp.id);
+        const deletedPrescIds = (existingPrescriptions || [])
+          .filter(p => !updatedIds.includes(p.id))
+          .map(p => p.id);
+        if (deletedPrescIds.length > 0) {
+          await supabase.from('Recanto_Receitas').delete().in('id', deletedPrescIds);
         }
-        for (const p of updated.prescriptions) {
-          const isMock = p.id.length < 15;
-          if (isMock) {
-            await supabase.from('Recanto_Receitas').insert({
-              resident_id: updated.id,
-              description: p.description,
-              expiry_date: p.expiryDate,
-              file_url: p.fileUrl,
-              file_name: p.fileName
-            });
-          }
+
+        const newPrescriptions = updated.prescriptions.filter(p => p.id.length < 15);
+        if (newPrescriptions.length > 0) {
+          const prescToInsert = newPrescriptions.map(p => ({
+            resident_id: updated.id,
+            description: p.description,
+            expiry_date: p.expiryDate,
+            file_url: p.fileUrl,
+            file_name: p.fileName
+          }));
+          await supabase.from('Recanto_Receitas').insert(prescToInsert);
         }
       }
 
-      // 6. Sinais Vitais
+      // 6. Sinais Vitais (Bulk Upsert em 1 única requisição)
       if (updated.vitals && updated.vitals.length > 0) {
-        for (const vit of updated.vitals) {
-          await supabase
-            .from('Recanto_SinaisVitais')
-            .upsert({
-              resident_id: updated.id,
-              timestamp: vit.timestamp,
-              bp: vit.bp,
-              hr: vit.hr,
-              temp: vit.temp,
-              spo2: vit.spo2,
-              pain_level: vit.painLevel || null
-            }, { onConflict: 'resident_id,timestamp' });
-        }
+        const vitalsToUpsert = updated.vitals.map(vit => ({
+          resident_id: updated.id,
+          timestamp: vit.timestamp,
+          bp: vit.bp,
+          hr: vit.hr,
+          temp: vit.temp,
+          spo2: vit.spo2,
+          pain_level: vit.painLevel || null
+        }));
+        const { error: vitErr } = await supabase
+          .from('Recanto_SinaisVitais')
+          .upsert(vitalsToUpsert, { onConflict: 'resident_id,timestamp' });
+        if (vitErr) throw vitErr;
       }
 
-      // 6. Planos de Assistência
-      if (updated.carePlan) {
-        for (const cp of updated.carePlan) {
+      // 7. Planos de Assistência (Bulk Upsert em 1 única requisição)
+      if (updated.carePlan && updated.carePlan.length > 0) {
+        const cpToUpsert = updated.carePlan.map(cp => {
           const isCpMock = cp.id.length < 15;
-          await supabase
-            .from('Recanto_PlanosAssistencia')
-            .upsert({
-              id: isCpMock ? undefined : cp.id,
-              resident_id: updated.id,
-              title: cp.title,
-              description: cp.description,
-              frequency: cp.frequency,
-              assigned_to: cp.assignedTo,
-              status: cp.status
-            });
-        }
+          const item: any = {
+            resident_id: updated.id,
+            title: cp.title,
+            description: cp.description,
+            frequency: cp.frequency,
+            assigned_to: cp.assignedTo,
+            status: cp.status
+          };
+          if (!isCpMock) item.id = cp.id;
+          return item;
+        });
+        const { error: cpErr } = await supabase
+          .from('Recanto_PlanosAssistencia')
+          .upsert(cpToUpsert);
+        if (cpErr) throw cpErr;
       }
 
-      // 7. Checklist Diário
+      // 8. Checklist Diário (Bulk Upsert & Acompanhamento de Planos em lote)
       let didDebitMedication = false;
-      if (updated.dailyChecklists) {
-        for (const chk of updated.dailyChecklists) {
-          const { data: chkData, error: chkErr } = await supabase
-            .from('Recanto_ChecklistDiario')
-            .upsert({
-              resident_id: updated.id,
-              date: chk.date,
-              shift: chk.shift || 'diurno',
-              hygiene: chk.hygiene,
-              oral_care: chk.oralCare,
-              feeding: chk.feeding,
-              hydration: chk.hydration,
-              mobility: chk.mobility,
-              dressings: chk.dressings,
-              leisure: chk.leisure,
-              queixa_dor: chk.queixaDor || null,
-              queixa_dor_desc: chk.queixaDorDesc || null,
-              estado_neurologico: chk.estadoNeurologico || null,
-              ar_ambiente: chk.arAmbiente !== undefined ? chk.arAmbiente : null,
-              alimentacao: chk.alimentacao || null,
-              alimentacao_desc: chk.alimentacaoDesc || null,
-              agitado: chk.agitado !== undefined ? chk.agitado : null,
-              prostrado: chk.prostrado !== undefined ? chk.prostrado : null,
-              sonolento: chk.sonolento !== undefined ? chk.sonolento : null,
-              eliminacao_evacuacao: chk.eliminacaoEvacuacao || null,
-              eliminacao_evacuacao_dias: chk.eliminacaoEvacuacaoDias || null,
-              aspecto_evacuacoes: chk.aspectoEvacuacoes || null,
-              diurese: chk.diurese || null,
-              diurese_aspecto: chk.diureseAspecto || null,
-              uso_fraldas: chk.usoFraldas || null,
-              mobilidade_set: chk.mobilidadeSet || null,
-              higiene_corporal: chk.higieneCorporal || null,
-              higiene_oral_vestir: chk.higieneOralVestir || null,
-              alteracoes_pele: chk.alteracoesPele || null,
-              alteracoes_pele_desc: chk.alteracoesPeleDesc || null,
-              sono: chk.sono || null,
-              sono_desc: chk.sonoDesc || null,
-              medicacoes_administradas: chk.medicacoesAdministradas || null,
-              atividades_consulta: chk.atividadesConsulta || null,
-              intercorrencia: chk.intercorrencia || null,
-              intercorrencia_desc: chk.intercorrenciaDesc || null,
-              photo_url: chk.photoUrls?.[0] || null,
-              photo_urls: chk.photoUrls && chk.photoUrls.length > 0 ? chk.photoUrls : null,
-              signed_by: chk.signedBy || null,
-              signed_at: chk.signedAt || null,
-              signature_info: chk.signatureInfo || null
-            }, { onConflict: 'resident_id,date,shift' })
-            .select()
-            .single();
+      if (updated.dailyChecklists && updated.dailyChecklists.length > 0) {
+        const checklistsToUpsert = updated.dailyChecklists.map(chk => ({
+          resident_id: updated.id,
+          date: chk.date,
+          shift: chk.shift || 'diurno',
+          hygiene: chk.hygiene,
+          oral_care: chk.oralCare,
+          feeding: chk.feeding,
+          hydration: chk.hydration,
+          mobility: chk.mobility,
+          dressings: chk.dressings,
+          leisure: chk.leisure,
+          queixa_dor: chk.queixaDor || null,
+          queixa_dor_desc: chk.queixaDorDesc || null,
+          estado_neurologico: chk.estadoNeurologico || null,
+          ar_ambiente: chk.arAmbiente !== undefined ? chk.arAmbiente : null,
+          alimentacao: chk.alimentacao || null,
+          alimentacao_desc: chk.alimentacaoDesc || null,
+          agitado: chk.agitado !== undefined ? chk.agitado : null,
+          prostrado: chk.prostrado !== undefined ? chk.prostrado : null,
+          sonolento: chk.sonolento !== undefined ? chk.sonolento : null,
+          eliminacao_evacuacao: chk.eliminacaoEvacuacao || null,
+          eliminacao_evacuacao_dias: chk.eliminacaoEvacuacaoDias || null,
+          aspecto_evacuacoes: chk.aspectoEvacuacoes || null,
+          diurese: chk.diurese || null,
+          diurese_aspecto: chk.diureseAspecto || null,
+          uso_fraldas: chk.usoFraldas || null,
+          mobilidade_set: chk.mobilidadeSet || null,
+          higiene_corporal: chk.higieneCorporal || null,
+          higiene_oral_vestir: chk.higieneOralVestir || null,
+          alteracoes_pele: chk.alteracoesPele || null,
+          alteracoes_pele_desc: chk.alteracoesPeleDesc || null,
+          sono: chk.sono || null,
+          sono_desc: chk.sonoDesc || null,
+          medicacoes_administradas: chk.medicacoesAdministradas || null,
+          atividades_consulta: chk.atividadesConsulta || null,
+          intercorrencia: chk.intercorrencia || null,
+          intercorrencia_desc: chk.intercorrenciaDesc || null,
+          photo_url: chk.photoUrls?.[0] || null,
+          photo_urls: chk.photoUrls && chk.photoUrls.length > 0 ? chk.photoUrls : null,
+          signed_by: chk.signedBy || null,
+          signed_at: chk.signedAt || null,
+          signature_info: chk.signatureInfo || null
+        }));
 
-          if (!chkErr && chkData && chk.carePlanAdherence) {
-            // Delete old adherence records first to avoid orphans
-            await supabase
-              .from('Recanto_AcompanhamentoPlano')
-              .delete()
-              .eq('checklist_id', chkData.id);
+        const { data: upsertedChecklists, error: chkErr } = await supabase
+          .from('Recanto_ChecklistDiario')
+          .upsert(checklistsToUpsert, { onConflict: 'resident_id,date,shift' })
+          .select();
 
-            if (chk.carePlanAdherence.length > 0) {
-              await supabase
-                .from('Recanto_AcompanhamentoPlano')
-                .insert(
-                  chk.carePlanAdherence.map(adh => ({
-                    checklist_id: chkData.id,
-                    care_plan_id: adh.carePlanId,
-                    status: adh.status,
-                    comment: adh.comment || null
-                  }))
-                );
+        if (chkErr) throw chkErr;
+
+        if (upsertedChecklists && upsertedChecklists.length > 0) {
+          const checklistMapKey = (date: string, shift: string) => `${date}_${shift || 'diurno'}`;
+          const chkDbMap = new Map<string, any>();
+          upsertedChecklists.forEach((dbChk: any) => {
+            chkDbMap.set(checklistMapKey(dbChk.date, dbChk.shift), dbChk);
+          });
+
+          // Acompanhamento de planos em lote
+          const allChecklistIds = upsertedChecklists.map((c: any) => c.id);
+          await supabase
+            .from('Recanto_AcompanhamentoPlano')
+            .delete()
+            .in('checklist_id', allChecklistIds);
+
+          const adherenceToInsert: any[] = [];
+          for (const chk of updated.dailyChecklists) {
+            const dbChk = chkDbMap.get(checklistMapKey(chk.date, chk.shift || 'diurno'));
+            if (dbChk && chk.carePlanAdherence && chk.carePlanAdherence.length > 0) {
+              for (const adh of chk.carePlanAdherence) {
+                adherenceToInsert.push({
+                  checklist_id: dbChk.id,
+                  care_plan_id: adh.carePlanId,
+                  status: adh.status,
+                  comment: adh.comment || null
+                });
+              }
             }
           }
+          if (adherenceToInsert.length > 0) {
+            await supabase.from('Recanto_AcompanhamentoPlano').insert(adherenceToInsert);
+          }
 
-          // 7b. Baixa do inventário de medicamentos a partir do boletim.
-          // Cada item marcado como "tomou" debita as unidades calculadas pela
-          // posologia do inventário vinculado. A baixa é idempotente (UNIQUE
-          // origem_checklist_id + origem_item_id), então re-salvar o boletim
-          // não duplica o débito. Itens sem inventário vinculado são ignorados.
-          if (!chkErr && chkData && chk.medicacoesAdministradas) {
-            try {
-              const parsedMeds = JSON.parse(chk.medicacoesAdministradas);
-              if (Array.isArray(parsedMeds)) {
-                for (const medItem of parsedMeds) {
-                  if (!medItem || medItem.status !== 'tomou' || !medItem.id) continue;
-                  const medicacaoId = String(medItem.id).split('__')[0];
-                  const inv = await fetchInventarioParaMedicacao(medicacaoId, updated.id, medItem.name);
-                  if (!inv) continue;
-                  const qtd = unidadesPorTomada(inv);
-                  if (qtd == null) {
-                    console.warn(`Posologia ausente no inventário para "${medItem.name}"; baixa via boletim não realizada.`);
-                    continue;
+          // Baixa do inventário de medicamentos a partir dos boletins
+          // Pré-carregar inventário em memória para evitar N+1 queries no inventário
+          try {
+            const currentInventory = await fetchInventario(currentUser?.empresaId);
+            for (const chk of updated.dailyChecklists) {
+              const dbChk = chkDbMap.get(checklistMapKey(chk.date, chk.shift || 'diurno'));
+              if (dbChk && chk.medicacoesAdministradas) {
+                const parsedMeds = JSON.parse(chk.medicacoesAdministradas);
+                if (Array.isArray(parsedMeds)) {
+                  for (const medItem of parsedMeds) {
+                    if (!medItem || medItem.status !== 'tomou' || !medItem.id) continue;
+                    const medicacaoId = String(medItem.id).split('__')[0];
+
+                    // Busca na memória em vez de fazer query REST individual
+                    let inv = currentInventory.find(i => i.medicacaoId === medicacaoId);
+                    if (!inv && medItem.name) {
+                      const lowerName = medItem.name.trim().toLowerCase();
+                      inv = currentInventory.find(i => i.residentId === updated.id && i.nome.toLowerCase() === lowerName);
+                    }
+                    if (!inv) continue;
+
+                    const qtd = unidadesPorTomada(inv);
+                    if (qtd == null) continue;
+
+                    await debitarPorBoletim(inv.id, qtd, dbChk.id, String(medItem.id), currentUser?.name);
+                    didDebitMedication = true;
                   }
-                  await debitarPorBoletim(inv.id, qtd, chkData.id, String(medItem.id), currentUser?.name);
-                  didDebitMedication = true;
                 }
               }
-            } catch (medErr) {
-              // medicacoesAdministradas em texto livre (não-JSON) ou falha de rede
-              // não devem interromper o salvamento do boletim.
-              console.error('Erro ao debitar inventário de medicamentos pelo boletim:', medErr);
             }
+          } catch (medErr) {
+            console.error('Erro ao debitar inventário de medicamentos pelo boletim:', medErr);
           }
         }
       }
 
-      // Atualiza o inventário de medicamentos em memória (alerta do Dashboard)
-      // quando o boletim debitou alguma dose.
       if (didDebitMedication) {
         fetchMedicationInventory();
       }
 
-      // 8. Pastas de Documentos (persistir antes dos documentos p/ resolver folder_id)
-      const folderIdMap = new Map<string, string>(); // idLocal/idReal -> idReal
+      // 9. Pastas de Documentos & Documentos (Bulk)
+      const folderIdMap = new Map<string, string>();
       if (updated.documentFolders) {
-        // Reconciliar exclusões: remover pastas do banco que saíram do estado.
-        // ON DELETE SET NULL zera o folder_id dos documentos afetados.
         const keptRealIds = updated.documentFolders
           .map(f => f.id)
           .filter(id => id.length >= 15);
@@ -1085,28 +1107,27 @@ function AppInner() {
         }
       }
 
-      // 8b. Documentos
-      if (updated.documents) {
-        for (const doc of updated.documents) {
+      if (updated.documents && updated.documents.length > 0) {
+        const docsToUpsert = updated.documents.map(doc => {
           const isDocMock = doc.id.length < 15;
           const resolvedFolderId = doc.folderId
             ? (folderIdMap.get(doc.folderId) ?? doc.folderId)
             : null;
-          await supabase
-            .from('Recanto_Documentos')
-            .upsert({
-              id: isDocMock ? undefined : doc.id,
-              resident_id: updated.id,
-              name: doc.name,
-              type: doc.type,
-              url: doc.url,
-              upload_date: doc.uploadDate,
-              folder_id: resolvedFolderId
-            });
-        }
+          const item: any = {
+            resident_id: updated.id,
+            name: doc.name,
+            type: doc.type,
+            url: doc.url,
+            upload_date: doc.uploadDate,
+            folder_id: resolvedFolderId
+          };
+          if (!isDocMock) item.id = doc.id;
+          return item;
+        });
+        await supabase.from('Recanto_Documentos').upsert(docsToUpsert);
       }
 
-      // 9. Diet Plan
+      // 10. Plano de Dieta
       if (updated.dietPlan === null) {
         const { error: delDpErr } = await supabase
           .from('Recanto_PlanosDieta')
@@ -1182,55 +1203,43 @@ function AppInner() {
         }
       }
 
-      // 10. Nutritional Logs
-      if (updated.nutritionalLogs) {
-        for (const n of updated.nutritionalLogs) {
+      // 11. Logs Nutricionais (Bulk Upsert)
+      if (updated.nutritionalLogs && updated.nutritionalLogs.length > 0) {
+        const nutToUpsert = updated.nutritionalLogs.map(n => {
           const isNutMock = n.id.length < 15;
-          await supabase
-            .from('Recanto_LogsNutricao')
-            .upsert({
-              id: isNutMock ? undefined : n.id,
-              resident_id: updated.id,
-              date: n.date,
-              meal: n.meal,
-              acceptance: n.acceptance,
-              fluid_intake: n.fluidIntake || null,
-              notes: n.notes || null
-            });
-        }
+          const item: any = {
+            resident_id: updated.id,
+            date: n.date,
+            meal: n.meal,
+            acceptance: n.acceptance,
+            fluid_intake: n.fluidIntake || null,
+            notes: n.notes || null
+          };
+          if (!isNutMock) item.id = n.id;
+          return item;
+        });
+        await supabase.from('Recanto_LogsNutricao').upsert(nutToUpsert);
       }
 
-      // 11. Visitas
-      // Guarded by isDetailLoaded for the same reason as prescriptions/glicemia
-      // below: the lightweight summary always sends visits as [], and that
-      // must never be read as "the user deleted all visits".
+      // 12. Visitas (Bulk delete & bulk upsert)
       if (updated.isDetailLoaded && updated.visits) {
-        // Excluir visitas removidas no front-end. Visits are no longer part
-        // of the lightweight resident list state, so check the database
-        // directly for what currently exists instead of diffing against
-        // client state.
         const { data: existingVisits, error: existingVisitsError } = await supabase
           .from('Recanto_Visitas')
           .select('id')
           .eq('resident_id', updated.id);
         if (existingVisitsError) throw existingVisitsError;
         const updatedVisitIds = updated.visits.map(v => v.id);
-        const deletedVisits = (existingVisits || []).filter(v => !updatedVisitIds.includes(v.id));
-        for (const dVisit of deletedVisits) {
-          if (dVisit.id.length >= 15) {
-            await supabase
-              .from('Recanto_Visitas')
-              .delete()
-              .eq('id', dVisit.id);
-          }
+        const deletedVisitIds = (existingVisits || [])
+          .filter(v => !updatedVisitIds.includes(v.id))
+          .map(v => v.id);
+        if (deletedVisitIds.length > 0) {
+          await supabase.from('Recanto_Visitas').delete().in('id', deletedVisitIds);
         }
 
-        for (const vis of updated.visits) {
-          const isVisMock = vis.id.length < 15;
-          await supabase
-            .from('Recanto_Visitas')
-            .upsert({
-              id: isVisMock ? undefined : vis.id,
+        if (updated.visits.length > 0) {
+          const visitsToUpsert = updated.visits.map(vis => {
+            const isVisMock = vis.id.length < 15;
+            const item: any = {
               resident_id: updated.id,
               visitor_name: vis.visitorName,
               relation: vis.relation,
@@ -1240,43 +1249,33 @@ function AppInner() {
               temperature: vis.temperature || null,
               observations: vis.observations || null,
               created_by: vis.createdBy
-            });
+            };
+            if (!isVisMock) item.id = vis.id;
+            return item;
+          });
+          await supabase.from('Recanto_Visitas').upsert(visitsToUpsert);
         }
       }
 
-      // 12. Glicemia
-      // Guarded by isDetailLoaded: the lightweight resident summary always
-      // sends glucoseReadings as [] (see fetchResidentsSummary). Without this
-      // guard, any onUpdateResident call that fires before this resident's
-      // full detail has been hydrated (e.g. editing Cadastro right after
-      // opening the profile) would diff against that empty array and delete
-      // every real glucose reading in the database.
+      // 13. Glicemia (Bulk delete & bulk upsert)
       if (updated.isDetailLoaded && updated.glucoseReadings) {
-        // Glucose readings are no longer part of the lightweight resident
-        // list state, so check the database directly for what currently
-        // exists instead of diffing against client state.
         const { data: existingGlicemia, error: existingGlicemiaError } = await supabase
           .from('Recanto_Glicemia')
           .select('id')
           .eq('resident_id', updated.id);
         if (existingGlicemiaError) throw existingGlicemiaError;
         const updatedGlicemiaIds = updated.glucoseReadings.map(g => g.id);
-        const deletedGlicemia = (existingGlicemia || []).filter(g => !updatedGlicemiaIds.includes(g.id));
-        for (const dG of deletedGlicemia) {
-          if (dG.id.length >= 15) {
-            await supabase
-              .from('Recanto_Glicemia')
-              .delete()
-              .eq('id', dG.id);
-          }
+        const deletedGlicemiaIds = (existingGlicemia || [])
+          .filter(g => !updatedGlicemiaIds.includes(g.id))
+          .map(g => g.id);
+        if (deletedGlicemiaIds.length > 0) {
+          await supabase.from('Recanto_Glicemia').delete().in('id', deletedGlicemiaIds);
         }
 
-        for (const g of updated.glucoseReadings) {
-          const isGlicemiaMock = g.id.length < 15;
-          await supabase
-            .from('Recanto_Glicemia')
-            .upsert({
-              id: isGlicemiaMock ? undefined : g.id,
+        if (updated.glucoseReadings.length > 0) {
+          const glicemiaToUpsert = updated.glucoseReadings.map(g => {
+            const isGlicemiaMock = g.id.length < 15;
+            const item: any = {
               resident_id: updated.id,
               timestamp: g.timestamp,
               valor_mg_dl: g.value,
@@ -1285,38 +1284,35 @@ function AppInner() {
               insulina_unidades: g.insulinUnits ?? null,
               tipo_insulina: g.insulinApplied ? (g.insulinType || null) : null,
               observacoes: g.notes || null
-            });
+            };
+            if (!isGlicemiaMock) item.id = g.id;
+            return item;
+          });
+          await supabase.from('Recanto_Glicemia').upsert(glicemiaToUpsert);
         }
       }
 
-      // 13. Logs de Auditoria / Evoluções
+      // 14. Logs de Auditoria / Evoluções (Bulk insert)
       if (updated.auditLogs) {
-        for (const log of updated.auditLogs) {
-          const isLogMock = log.id.length < 15;
-          if (isLogMock) {
-            const { error: logErr } = await supabase
-              .from('Recanto_LogsAuditoria')
-              .insert({
-                resident_id: updated.id,
-                user_id: log.userId,
-                user_name: log.userName,
-                action: log.action,
-                details: log.details,
-                dados: log.data ?? null
-              });
-            if (logErr) {
-              console.error('Erro ao salvar log de auditoria:', logErr);
-            }
+        const newAuditLogs = updated.auditLogs.filter(log => log.id.length < 15);
+        if (newAuditLogs.length > 0) {
+          const auditToInsert = newAuditLogs.map(log => ({
+            resident_id: updated.id,
+            user_id: log.userId,
+            user_name: log.userName,
+            action: log.action,
+            details: log.details,
+            dados: log.data ?? null
+          }));
+          const { error: logErr } = await supabase.from('Recanto_LogsAuditoria').insert(auditToInsert);
+          if (logErr) {
+            console.error('Erro ao salvar logs de auditoria:', logErr);
           }
         }
       }
 
       setResidents(prev => prev.map(r => r.id === updated.id ? updated : r));
       await fetchResidents();
-      // The summary refresh above doesn't carry the heavy fields, so
-      // re-hydrate this resident's full detail explicitly if their profile
-      // is the one currently open — the id-based effect won't refire since
-      // the id itself didn't change.
       if (selectedResident?.id === updated.id) {
         await refreshSelectedResidentDetail(updated.id);
       }
