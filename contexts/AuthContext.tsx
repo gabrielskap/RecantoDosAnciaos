@@ -161,6 +161,142 @@ const fetchUserProfile = async (authUserId: string): Promise<AuthUser | null> =>
   };
 };
 
+// Configurações institucionais são mantidas no banco. O localStorage abaixo é
+// somente um espelho de compatibilidade para pontos legados de impressão.
+const COMPANY_SETTINGS_CACHE_PREFIX = 'recanto_system_settings_';
+const COMPANY_SETTINGS_MIGRATION_PREFIX = 'recanto_settings_migrated_to_db_';
+
+const getCompanySettingsCacheKey = (empresaId: string) => `${COMPANY_SETTINGS_CACHE_PREFIX}${empresaId}`;
+const getCompanySettingsMigrationKey = (empresaId: string) => `${COMPANY_SETTINGS_MIGRATION_PREFIX}${empresaId}`;
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const isEmptyDatabaseValue = (value: unknown) =>
+  value === null || value === undefined || (typeof value === 'string' && value.trim() === '');
+
+const getLegacyText = (value: unknown): string | null =>
+  typeof value === 'string' && value.trim() !== '' ? value.trim() : null;
+
+/**
+ * Migra apenas lacunas do banco. Um valor já existente no banco sempre vence
+ * o cache local, evitando que dados de outro dispositivo sobrescrevam a ILPI.
+ */
+const buildMissingCompanySettingsUpdate = (company: any, legacy: unknown): Record<string, unknown> => {
+  if (!isPlainObject(legacy)) return {};
+
+  const institution = isPlainObject(legacy.institution) ? legacy.institution : {};
+  const updates: Record<string, unknown> = {};
+  const fields: Array<[string, string]> = [
+    ['nome_instituicao', 'name'],
+    ['cnpj', 'cnpj'],
+    ['telefone', 'phone'],
+    ['email_comercial', 'email'],
+    ['endereco', 'address'],
+    ['cidade', 'city'],
+    ['estado', 'state'],
+    ['cep', 'cep'],
+    ['diretor_geral', 'directorName'],
+    ['responsavel_tecnico', 'technicalDirector'],
+    ['registro_anvisa', 'anvisa'],
+    ['papel_timbrado', 'watermarkImage'],
+  ];
+
+  for (const [column, legacyField] of fields) {
+    const value = getLegacyText(institution[legacyField]);
+    if (isEmptyDatabaseValue(company[column]) && value !== null) {
+      updates[column] = value;
+    }
+  }
+
+  const capacity = institution.capacity;
+  if (
+    (company.capacidade_maxima === null || company.capacidade_maxima === undefined) &&
+    typeof capacity === 'number' &&
+    Number.isFinite(capacity) &&
+    capacity >= 0
+  ) {
+    updates.capacidade_maxima = capacity;
+  }
+
+  const mergeMissingConfig = (column: 'config_notificacoes' | 'config_seguranca', value: unknown) => {
+    if (!isPlainObject(value)) return;
+
+    const databaseValue = company[column];
+    if (databaseValue === null || databaseValue === undefined) {
+      updates[column] = value;
+      return;
+    }
+
+    if (!isPlainObject(databaseValue)) return;
+
+    const hasMissingValue = Object.keys(value).some(key => !(key in databaseValue));
+    if (hasMissingValue) {
+      // O banco vence em chaves já existentes; só complementamos as ausentes.
+      updates[column] = { ...value, ...databaseValue };
+    }
+  };
+
+  mergeMissingConfig('config_notificacoes', legacy.notifications);
+  mergeMissingConfig('config_seguranca', legacy.security);
+
+  const documentSettings = isPlainObject(legacy.documents) ? legacy.documents : {};
+  if (
+    isEmptyDatabaseValue(company.tipo_assinatura_documentos) &&
+    documentSettings.tipoAssinatura === 'certificado_a1'
+  ) {
+    updates.tipo_assinatura_documentos = 'certificado_a1';
+  }
+
+  const boletimSettings = isPlainObject(legacy.boletim) ? legacy.boletim : {};
+  if (isEmptyDatabaseValue(company.modelo_boletim) && boletimSettings.modelo === 'diario') {
+    updates.modelo_boletim = 'diario';
+  }
+
+  return updates;
+};
+
+const buildCompanySettingsCache = (company: any) => ({
+  institution: {
+    name: company.nome_instituicao || '',
+    cnpj: company.cnpj || '',
+    phone: company.telefone || '',
+    email: company.email_comercial || '',
+    address: company.endereco || '',
+    city: company.cidade || '',
+    state: company.estado || 'SP',
+    cep: company.cep || '',
+    capacity: company.capacidade_maxima ?? 30,
+    directorName: company.diretor_geral || '',
+    technicalDirector: company.responsavel_tecnico || '',
+    anvisa: company.registro_anvisa || '',
+    watermarkImage: company.papel_timbrado || '',
+  },
+  notifications: isPlainObject(company.config_notificacoes) ? company.config_notificacoes : {
+    stockAlertThreshold: 5,
+    medicationReminderEnabled: true,
+    medicationReminderMinutes: 30,
+    birthdayRemindersEnabled: true,
+    contractDueDaysWarning: 30,
+    checklistMissedAlerts: true,
+    lowOccupancyThreshold: 20,
+  },
+  security: isPlainObject(company.config_seguranca) ? company.config_seguranca : {
+    sessionTimeoutMinutes: 60,
+    requirePasswordChange: false,
+    passwordChangeDays: 90,
+    twoFactorEnabled: false,
+    auditLogRetentionDays: 365,
+    maxLoginAttempts: 5,
+  },
+  documents: {
+    tipoAssinatura: company.tipo_assinatura_documentos === 'certificado_a1' ? 'certificado_a1' : 'simples',
+  },
+  boletim: {
+    modelo: company.modelo_boletim === 'diario' ? 'diario' : 'diurno_noturno',
+  },
+});
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [users, setUsers] = useState<AuthUser[]>([]);
