@@ -30,6 +30,7 @@ export interface ResidentPrescriptionRecord {
 }
 
 export interface VitalSign {
+  id?: string;
   timestamp: string;
   bp: string; // Blood Pressure
   hr: number; // Heart Rate
@@ -254,6 +255,7 @@ export interface Resident {
   prescriptions?: ResidentPrescriptionRecord[];
   allergies: string[];
   vitals: VitalSign[];
+  vitalsTotalCount?: number;
   glucoseReadings: GlucoseReading[];
   carePlan: CarePlan[];
   dailyChecklists: DailyChecklist[];

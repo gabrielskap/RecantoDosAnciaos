@@ -7,7 +7,7 @@ import {
   Key, Printer, Upload, Wind, UserCheck, UserX, UploadCloud, ExternalLink, Droplet, Syringe, Check,
   Folder, FolderPlus, FolderOpen, ChevronDown, ChevronRight, ChevronLeft, Search, Loader2
 } from 'lucide-react';
-import { Resident, CarePlan, AuditLog, DailyChecklist, Medication, ResidentPrescriptionRecord, RoomStatus, Room, ViewState, GlucoseReading, GlicemiaMomento, DocumentFolder, ResidentDocument, INSULINA_TIPO_OPTIONS } from '../types';
+import { Resident, CarePlan, AuditLog, DailyChecklist, Medication, ResidentPrescriptionRecord, RoomStatus, Room, ViewState, GlucoseReading, GlicemiaMomento, DocumentFolder, ResidentDocument, VitalSign, INSULINA_TIPO_OPTIONS } from '../types';
 import { residentAvatarSrc } from '../lib/avatar';
 import { toast } from '../services/toast';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
@@ -22,7 +22,9 @@ import {
   removeChecklistDraft,
   saveChecklistDraft,
 } from '../services/checklistDraftService';
-import { fetchResidentAuditLogsPaginated } from '../services/dataService';
+import { fetchResidentAuditLogsPaginated, fetchResidentVitalsPaginated } from '../services/dataService';
+
+const VITALS_PAGE_SIZE = 50;
 
 interface ChecklistMedication {
   id: string;
@@ -650,6 +652,9 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   React.useEffect(() => {
     if (
       activeTab === 'glicemia'
+      || activeTab === 'vitals'
+      || activeTab === 'info'
+      || activeTab === 'care_plan'
       || (activeTab === 'history' && usesServerAuditPagination)
       || resident.isDetailLoaded !== false
       || !onLoadResidentDetail
@@ -750,6 +755,9 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   const [selectedEvolutionArea, setSelectedEvolutionArea] = useState<EvolutionArea>(() =>
     getInitialEvolutionArea(currentUser?.employeeRole || currentUser?.profile.type)
   );
+  const [newNoteArea, setNewNoteArea] = useState<EvolutionArea>(() =>
+    getInitialEvolutionArea(currentUser?.employeeRole || currentUser?.profile.type)
+  );
 
   const [glicemiaPage, setGlicemiaPage] = useState(1);
   const [glicemiaItemsPerPage, setGlicemiaItemsPerPage] = useState(10);
@@ -764,7 +772,10 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     setServerAuditLogs([]);
     setServerAuditCount(null);
     setAuditLoadError(null);
-  }, [resident.id]);
+    const initialArea = getInitialEvolutionArea(currentUser?.employeeRole || currentUser?.profile.type);
+    setSelectedEvolutionArea(initialArea);
+    setNewNoteArea(initialArea);
+  }, [resident.id, currentUser?.employeeRole, currentUser?.profile.type]);
 
   const [isVisitModalOpen, setIsVisitModalOpen] = useState(false);
   const [visitData, setVisitData] = useState({
@@ -1405,6 +1416,81 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   });
+  const [loadedVitals, setLoadedVitals] = useState<VitalSign[]>(() => resident.vitals || []);
+  const [loadedVitalsPage, setLoadedVitalsPage] = useState(1);
+  const [vitalsTotalCount, setVitalsTotalCount] = useState(
+    resident.vitalsTotalCount ?? resident.vitals?.length ?? 0,
+  );
+  const [isLoadingMoreVitals, setIsLoadingMoreVitals] = useState(false);
+  const [vitalsLoadMoreError, setVitalsLoadMoreError] = useState<string | null>(null);
+
+  const firstResidentVitalTimestamp = resident.vitals?.[0]?.timestamp || '';
+  React.useEffect(() => {
+    setLoadedVitals(resident.vitals || []);
+    setLoadedVitalsPage(1);
+    setVitalsTotalCount(resident.vitalsTotalCount ?? resident.vitals?.length ?? 0);
+    setVitalsLoadMoreError(null);
+  }, [resident.id, resident.vitals?.length, resident.vitalsTotalCount, firstResidentVitalTimestamp]);
+
+  const vitalsForDisplay = usesServerAuditPagination ? loadedVitals : (resident.vitals || []);
+  const hasMoreVitals = usesServerAuditPagination && vitalsForDisplay.length < vitalsTotalCount;
+
+  const handleLoadMoreVitals = async () => {
+    if (isLoadingMoreVitals || !hasMoreVitals) return;
+
+    const nextPage = loadedVitalsPage + 1;
+    setIsLoadingMoreVitals(true);
+    setVitalsLoadMoreError(null);
+
+    try {
+      const result = await fetchResidentVitalsPaginated(resident.id, nextPage, VITALS_PAGE_SIZE);
+      setLoadedVitals(current => {
+        const merged = [...current];
+        const vitalKey = (vital: VitalSign) => vital.id || `${vital.timestamp}:${vital.bp}:${vital.hr}:${vital.temp}:${vital.spo2}`;
+        const knownVitals = new Set(current.map(vitalKey));
+        for (const vital of result.vitals) {
+          const key = vitalKey(vital);
+          if (!knownVitals.has(key)) {
+            merged.push(vital);
+            knownVitals.add(key);
+          }
+        }
+        return merged.sort(
+          (left, right) => new Date(right.timestamp).getTime() - new Date(left.timestamp).getTime(),
+        );
+      });
+      setLoadedVitalsPage(nextPage);
+      setVitalsTotalCount(result.totalCount);
+    } catch (error: any) {
+      console.error('Erro ao carregar mais sinais vitais:', error);
+      setVitalsLoadMoreError(error?.message || 'Não foi possível carregar as medições anteriores.');
+    } finally {
+      setIsLoadingMoreVitals(false);
+    }
+  };
+
+  const initialVitalsRequestRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (activeTab !== 'vitals' || !usesServerAuditPagination) return;
+    if (resident.isDetailLoaded !== false || resident.vitals.length > 0) return;
+    if (initialVitalsRequestRef.current === resident.id) return;
+
+    initialVitalsRequestRef.current = resident.id;
+    setIsLoadingMoreVitals(true);
+    setVitalsLoadMoreError(null);
+    void fetchResidentVitalsPaginated(resident.id, 1, VITALS_PAGE_SIZE)
+      .then(result => {
+        setLoadedVitals(result.vitals);
+        setLoadedVitalsPage(1);
+        setVitalsTotalCount(result.totalCount);
+      })
+      .catch((error: any) => {
+        console.error('Erro ao carregar sinais vitais:', error);
+        setVitalsLoadMoreError(error?.message || 'Não foi possível carregar os sinais vitais.');
+        initialVitalsRequestRef.current = null;
+      })
+      .finally(() => setIsLoadingMoreVitals(false));
+  }, [activeTab, resident.id, resident.isDetailLoaded, resident.vitals.length, usesServerAuditPagination]);
 
   const [glicemiaPeriodType, setGlicemiaPeriodType] = useState<'day' | 'week' | 'month'>('day');
   const [glicemiaSelectedDay, setGlicemiaSelectedDay] = useState<string>(new Date().toISOString().split('T')[0]);
@@ -2613,7 +2699,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     };
 
     // Filter & Parse vitals
-    const vitalsData = (resident.vitals || [])
+    const vitalsData = vitalsForDisplay
       .map(v => {
         const parts = v.bp ? v.bp.split('/') : [];
         const sys = parts[0] ? parseInt(parts[0], 10) : NaN;
@@ -3857,7 +3943,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
       userName: formattedSignature,
       action: 'Evolução',
       details: newNoteText.trim(),
-      data: { evolutionArea: selectedEvolutionArea }
+      data: { evolutionArea: newNoteArea }
     };
 
     onUpdateResident({
@@ -3866,6 +3952,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     });
 
     setNewNoteText('');
+    setSelectedEvolutionArea(newNoteArea);
     setEvolutionPage(1);
   };
 
@@ -4162,12 +4249,12 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
           )}
 
           {activeTab === 'vitals' && (() => {
-            const sortedVitals = [...(resident.vitals || [])].sort(
+            const sortedVitals = [...vitalsForDisplay].sort(
               (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
             );
             const latestVital = sortedVitals[0] || null;
 
-            const chartData = [...(resident.vitals || [])]
+            const chartData = [...vitalsForDisplay]
               .map(v => {
                 const systolicPart = v.bp ? v.bp.split('/')[0] : '';
                 const diastolicPart = v.bp ? v.bp.split('/')[1] : '';
@@ -4265,7 +4352,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                     return { label: 'Ótima', color: 'bg-emerald-100 text-emerald-800 border-emerald-250', textClass: 'text-emerald-800' };
                   };
 
-                  const vitalsData = (resident.vitals || [])
+                  const vitalsData = vitalsForDisplay
                     .map(v => {
                       const parts = v.bp ? v.bp.split('/') : [];
                       const sys = parts[0] ? parseInt(parts[0], 10) : NaN;
@@ -4639,6 +4726,30 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                     </div>
                   );
                 })()}
+
+                {usesServerAuditPagination && (hasMoreVitals || vitalsLoadMoreError) && (
+                  <div className="flex flex-col items-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
+                    <p className="text-xs text-slate-500">
+                      Exibindo {vitalsForDisplay.length.toLocaleString('pt-BR')} de {vitalsTotalCount.toLocaleString('pt-BR')} medições
+                    </p>
+                    {vitalsLoadMoreError && (
+                      <p className="text-xs font-medium text-red-600" role="alert">
+                        {vitalsLoadMoreError}
+                      </p>
+                    )}
+                    {hasMoreVitals && (
+                      <button
+                        type="button"
+                        onClick={() => void handleLoadMoreVitals()}
+                        disabled={isLoadingMoreVitals}
+                        className="inline-flex items-center gap-2 rounded-xl border border-primary-200 bg-primary-50 px-4 py-2 text-xs font-semibold text-primary-700 transition-colors hover:bg-primary-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {isLoadingMoreVitals && <Loader2 className="h-4 w-4 animate-spin" />}
+                        {isLoadingMoreVitals ? 'Carregando...' : `Carregar mais ${Math.min(VITALS_PAGE_SIZE, vitalsTotalCount - vitalsForDisplay.length)} medições`}
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })()}
@@ -7700,10 +7811,9 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                         <label htmlFor="evolution-area" className="text-sm font-semibold text-slate-700">Área deste registro</label>
                         <select
                           id="evolution-area"
-                          value={selectedEvolutionArea}
+                          value={newNoteArea}
                           onChange={(e) => {
-                            setSelectedEvolutionArea(e.target.value as EvolutionArea);
-                            setEvolutionPage(1);
+                            setNewNoteArea(e.target.value as EvolutionArea);
                           }}
                           className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-transparent focus:ring-2 focus:ring-primary-500"
                         >
@@ -7716,7 +7826,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                           onChange={(e) => setNewNoteText(e.target.value)}
                           className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-sm resize-none"
                           rows={3}
-                          placeholder={`Nova anotação de ${selectedArea.noteLabel}...`}
+                          placeholder={`Nova anotação de ${EVOLUTION_AREAS.find(a => a.id === newNoteArea)?.noteLabel || 'evolução'}...`}
                         />
                       <button 
                         onClick={handleSaveEvolutionNote}

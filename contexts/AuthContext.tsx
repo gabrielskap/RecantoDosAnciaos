@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import type { Session } from '@supabase/supabase-js';
 import { AuthUser, Profile, Permission, PermissionAction, ViewState, ProfileType, DigitalCertificate, BoletimModelType } from '../types';
 import { supabase } from '../services/supabaseClient';
 import { toast } from '../services/toast';
@@ -48,7 +49,26 @@ export const AuthContext = createContext<AuthContextValue | null>(null);
 
 // --- Helpers to fetch user profiles from database ---
 
-const fetchUserProfile = async (authUserId: string): Promise<AuthUser | null> => {
+// INITIAL_SESSION/SIGNED_IN e a segunda montagem de efeitos do StrictMode em
+// desenvolvimento podem solicitar o mesmo perfil simultaneamente. Todas essas
+// fontes compartilham a leitura enquanto ela estiver em voo.
+const pendingUserProfileRequests = new Map<string, Promise<AuthUser | null>>();
+
+const CERTIFICATE_SELECT = `
+  auth_user_id,
+  certificate_file_name,
+  certificate_holder_name,
+  certificate_document,
+  certificate_serial_number,
+  certificate_issuer,
+  certificate_issue_date,
+  certificate_expiration_date,
+  certificate_status,
+  certificate_last_validation,
+  certificate_type
+`;
+
+const fetchUserProfileFromDatabase = async (authUserId: string): Promise<AuthUser | null> => {
   const [userResult, certResult, employeeResult] = await Promise.all([
     supabase
       .from('Recanto_Usuarios')
@@ -85,7 +105,7 @@ const fetchUserProfile = async (authUserId: string): Promise<AuthUser | null> =>
       .maybeSingle(),
     supabase
       .from('Recanto_Certificados')
-      .select('*')
+      .select(CERTIFICATE_SELECT)
       .eq('auth_user_id', authUserId)
       .maybeSingle(),
     supabase
@@ -159,6 +179,23 @@ const fetchUserProfile = async (authUserId: string): Promise<AuthUser | null> =>
     complemento: data.complemento || undefined,
     avatarUrl: data.avatar_url || undefined,
   };
+};
+
+const fetchUserProfile = (authUserId: string): Promise<AuthUser | null> => {
+  const pendingRequest = pendingUserProfileRequests.get(authUserId);
+  if (pendingRequest) return pendingRequest;
+
+  const request = fetchUserProfileFromDatabase(authUserId);
+  pendingUserProfileRequests.set(authUserId, request);
+
+  const clearPendingRequest = () => {
+    if (pendingUserProfileRequests.get(authUserId) === request) {
+      pendingUserProfileRequests.delete(authUserId);
+    }
+  };
+  void request.then(clearPendingRequest, clearPendingRequest);
+
+  return request;
 };
 
 // Configurações institucionais são mantidas no banco. A chave abaixo só é
@@ -411,7 +448,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           )
         )
       `),
-      supabase.from('Recanto_Certificados').select('*')
+      supabase.from('Recanto_Certificados').select(CERTIFICATE_SELECT)
     ]);
 
     if (usersResult.error) {
@@ -490,72 +527,84 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [currentUser]);
 
   useEffect(() => {
-    const checkSession = async () => {
-      setLoading(true);
+    let active = true;
+    let authRequestVersion = 0;
+
+    const applySession = async (session: Session | null) => {
+      const requestVersion = ++authRequestVersion;
+      if (active) setLoading(true);
+
       try {
-        const { data: { session }, error } = await supabase.auth.getSession();
-        if (error) {
-          console.warn('Erro ao recuperar sessão do Supabase:', error.message);
-          if (error.status === 400 || error.message?.includes('refresh_token') || error.message?.includes('invalid_grant')) {
-            await supabase.auth.signOut().catch(() => {});
-          }
-          setCurrentUser(null);
-        } else if (session?.user) {
+        if (session?.user) {
           const profile = await fetchUserProfile(session.user.id);
+          if (!active || requestVersion !== authRequestVersion) return;
+          currentUserRef.current = profile;
           setCurrentUser(profile);
         } else {
+          if (!active || requestVersion !== authRequestVersion) return;
+          currentUserRef.current = null;
           setCurrentUser(null);
         }
       } catch (err) {
-        console.error('Erro ao recuperar sessão:', err);
+        if (!active || requestVersion !== authRequestVersion) return;
+        console.error('Erro ao processar sessão do Supabase:', err);
+        currentUserRef.current = null;
         setCurrentUser(null);
       } finally {
-        setLoading(false);
+        if (active && requestVersion === authRequestVersion) {
+          setLoading(false);
+        }
       }
     };
 
-    checkSession();
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    // onAuthStateChange sempre emite INITIAL_SESSION no bootstrap. Usá-lo como
+    // fonte única evita a corrida com getSession(), que fazia as mesmas queries
+    // de perfil duas vezes e permitia que a resposta mais antiga vencesse.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       // Se for apenas renovação de token / alternância de aba e o usuário já estiver logado com o mesmo ID,
       // evitamos disparar re-fetch/loading para não causar reflash no navegador.
       if (session?.user && currentUserRef.current?.id === session.user.id) {
         return;
       }
 
-      setLoading(true);
-      try {
-        if (session?.user) {
-          const profile = await fetchUserProfile(session.user.id);
-          setCurrentUser(profile);
-        } else {
-          setCurrentUser(null);
-        }
-      } catch (err) {
-        console.error('Erro ao processar alteração de auth:', err);
-        setCurrentUser(null);
-      } finally {
-        setLoading(false);
-      }
+      void applySession(session);
     });
 
     return () => {
+      active = false;
+      authRequestVersion += 1;
       subscription.unsubscribe();
     };
   }, []);
 
-  // Sync users and profiles when an admin user logs in
+  const refreshAdminDirectory = async (includeProfiles = true, includeUsers = true) => {
+    if (currentUserRef.current?.profile.type !== 'Administrador') return;
+
+    const requests: Promise<void>[] = [];
+    if (includeProfiles) requests.push(fetchAllProfiles());
+    if (includeUsers) requests.push(fetchAllUsers());
+    await Promise.all(requests);
+  };
+
+  // O diretório completo contém dados pessoais e certificados de toda a
+  // empresa. Ele só é necessário nas telas administrativas; os demais perfis
+  // já recebem acima apenas o próprio usuário, perfil e certificado.
   useEffect(() => {
     if (currentUser) {
-      fetchAllProfiles();
-      fetchAllUsers();
-      computeAccessStatus(currentUser);
+      if (currentUser.profile.type === 'Administrador') {
+        void refreshAdminDirectory();
+      } else {
+        setUsers([]);
+        setProfiles([]);
+      }
+      void computeAccessStatus(currentUser);
     } else {
       setUsers([]);
       setProfiles([]);
       setAccessBlocked(false);
+      setTrialInfo(null);
     }
-  }, [currentUser?.id]);
+  }, [currentUser?.id, currentUser?.empresaId, currentUser?.profile.type]);
 
   // O banco é a fonte canônica. A chave de migração é isolada por empresa e
   // o espelho local só é atualizado depois de uma leitura/escrita confirmada.
@@ -569,10 +618,44 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return;
       }
 
+      const localKey = getCompanySettingsLegacyKey(empresaId);
+      const migrationKey = getCompanySettingsMigrationKey(empresaId);
+      let migrationDone = false;
+      let legacyCacheReadable = true;
+      let localRaw: string | null = null;
+      try {
+        migrationDone = localStorage.getItem(migrationKey) === 'true';
+      } catch (storageError) {
+        legacyCacheReadable = false;
+        console.warn('Não foi possível acessar o cache local de configurações:', storageError);
+      }
+
+      const canAttemptLegacyMigration = !migrationDone
+        && legacyCacheReadable
+        && currentUser?.profile.type === 'Administrador';
+      if (canAttemptLegacyMigration) {
+        try {
+          localRaw = localStorage.getItem(localKey);
+        } catch (storageError) {
+          legacyCacheReadable = false;
+          console.warn('Não foi possível ler o cache legado de configurações:', storageError);
+        }
+      }
+
+      const needsLegacyMigration = canAttemptLegacyMigration
+        && legacyCacheReadable
+        && localRaw !== null;
+      const canFinalizeEmptyLegacyMigration = canAttemptLegacyMigration
+        && legacyCacheReadable
+        && localRaw === null;
+
       try {
         const { data, error } = await supabase
           .from('Recanto_Empresas')
-          .select('*')
+          // A rotina normal só consome o modelo do boletim. A projeção completa
+          // permanece exclusivamente no primeiro acesso administrativo que
+          // ainda pode precisar preencher lacunas a partir do cache legado.
+          .select(needsLegacyMigration ? '*' : 'modelo_boletim')
           .eq('empresa_id', empresaId)
           .single();
 
@@ -584,26 +667,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (!active) return;
 
         let company = data as any;
-        const localKey = getCompanySettingsLegacyKey(empresaId);
-        const migrationKey = getCompanySettingsMigrationKey(empresaId);
-        let migrationDone = false;
-        try {
-          migrationDone = localStorage.getItem(migrationKey) === 'true';
-        } catch (storageError) {
-          console.warn('Não foi possível acessar o cache local de configurações:', storageError);
-        }
 
         // A migração é restrita a dados já separados por empresa. A antiga
         // chave global não possui contexto de tenant e não pode ser usada sem
         // risco de vazar ou sobrescrever outra instituição.
-        if (!migrationDone && currentUser?.profile.type === 'Administrador') {
-          let localRaw: string | null = null;
-          try {
-            localRaw = localStorage.getItem(localKey);
-          } catch (storageError) {
-            console.warn('Não foi possível ler o cache legado de configurações:', storageError);
-          }
-
+        if (needsLegacyMigration) {
           try {
             const legacy = localRaw ? JSON.parse(localRaw) : null;
             const updates = buildMissingCompanySettingsUpdate(company, legacy);
@@ -613,7 +681,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 .from('Recanto_Empresas')
                 .update(updates)
                 .eq('empresa_id', empresaId)
-                .select('*')
+                .select('modelo_boletim')
                 .single();
 
               if (updateError || !updatedCompany) {
@@ -660,6 +728,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               console.warn('Não foi possível remover o cache local inválido:', storageError);
             }
           }
+        } else if (canFinalizeEmptyLegacyMigration) {
+          // Instalações novas não possuem cache legado e, portanto, não precisam
+          // baixar todas as colunas (incluindo imagens institucionais grandes)
+          // nem repetir essa verificação em cada login.
+          try {
+            localStorage.setItem(migrationKey, 'true');
+            migrationDone = true;
+          } catch (storageError) {
+            console.warn('Não foi possível registrar a migração local:', storageError);
+          }
         }
 
         if (migrationDone) {
@@ -695,6 +773,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = async () => {
     await supabase.auth.signOut();
+    currentUserRef.current = null;
     setCurrentUser(null);
   };
   const resetPassword = async (email: string) => {
@@ -796,8 +875,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (insertError) throw insertError;
       }
 
-      await fetchAllProfiles();
-      await fetchAllUsers(); // atualiza os perfis dos usuários em exibição
+      await refreshAdminDirectory(); // atualiza os perfis dos usuários em exibição
 
       // Se o perfil editado for o do usuário logado atualmente, recarrega o currentUser
       if (currentUser && currentUser.profile.id === updated.id) {
@@ -840,7 +918,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (insertError) throw insertError;
       }
 
-      await fetchAllProfiles();
+      await refreshAdminDirectory(true, false);
     } catch (err: any) {
       console.error(err);
       toast.error(err.message || 'Erro ao adicionar o perfil.');
@@ -856,7 +934,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (error) throw error;
 
-      await fetchAllProfiles();
+      await refreshAdminDirectory(true, false);
       toast.success('Perfil excluído com sucesso.');
     } catch (err: any) {
       console.error(err);
@@ -920,7 +998,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           .eq('id', userData.employeeId);
       }
 
-      await fetchAllUsers();
+      await refreshAdminDirectory(false, true);
       return data.user.id;
     } catch (err: any) {
       console.error(err);
@@ -937,7 +1015,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
 
-      await fetchAllUsers();
+      await refreshAdminDirectory(false, true);
       if (currentUser && currentUser.id === id) {
         await logout();
       }
@@ -969,7 +1047,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const updateUser = async (updatedUser: AuthUser) => {
     try {
       // Se o e-mail mudou, atualiza em auth.users via Edge Function (requer service_role)
-      const existingUser = users.find(u => u.id === updatedUser.id);
+      const existingUser = users.find(u => u.id === updatedUser.id)
+        ?? (currentUser?.id === updatedUser.id ? currentUser : undefined);
       if (existingUser && existingUser.email !== updatedUser.email) {
         const { data: fnData, error: fnError } = await supabase.functions.invoke('RecantoDosAnciaos_update-user-email', {
           body: { targetUserId: updatedUser.id, newEmail: updatedUser.email },
@@ -1002,7 +1081,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (error) throw error;
 
-      await fetchAllUsers();
+      await refreshAdminDirectory(false, true);
 
       if (currentUser && currentUser.id === updatedUser.id) {
         const updatedSelf = await fetchUserProfile(currentUser.id);

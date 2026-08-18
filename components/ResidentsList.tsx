@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
-import { Search, Filter, FileText, X, User, Phone, FileHeart, Plus, AlertCircle, BedDouble, Home, Edit2, Pill, Camera, ArrowUpDown, ArrowUp, ArrowDown, ChevronDown, UserX, UserCheck, UploadCloud, LogOut, Calendar, ExternalLink, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
-import { Resident, Room, ViewState } from '../types';
+import { Search, Filter, FileText, X, User, Phone, FileHeart, Plus, AlertCircle, BedDouble, Home, Edit2, Pill, Camera, ArrowUpDown, ArrowUp, ArrowDown, ChevronDown, UserX, UserCheck, UploadCloud, LogOut, Calendar, ExternalLink, ChevronLeft, ChevronRight, Trash2, Loader2 } from 'lucide-react';
+import { Medication, Resident, Room, ViewState } from '../types';
 import CustomSelect from './CustomSelect';
 import { compressImage, uploadResidentPhoto, uploadResidentDocument } from '../services/supabaseClient';
 import { residentAvatarSrc } from '../lib/avatar';
 import { toast } from '../services/toast';
 import { useAuth } from '../contexts/AuthContext';
-import { fetchResidentsPaginated } from '../services/dataService';
+import { fetchResidentMedicationsPaginated, fetchResidentsPaginated } from '../services/dataService';
 
 interface ResidentsListProps {
   residents: Resident[];
@@ -15,6 +15,197 @@ interface ResidentsListProps {
   onAddResident: (resident: Resident) => Promise<void>;
   onUpdateResident: (resident: Resident) => Promise<void>;
 }
+
+const RESIDENT_CARD_MEDICATION_PAGE_SIZE = 3;
+
+interface ResidentCardMedicationsProps {
+  resident: Resident;
+  useServerPagination: boolean;
+}
+
+/**
+ * Medications are intentionally hidden until requested. Production residents
+ * use a small backend page, while Demo/Trial residents paginate the data that
+ * already came in their fixture without touching Supabase.
+ */
+const ResidentCardMedications: React.FC<ResidentCardMedicationsProps> = ({
+  resident,
+  useServerPagination,
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [page, setPage] = useState(1);
+  const [remoteMedications, setRemoteMedications] = useState<Medication[]>([]);
+  const [remoteTotalCount, setRemoteTotalCount] = useState(0);
+  const [loadedRemotePage, setLoadedRemotePage] = useState<number | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const requestSequenceRef = React.useRef(0);
+
+  React.useEffect(() => {
+    requestSequenceRef.current += 1;
+    setIsOpen(false);
+    setPage(1);
+    setRemoteMedications([]);
+    setRemoteTotalCount(0);
+    setLoadedRemotePage(null);
+    setIsLoading(false);
+    setLoadError(null);
+  }, [resident.id, useServerPagination]);
+
+  const loadRemotePage = React.useCallback(async (requestedPage: number) => {
+    const normalizedPage = Math.max(1, Math.trunc(requestedPage) || 1);
+    const requestSequence = requestSequenceRef.current + 1;
+    requestSequenceRef.current = requestSequence;
+
+    setIsOpen(true);
+    setPage(normalizedPage);
+    setIsLoading(true);
+    setLoadError(null);
+
+    try {
+      const result = await fetchResidentMedicationsPaginated(
+        resident.id,
+        normalizedPage,
+        RESIDENT_CARD_MEDICATION_PAGE_SIZE,
+      );
+      if (requestSequenceRef.current !== requestSequence) return;
+
+      setRemoteMedications(result.medications);
+      setRemoteTotalCount(result.totalCount);
+      setLoadedRemotePage(normalizedPage);
+    } catch (error: any) {
+      if (requestSequenceRef.current !== requestSequence) return;
+      console.error('Erro ao carregar medicações do residente:', error);
+      setLoadError(error?.message || 'Não foi possível carregar as medicações.');
+    } finally {
+      if (requestSequenceRef.current === requestSequence) {
+        setIsLoading(false);
+      }
+    }
+  }, [resident.id]);
+
+  const localMedications = resident.medications || [];
+  const totalCount = useServerPagination ? remoteTotalCount : localMedications.length;
+  const totalPages = Math.max(1, Math.ceil(totalCount / RESIDENT_CARD_MEDICATION_PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const displayedMedications = useServerPagination
+    ? remoteMedications
+    : localMedications.slice(
+        (safePage - 1) * RESIDENT_CARD_MEDICATION_PAGE_SIZE,
+        safePage * RESIDENT_CARD_MEDICATION_PAGE_SIZE,
+      );
+  const hasLoadedRemoteData = loadedRemotePage !== null;
+
+  const handleToggle = () => {
+    if (isOpen) {
+      setIsOpen(false);
+      return;
+    }
+
+    setIsOpen(true);
+    if (useServerPagination && !hasLoadedRemoteData && !isLoading) {
+      void loadRemotePage(1);
+    }
+  };
+
+  const handlePageChange = (nextPage: number) => {
+    const normalizedPage = Math.min(totalPages, Math.max(1, nextPage));
+    if (useServerPagination) {
+      void loadRemotePage(normalizedPage);
+      return;
+    }
+    setPage(normalizedPage);
+  };
+
+  const countLabel = useServerPagination
+    ? (hasLoadedRemoteData ? ` (${remoteTotalCount})` : '')
+    : ` (${localMedications.length})`;
+
+  return (
+    <div className="mb-4 rounded-xl border border-blue-100 bg-blue-50/50 overflow-hidden">
+      <button
+        type="button"
+        onClick={handleToggle}
+        aria-expanded={isOpen}
+        className="w-full flex items-center justify-between gap-3 px-3 py-2.5 text-left text-[10px] uppercase font-bold text-blue-700 hover:bg-blue-50 transition-colors"
+      >
+        <span className="flex items-center gap-1.5">
+          <Pill className="h-3.5 w-3.5 text-blue-500" />
+          Medicações{countLabel}
+        </span>
+        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+
+      {isOpen && (
+        <div className="border-t border-blue-100 px-3 py-2.5">
+          {isLoading ? (
+            <div className="flex items-center justify-center gap-2 py-3 text-xs font-medium text-blue-600">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Carregando medicações...
+            </div>
+          ) : loadError ? (
+            <div className="space-y-2 py-1 text-center">
+              <p className="text-xs text-rose-600">{loadError}</p>
+              <button
+                type="button"
+                onClick={() => void loadRemotePage(page)}
+                className="text-xs font-semibold text-blue-600 hover:text-blue-800 hover:underline"
+              >
+                Tentar novamente
+              </button>
+            </div>
+          ) : displayedMedications.length === 0 ? (
+            <p className="py-2 text-center text-xs text-slate-500">Nenhuma medicação cadastrada.</p>
+          ) : (
+            <div className="space-y-2">
+              {displayedMedications.map(medication => (
+                <div key={medication.id} className="flex items-center justify-between gap-3 text-xs text-slate-650">
+                  <div className="min-w-0">
+                    <p className="font-medium truncate" title={`${medication.name} (${medication.dosage})`}>
+                      {medication.name}
+                    </p>
+                    <p className="text-[10px] text-slate-500 truncate">{medication.dosage}</p>
+                  </div>
+                  {medication.nextDose && (
+                    <span className="bg-white px-1.5 py-0.5 rounded text-[10px] font-bold text-blue-800 border border-blue-100/80 shrink-0">
+                      {medication.nextDose}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {!isLoading && !loadError && totalPages > 1 && (
+            <div className="mt-3 pt-2 border-t border-blue-100 flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => handlePageChange(safePage - 1)}
+                disabled={safePage <= 1}
+                aria-label="Página anterior de medicações"
+                className="p-1 rounded-md text-blue-700 hover:bg-white disabled:opacity-35 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronLeft className="h-3.5 w-3.5" />
+              </button>
+              <span className="text-[10px] font-semibold text-slate-500">
+                Página {safePage} de {totalPages}
+              </span>
+              <button
+                type="button"
+                onClick={() => handlePageChange(safePage + 1)}
+                disabled={safePage >= totalPages}
+                aria-label="Próxima página de medicações"
+                className="p-1 rounded-md text-blue-700 hover:bg-white disabled:opacity-35 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const careLevelConfig = {
   I: { label: 'Grau I', bg: 'bg-emerald-50', text: 'text-emerald-700', dot: 'bg-emerald-400' },
@@ -822,25 +1013,12 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
 
                 </div>
 
-                {resident.medications && resident.medications.length > 0 && (
-                  <div className="mb-4 p-2.5 bg-blue-50/50 border border-blue-100 rounded-xl space-y-1">
-                    <span className="text-[10px] uppercase font-bold text-blue-700 flex items-center gap-1">
-                      <Pill className="h-3.5 w-3.5 text-blue-500" /> Próximas Medicações
-                    </span>
-                    <div className="space-y-1 max-h-[80px] overflow-y-auto pr-1">
-                      {resident.medications.map(med => (
-                        <div key={med.id} className="flex justify-between items-center text-xs text-slate-650">
-                          <span className="font-medium truncate max-w-[130px] sm:max-w-[160px]" title={`${med.name} (${med.dosage})`}>
-                            {med.name}
-                          </span>
-                          <span className="bg-white px-1.5 py-0.5 rounded text-[10px] font-bold text-blue-800 border border-blue-100/80 shrink-0">
-                            {med.nextDose}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                <ResidentCardMedications
+                  resident={resident}
+                  // Production summaries are explicitly marked as not fully
+                  // hydrated. Fixtures omit that flag and keep using local data.
+                  useServerPagination={Boolean(empresaId && resident.isDetailLoaded === false)}
+                />
 
                 {resident.status === 'inativo' && (
                   <div className="mb-4 p-3 bg-rose-50/80 border border-rose-200/80 rounded-xl space-y-1.5 text-xs">

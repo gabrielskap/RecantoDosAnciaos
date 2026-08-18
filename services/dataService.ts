@@ -1,5 +1,5 @@
 import { supabase } from './supabaseClient';
-import type { Resident, ResidentPrescriptionRecord, FinancialRecord, Contract, Invoice, StockItem, Employee, SystemAccessLog, TrainingRecord, CalendarEvent, Room, GlucoseReading, AuditLog } from '../types';
+import type { Resident, ResidentPrescriptionRecord, FinancialRecord, Contract, Invoice, StockItem, Employee, SystemAccessLog, TrainingRecord, CalendarEvent, Room, GlucoseReading, AuditLog, Medication, VitalSign } from '../types';
 
 // Relations that are cheap and needed just to render the resident list/cards
 // (contacts, allergies, care plan, diet, document folders). Kept identical
@@ -14,10 +14,13 @@ const RESIDENT_BASE_SELECT = `
   dietPlan:Recanto_PlanosDieta(*, restrictions:Recanto_RestricoesDieta(*))
 `;
 
+const VITALS_FIRST_PAGE_SIZE = 50;
+
 interface ResidentHeavyData {
   medications: any[];
   prescriptions: any[];
   vitals: any[];
+  vitalsTotalCount?: number;
   glucoseReadings: any[];
   dailyChecklists: any[];
   documents: any[];
@@ -27,6 +30,43 @@ interface ResidentHeavyData {
   isDetailLoaded: boolean;
   glicemiaLoaded: boolean;
 }
+
+function singleFlight<K, V>(
+  pendingRequests: Map<K, Promise<V>>,
+  key: K,
+  load: () => Promise<V>,
+): Promise<V> {
+  const pendingRequest = pendingRequests.get(key);
+  if (pendingRequest) return pendingRequest;
+
+  const request = load();
+  pendingRequests.set(key, request);
+
+  void request.then(
+    () => {
+      if (pendingRequests.get(key) === request) pendingRequests.delete(key);
+    },
+    () => {
+      if (pendingRequests.get(key) === request) pendingRequests.delete(key);
+    },
+  );
+
+  return request;
+}
+
+type ResidentsPage = { residents: Resident[]; totalCount: number };
+
+const pendingResidentsSummaryRequests = new Map<string, Promise<Resident[]>>();
+const pendingResidentsPaginatedRequests = new Map<string, Promise<ResidentsPage>>();
+const pendingResidentGlicemiaRequests = new Map<string, Promise<GlucoseReading[]>>();
+const pendingResidentDetailsRequests = new Map<string, Promise<Resident | null>>();
+const pendingResidentVitalsRequests = new Map<string, Promise<{ vitals: VitalSign[]; totalCount: number }>>();
+const pendingResidentMedicationsRequests = new Map<string, Promise<{ medications: Medication[]; totalCount: number }>>();
+type CompanyMedicationPage = {
+  items: Array<{ residentId: string; medication: Medication }>;
+  totalCount: number;
+};
+const pendingCompanyMedicationRequests = new Map<string, Promise<CompanyMedicationPage>>();
 
 export const mapGlucoseReading = (row: any): GlucoseReading => ({
   id: row.id || Math.random().toString(36).substr(2, 9),
@@ -148,6 +188,7 @@ function mapResidentRow(r: any, heavy: ResidentHeavyData): Resident {
         spo2: v.spo2 || 0,
         painLevel: v.pain_level || undefined
       })),
+      vitalsTotalCount: heavy.vitalsTotalCount ?? rVitals.length,
       glucoseReadings: (() => {
         const mappedDirectReadings = (rGlucoseReadings || []).map((g: any) => ({
           id: g.id || Math.random().toString(36).substr(2, 9),
@@ -378,8 +419,9 @@ function mapResidentRow(r: any, heavy: ResidentHeavyData): Resident {
 // Fetches all residents of a company for the list/dashboard views.
 //
 // Only relations that are cheap and genuinely needed across every resident
-// at once are included: current medications (small, bounded — not a growing
-// log). Everything else that grows without bound
+// at once are included. Medications are deliberately loaded per resident (or
+// by the reports-specific paginated loader) so opening this list never builds
+// one large `resident_id=in.(...)` request. Everything else that grows without bound
 // (vitals, daily checklists, documents, audit trail, visits, prescriptions,
 // medication administration logs) is history for ONE resident and is only
 // fetched by fetchResidentDetails() when that resident's profile is
@@ -387,35 +429,22 @@ function mapResidentRow(r: any, heavy: ResidentHeavyData): Resident {
 // resident on every list load is what caused Postgres to cancel the query
 // with a statement_timeout (57014) as the facility's operational history
 // grew.
-export async function fetchResidentsSummary(empresaId: string): Promise<Resident[]> {
+export function fetchResidentsSummary(empresaId: string): Promise<Resident[]> {
+  const normalizedEmpresaId = empresaId.trim();
+
+  return singleFlight(pendingResidentsSummaryRequests, normalizedEmpresaId, async () => {
   const { data: residentsData, error: residentsError } = await supabase
     .from('Recanto_Residentes')
     .select(RESIDENT_BASE_SELECT)
-    .eq('empresa_id', empresaId);
+    .eq('empresa_id', normalizedEmpresaId);
 
   if (residentsError) throw residentsError;
 
   const residentsList = residentsData || [];
   if (residentsList.length === 0) return [];
 
-  const residentIds = residentsList.map((r: any) => r.id);
-
-  const medsResult = await supabase
-    .from('Recanto_Medicacoes')
-    .select('*')
-    .in('resident_id', residentIds);
-
-  if (medsResult.error) throw medsResult.error;
-
-  const medsByResident = new Map<string, any[]>();
-  for (const med of medsResult.data || []) {
-    const arr = medsByResident.get(med.resident_id) || [];
-    arr.push({ ...med, logs: [] });
-    medsByResident.set(med.resident_id, arr);
-  }
-
   return residentsList.map((r: any) => mapResidentRow(r, {
-    medications: medsByResident.get(r.id) || [],
+    medications: [],
     prescriptions: [],
     vitals: [],
     glucoseReadings: [],
@@ -427,6 +456,7 @@ export async function fetchResidentsSummary(empresaId: string): Promise<Resident
     isDetailLoaded: false,
     glicemiaLoaded: false
   }));
+  });
 }
 
 export interface FetchResidentsPaginatedOptions {
@@ -441,27 +471,37 @@ export interface FetchResidentsPaginatedOptions {
 
 // Backend-paginated query for Recanto_Residentes using Supabase range & count.
 // Keeps query duration and payload tiny (millisecs) even with thousands of residents.
-export async function fetchResidentsPaginated(
+export function fetchResidentsPaginated(
   empresaId: string,
   options: FetchResidentsPaginatedOptions
-): Promise<{ residents: Resident[]; totalCount: number }> {
-  const {
+): Promise<ResidentsPage> {
+  const normalizedEmpresaId = empresaId.trim();
+  const page = Math.max(1, Math.trunc(options.page) || 1);
+  const pageSize = Math.min(100, Math.max(1, Math.trunc(options.pageSize) || 9));
+  const status = options.status === 'inativo' ? 'inativo' : 'ativo';
+  const search = (options.search || '').trim();
+  const careLevel = options.careLevel || '';
+  const sortBy = options.sortBy || 'name';
+  const sortOrder = options.sortOrder === 'desc' ? 'desc' : 'asc';
+  const requestKey = JSON.stringify({
+    empresaId: normalizedEmpresaId,
     page,
     pageSize,
-    status = 'ativo',
-    search = '',
-    careLevel = '',
-    sortBy = 'name',
-    sortOrder = 'asc'
-  } = options;
+    status,
+    search,
+    careLevel,
+    sortBy,
+    sortOrder,
+  });
 
+  return singleFlight(pendingResidentsPaginatedRequests, requestKey, async () => {
   const from = (page - 1) * pageSize;
   const to = from + pageSize - 1;
 
   let query = supabase
     .from('Recanto_Residentes')
     .select(RESIDENT_BASE_SELECT, { count: 'exact' })
-    .eq('empresa_id', empresaId);
+    .eq('empresa_id', normalizedEmpresaId);
 
   if (status === 'inativo') {
     query = query.eq('status', 'inativo');
@@ -473,8 +513,8 @@ export async function fetchResidentsPaginated(
     query = query.eq('care_level', careLevel);
   }
 
-  if (search && search.trim() !== '') {
-    const term = `%${search.trim()}%`;
+  if (search) {
+    const term = `%${search}%`;
     query = query.or(`name.ilike.${term},room.ilike.${term}`);
   }
 
@@ -491,24 +531,8 @@ export async function fetchResidentsPaginated(
   const residentsList = residentsData || [];
   if (residentsList.length === 0) return { residents: [], totalCount: count || 0 };
 
-  const residentIds = residentsList.map((r: any) => r.id);
-
-  const { data: medsData, error: medsError } = await supabase
-    .from('Recanto_Medicacoes')
-    .select('*')
-    .in('resident_id', residentIds);
-
-  if (medsError) throw medsError;
-
-  const medsByResident = new Map<string, any[]>();
-  for (const med of medsData || []) {
-    const arr = medsByResident.get(med.resident_id) || [];
-    arr.push({ ...med, logs: [] });
-    medsByResident.set(med.resident_id, arr);
-  }
-
   const mapped = residentsList.map((r: any) => mapResidentRow(r, {
-    medications: medsByResident.get(r.id) || [],
+    medications: [],
     prescriptions: [],
     vitals: [],
     glucoseReadings: [],
@@ -522,27 +546,147 @@ export async function fetchResidentsPaginated(
   }));
 
   return { residents: mapped, totalCount: count || 0 };
+  });
 }
 
 // Fast path for the Glicemia tab. It reads only the canonical table, so this
 // screen does not wait for the rest of the resident's clinical history.
-export async function fetchResidentGlicemia(residentId: string): Promise<GlucoseReading[]> {
+export function fetchResidentGlicemia(residentId: string): Promise<GlucoseReading[]> {
+  const normalizedResidentId = residentId.trim();
+
+  return singleFlight(pendingResidentGlicemiaRequests, normalizedResidentId, async () => {
   const { data, error } = await supabase
     .from('Recanto_Glicemia')
     .select('id, timestamp, valor_mg_dl, momento, insulina_aplicada, insulina_unidades, tipo_insulina, observacoes')
-    .eq('resident_id', residentId)
+    .eq('resident_id', normalizedResidentId)
     .order('timestamp', { ascending: false });
 
   if (error) throw error;
   return (data || []).map(mapGlucoseReading);
+  });
+}
+
+const mapVitalSignRow = (row: any): VitalSign => ({
+  id: row.id || undefined,
+  timestamp: row.timestamp,
+  bp: row.bp || '',
+  hr: row.hr || 0,
+  temp: row.temp ? Number(row.temp) : 36.5,
+  spo2: row.spo2 || 0,
+  painLevel: row.pain_level ?? undefined,
+});
+
+export function fetchResidentVitalsPaginated(
+  residentId: string,
+  page: number,
+  pageSize = 50,
+): Promise<{ vitals: VitalSign[]; totalCount: number }> {
+  const normalizedResidentId = residentId.trim();
+  const normalizedPage = Math.max(1, Math.trunc(page) || 1);
+  const normalizedPageSize = Math.min(100, Math.max(1, Math.trunc(pageSize) || 50));
+  const requestKey = `${normalizedResidentId}:${normalizedPage}:${normalizedPageSize}`;
+
+  return singleFlight(pendingResidentVitalsRequests, requestKey, async () => {
+    const from = (normalizedPage - 1) * normalizedPageSize;
+    const to = from + normalizedPageSize - 1;
+    const { data, count, error } = await supabase
+      .from('Recanto_SinaisVitais')
+      .select('id,timestamp,bp,hr,temp,spo2,pain_level', { count: 'exact' })
+      .eq('resident_id', normalizedResidentId)
+      .order('timestamp', { ascending: false })
+      .order('id', { ascending: false })
+      .range(from, to);
+
+    if (error) throw error;
+    return { vitals: (data || []).map(mapVitalSignRow), totalCount: count ?? 0 };
+  });
+}
+
+const mapMedicationRow = (row: any): Medication => ({
+  id: row.id,
+  name: row.name,
+  dosage: row.dosage,
+  route: row.route,
+  frequency: row.frequency,
+  nextDose: row.next_dose || '',
+  startDate: row.start_date || undefined,
+  endDate: row.end_date || undefined,
+  observations: row.observations || undefined,
+  documentUrl: row.document_url || undefined,
+  logs: [],
+});
+
+export function fetchResidentMedicationsPaginated(
+  residentId: string,
+  page: number,
+  pageSize = 5,
+): Promise<{ medications: Medication[]; totalCount: number }> {
+  const normalizedResidentId = residentId.trim();
+  const normalizedPage = Math.max(1, Math.trunc(page) || 1);
+  const normalizedPageSize = Math.min(50, Math.max(1, Math.trunc(pageSize) || 5));
+  const requestKey = `${normalizedResidentId}:${normalizedPage}:${normalizedPageSize}`;
+
+  return singleFlight(pendingResidentMedicationsRequests, requestKey, async () => {
+    const from = (normalizedPage - 1) * normalizedPageSize;
+    const to = from + normalizedPageSize - 1;
+    const { data, count, error } = await supabase
+      .from('Recanto_Medicacoes')
+      .select('id,name,dosage,route,frequency,next_dose,start_date,end_date,observations,document_url', { count: 'exact' })
+      .eq('resident_id', normalizedResidentId)
+      .order('end_date', { ascending: false, nullsFirst: true })
+      .order('name', { ascending: true })
+      .order('id', { ascending: true })
+      .range(from, to);
+
+    if (error) throw error;
+    return { medications: (data || []).map(mapMedicationRow), totalCount: count ?? 0 };
+  });
+}
+
+export function fetchCompanyMedicationsPaginated(
+  empresaId: string,
+  page: number,
+  pageSize = 100,
+): Promise<CompanyMedicationPage> {
+  const normalizedEmpresaId = empresaId.trim();
+  const normalizedPage = Math.max(1, Math.trunc(page) || 1);
+  const normalizedPageSize = Math.min(200, Math.max(1, Math.trunc(pageSize) || 100));
+  const requestKey = `${normalizedEmpresaId}:${normalizedPage}:${normalizedPageSize}`;
+
+  return singleFlight(pendingCompanyMedicationRequests, requestKey, async () => {
+    const from = (normalizedPage - 1) * normalizedPageSize;
+    const to = from + normalizedPageSize - 1;
+    const { data, count, error } = await supabase
+      .from('Recanto_Medicacoes')
+      .select(
+        'id,resident_id,name,dosage,route,frequency,next_dose,start_date,end_date,observations,document_url,resident:Recanto_Residentes!inner(empresa_id)',
+        { count: 'exact' },
+      )
+      .eq('resident.empresa_id', normalizedEmpresaId)
+      .order('resident_id', { ascending: true })
+      .order('id', { ascending: true })
+      .range(from, to);
+
+    if (error) throw error;
+    return {
+      items: (data || []).map((row: any) => ({
+        residentId: row.resident_id,
+        medication: mapMedicationRow(row),
+      })),
+      totalCount: count ?? 0,
+    };
+  });
 }
 
 // Fetches the complete clinical history for a SINGLE resident.
-export async function fetchResidentDetails(residentId: string): Promise<Resident | null> {
+export function fetchResidentDetails(residentId: string): Promise<Resident | null> {
+  const normalizedResidentId = residentId.trim();
+
+  return singleFlight(pendingResidentDetailsRequests, normalizedResidentId, async () => {
   const { data: residentRow, error: residentError } = await supabase
     .from('Recanto_Residentes')
     .select(RESIDENT_BASE_SELECT)
-    .eq('id', residentId)
+    .eq('id', normalizedResidentId)
     .maybeSingle();
 
   if (residentError) throw residentError;
@@ -556,21 +700,29 @@ export async function fetchResidentDetails(residentId: string): Promise<Resident
     checklistsResult,
     docsResult,
     auditLogsResult,
+    evolucoesResult,
     nutriLogsResult,
     visitsResult
   ] = await Promise.all([
-    supabase.from('Recanto_Medicacoes').select('*').eq('resident_id', residentId),
-    supabase.from('Recanto_Receitas').select('*').eq('resident_id', residentId),
-    supabase.from('Recanto_SinaisVitais').select('*').eq('resident_id', residentId),
-    supabase.from('Recanto_Glicemia').select('*').eq('resident_id', residentId).order('timestamp', { ascending: false }),
-    supabase.from('Recanto_ChecklistDiario').select('*').eq('resident_id', residentId),
-    supabase.from('Recanto_Documentos').select('*').eq('resident_id', residentId),
-    supabase.from('Recanto_LogsAuditoria').select('*').eq('resident_id', residentId).order('timestamp', { ascending: false }).limit(10),
-    supabase.from('Recanto_LogsNutricao').select('*').eq('resident_id', residentId),
-    supabase.from('Recanto_Visitas').select('*').eq('resident_id', residentId)
+    supabase.from('Recanto_Medicacoes').select('*').eq('resident_id', normalizedResidentId),
+    supabase.from('Recanto_Receitas').select('*').eq('resident_id', normalizedResidentId),
+    supabase
+      .from('Recanto_SinaisVitais')
+      .select('id,timestamp,bp,hr,temp,spo2,pain_level', { count: 'exact' })
+      .eq('resident_id', normalizedResidentId)
+      .order('timestamp', { ascending: false })
+      .order('id', { ascending: false })
+      .range(0, VITALS_FIRST_PAGE_SIZE - 1),
+    supabase.from('Recanto_Glicemia').select('*').eq('resident_id', normalizedResidentId).order('timestamp', { ascending: false }),
+    supabase.from('Recanto_ChecklistDiario').select('*').eq('resident_id', normalizedResidentId),
+    supabase.from('Recanto_Documentos').select('*').eq('resident_id', normalizedResidentId),
+    supabase.from('Recanto_LogsAuditoria').select('*').eq('resident_id', normalizedResidentId).order('timestamp', { ascending: false }).limit(20),
+    supabase.from('Recanto_Evolucoes').select('*').eq('resident_id', normalizedResidentId).order('created_at', { ascending: false }),
+    supabase.from('Recanto_LogsNutricao').select('*').eq('resident_id', normalizedResidentId),
+    supabase.from('Recanto_Visitas').select('*').eq('resident_id', normalizedResidentId)
   ]);
 
-  for (const result of [medsResult, prescriptionsResult, vitalsResult, glucoseResult, checklistsResult, docsResult, auditLogsResult, nutriLogsResult, visitsResult]) {
+  for (const result of [medsResult, prescriptionsResult, vitalsResult, glucoseResult, checklistsResult, docsResult, auditLogsResult, evolucoesResult, nutriLogsResult, visitsResult]) {
     if (result.error) {
       console.warn('Aviso ao carregar sub-tabela do prontuário:', result.error);
     }
@@ -609,18 +761,38 @@ export async function fetchResidentDetails(residentId: string): Promise<Resident
   }
   const dailyChecklists = checklists.map((c: any) => ({ ...c, carePlanAdherence: adherenceByChecklist.get(c.id) || [] }));
 
+  // Mapeia registros de Recanto_Evolucoes e combina com Recanto_LogsAuditoria
+  const dedicatedEvolucoes = (evolucoesResult.data || []).map((e: any) => ({
+    id: e.id,
+    timestamp: e.created_at,
+    user_id: e.user_id,
+    user_name: e.user_name,
+    action: 'Evolução',
+    details: e.detalhes || '',
+    dados: { evolutionArea: e.area }
+  }));
+
+  // Mescla evoluções da nova tabela com logs de auditoria históricos evitando duplicatas por data/hora
+  const dedicatedKeys = new Set(dedicatedEvolucoes.map((e: any) => `${e.user_id}_${e.timestamp}`));
+  const legacyAuditLogs = (auditLogsResult.data || []).filter((al: any) => !dedicatedKeys.has(`${al.user_id}_${al.timestamp}`));
+  const combinedAuditLogs = [...dedicatedEvolucoes, ...legacyAuditLogs].sort(
+    (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+  );
+
   return mapResidentRow(residentRow, {
     medications,
     prescriptions: prescriptionsResult.data || [],
     vitals: vitalsResult.data || [],
+    vitalsTotalCount: vitalsResult.count ?? vitalsResult.data?.length ?? 0,
     glucoseReadings: glucoseResult.data || [],
     dailyChecklists,
     documents: docsResult.data || [],
-    auditLogs: auditLogsResult.data || [],
+    auditLogs: combinedAuditLogs,
     nutritionalLogs: nutriLogsResult.data || [],
     visits: visitsResult.data || [],
     isDetailLoaded: true,
     glicemiaLoaded: true
+  });
   });
 }
 

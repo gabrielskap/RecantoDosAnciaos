@@ -31,7 +31,7 @@ import NotificationsPanel from './components/NotificationsPanel';
 import type { AlertItem } from './components/NotificationsPanel';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { Menu, HeartPulse, Bell, ChevronDown, UserCircle, LogOut, Building2 } from 'lucide-react';
-import { ViewState, Resident, FinancialRecord, StockItem, Employee, TrainingRecord, SystemAccessLog, Contract, Invoice, CalendarEvent, StockTransaction, Room, MedicamentoInventarioItem, GlucoseReading } from './types';
+import { ViewState, Resident, FinancialRecord, StockItem, Employee, TrainingRecord, SystemAccessLog, Contract, Invoice, CalendarEvent, StockTransaction, Room, MedicamentoInventarioItem, GlucoseReading, Medication } from './types';
 import { supabase } from './services/supabaseClient';
 import * as dataService from './services/dataService';
 import { fetchInventario, fetchInventarioParaMedicacao, debitarPorBoletim, unidadesPorTomada } from './services/medicationInventoryService';
@@ -39,6 +39,54 @@ import { fetchUserPreferences, saveDismissedAlertIds } from './services/userPref
 import UserProfile from './components/UserProfile';
 
 const LAST_SELECTED_RESIDENT_KEY = 'recanto_last_selected_resident';
+
+// The UI passes a complete resident object, although each interaction changes
+// only one slice. These comparisons keep a small edit from rewriting the full
+// clinical record and all of its child tables.
+const comparableValue = (value: unknown): string =>
+  value === undefined ? '__undefined__' : JSON.stringify(value);
+
+const valuesAreEqual = (left: unknown, right: unknown): boolean =>
+  comparableValue(left) === comparableValue(right);
+
+const residentBaseSnapshot = (resident: Resident) => ({
+  name: resident.name,
+  cpf: resident.cpf,
+  rg: resident.rg,
+  birthDate: resident.birthDate,
+  age: resident.age,
+  room: resident.room,
+  roomStatus: resident.roomStatus,
+  careLevel: resident.careLevel,
+  photoUrl: resident.photoUrl,
+  admissionDate: resident.admissionDate,
+  clinicalCondition: resident.clinicalCondition,
+  functionalCondition: resident.functionalCondition,
+  socialHistory: resident.socialHistory,
+  sarcopenia: resident.sarcopenia,
+  addressCep: resident.addressCep,
+  addressState: resident.addressState,
+  addressCity: resident.addressCity,
+  addressNeighborhood: resident.addressNeighborhood,
+  addressStreet: resident.addressStreet,
+  addressNumber: resident.addressNumber,
+  addressComplement: resident.addressComplement,
+  usoFraldas: resident.usoFraldas,
+  mobilidadeSet: resident.mobilidadeSet,
+  higieneCorporal: resident.higieneCorporal,
+  higieneOralVestir: resident.higieneOralVestir,
+  reqHygiene: resident.reqHygiene,
+  reqOralCare: resident.reqOralCare,
+  reqFeeding: resident.reqFeeding,
+  reqHydration: resident.reqHydration,
+  reqMobility: resident.reqMobility,
+  reqDressings: resident.reqDressings,
+  reqLeisure: resident.reqLeisure,
+  status: resident.status,
+  dataDesligamento: resident.dataDesligamento,
+  motivoDesligamento: resident.motivoDesligamento,
+  documentoDesligamento: resident.documentoDesligamento,
+});
 
 // Navegação e preferências não são dados críticos. Uma quota esgotada não pode
 // derrubar a aplicação por causa de uma tentativa de persistência opcional.
@@ -273,6 +321,43 @@ function AppInner() {
     }
   };
 
+  const fetchResidentsForReports = async () => {
+    if (!currentUser?.empresaId) return;
+
+    try {
+      const baseResidents = await dataService.fetchResidentsSummary(currentUser.empresaId);
+      const medicationsByResident = new Map<string, Medication[]>();
+      const pageSize = 100;
+      let page = 1;
+      let loadedCount = 0;
+      let totalCount = 0;
+
+      do {
+        const result = await dataService.fetchCompanyMedicationsPaginated(
+          currentUser.empresaId,
+          page,
+          pageSize,
+        );
+        totalCount = result.totalCount;
+        loadedCount += result.items.length;
+
+        for (const item of result.items) {
+          const current = medicationsByResident.get(item.residentId) || [];
+          current.push(item.medication);
+          medicationsByResident.set(item.residentId, current);
+        }
+        page += 1;
+      } while (loadedCount < totalCount);
+
+      setResidents(baseResidents.map(resident => ({
+        ...resident,
+        medications: medicationsByResident.get(resident.id) || [],
+      })));
+    } catch (err) {
+      console.error('Erro ao carregar medicações paginadas para relatórios:', err);
+    }
+  };
+
   const refreshSelectedResidentDetail = async (residentId: string) => {
     try {
       const detail = await dataService.fetchResidentDetails(residentId);
@@ -286,6 +371,18 @@ function AppInner() {
     const detail = await dataService.fetchResidentDetails(residentId);
     if (!detail) throw new Error('Residente não encontrado.');
     setSelectedResidentDetail(detail);
+  };
+
+  const patchResidentState = (residentId: string, update: (resident: Resident) => Resident) => {
+    setResidents(previous => previous.map(resident =>
+      resident.id === residentId ? update(resident) : resident
+    ));
+    setSelectedResident(previous =>
+      previous?.id === residentId ? update(previous) : previous
+    );
+    setSelectedResidentDetail(previous =>
+      previous?.id === residentId ? update(previous) : previous
+    );
   };
 
   // Glicemia is independent from the rest of the clinical history. Loading it
@@ -722,6 +819,7 @@ function AppInner() {
         loadOnce('events', fetchEvents);
         break;
       case ViewState.REPORTS:
+        loadOnce('resident-medications-for-reports', fetchResidentsForReports);
         loadOnce('financials', fetchFinancials);
         loadOnce('contracts', fetchContracts);
         loadOnce('invoices', fetchInvoices);
@@ -998,9 +1096,46 @@ function AppInner() {
         return String(raw).trim();
       };
 
+      const existingResident = selectedResidentDetail?.id === updated.id
+        ? selectedResidentDetail
+        : selectedResident?.id === updated.id
+          ? selectedResident
+          : residents.find(resident => resident.id === updated.id);
+
+      if (!existingResident) {
+        throw new Error('O residente não foi encontrado para atualização.');
+      }
+
+      const baseChanged = !valuesAreEqual(residentBaseSnapshot(existingResident), residentBaseSnapshot(updated));
+      const allergiesChanged = !valuesAreEqual(existingResident.allergies, updated.allergies);
+      const contactsChanged = !valuesAreEqual(existingResident.emergencyContacts, updated.emergencyContacts);
+      const guardianChanged = !valuesAreEqual(existingResident.legalGuardian, updated.legalGuardian);
+      const medicationsChanged = !valuesAreEqual(existingResident.medications, updated.medications);
+      const prescriptionsChanged = !valuesAreEqual(existingResident.prescriptions, updated.prescriptions);
+      let vitalsChanged = !valuesAreEqual(existingResident.vitals, updated.vitals);
+      const carePlanChanged = !valuesAreEqual(existingResident.carePlan, updated.carePlan);
+      const dailyChecklistsChanged = !valuesAreEqual(existingResident.dailyChecklists, updated.dailyChecklists);
+      const documentFoldersChanged = !valuesAreEqual(existingResident.documentFolders, updated.documentFolders);
+      const documentsChanged = !valuesAreEqual(existingResident.documents, updated.documents);
+      const dietPlanChanged = !valuesAreEqual(existingResident.dietPlan, updated.dietPlan);
+      const nutritionalLogsChanged = !valuesAreEqual(existingResident.nutritionalLogs, updated.nutritionalLogs);
+      const visitsChanged = !valuesAreEqual(existingResident.visits, updated.visits);
+      const glicemiaChanged = !valuesAreEqual(existingResident.glucoseReadings, updated.glucoseReadings);
+      const auditLogsChanged = !valuesAreEqual(existingResident.auditLogs, updated.auditLogs);
+      const checklistKey = (checklist: { date: string; shift?: string }) =>
+        `${checklist.date}_${checklist.shift || 'diurno'}`;
+      const previousChecklistByKey = new Map(
+        (existingResident.dailyChecklists || []).map(checklist => [checklistKey(checklist), checklist])
+      );
+      const changedDailyChecklists = dailyChecklistsChanged
+        ? (updated.dailyChecklists || []).filter(checklist =>
+            !valuesAreEqual(previousChecklistByKey.get(checklistKey(checklist)), checklist)
+          )
+        : [];
+
       // Sincronizar sinais vitais dos boletins com a tabela de sinais vitais
-      if (updated.dailyChecklists) {
-        const extractedVitals = updated.dailyChecklists
+      if (dailyChecklistsChanged && changedDailyChecklists.length > 0) {
+        const extractedVitals = changedDailyChecklists
           .filter(chk => chk.frequenciaCardiaca || chk.pressaoArterial || chk.saturacao || chk.temperatura)
           .map(chk => {
             const shift = chk.shift || 'diurno';
@@ -1033,13 +1168,18 @@ function AppInner() {
           }
         });
         updated.vitals = Array.from(vitalsMap.values());
+        vitalsChanged = true;
       }
 
       // Atualizar cadastro base do residente
-      const { error: resError } = await supabase
-        .from('Recanto_Residentes')
-        .update({
-          name: updated.name,
+      if (baseChanged) {
+        const { error: resError } = await supabase
+          .from('Recanto_Residentes')
+          .update({
+            name: updated.name,
+            cpf: updated.cpf || null,
+            rg: updated.rg || null,
+            birth_date: updated.birthDate || null,
           age: updated.age,
           room: updated.room,
           room_status: updated.roomStatus || 'Ocupado',
@@ -1071,54 +1211,86 @@ function AppInner() {
           status: updated.status || 'ativo',
           data_desligamento: updated.dataDesligamento || null,
           motivo_desligamento: updated.motivoDesligamento || null,
-          documento_desligamento: updated.documentoDesligamento || null
-        })
-        .eq('id', updated.id);
+            documento_desligamento: updated.documentoDesligamento || null
+          })
+          .eq('id', updated.id);
 
-      if (resError) throw resError;
+        if (resError) throw resError;
+      }
 
       // 1. Alergias (Bulk delete & insert)
-      const { error: allergiesDeleteError } = await supabase.from('Recanto_Alergias').delete().eq('resident_id', updated.id);
-      if (allergiesDeleteError) throw allergiesDeleteError;
-      if (updated.allergies && updated.allergies.length > 0) {
-        const { error: allergiesInsertError } = await supabase.from('Recanto_Alergias').insert(
-          updated.allergies.map(a => ({ resident_id: updated.id, description: a }))
-        );
-        if (allergiesInsertError) throw allergiesInsertError;
+      if (allergiesChanged) {
+        const { error: allergiesDeleteError } = await supabase.from('Recanto_Alergias').delete().eq('resident_id', updated.id);
+        if (allergiesDeleteError) throw allergiesDeleteError;
+        if (updated.allergies && updated.allergies.length > 0) {
+          const { error: allergiesInsertError } = await supabase.from('Recanto_Alergias').insert(
+            updated.allergies.map(a => ({ resident_id: updated.id, description: a }))
+          );
+          if (allergiesInsertError) throw allergiesInsertError;
+        }
       }
 
       // 2. Contatos de emergência (Bulk delete & insert)
-      const { error: contactsDeleteError } = await supabase.from('Recanto_ContatosEmergencia').delete().eq('resident_id', updated.id);
-      if (contactsDeleteError) throw contactsDeleteError;
-      if (updated.emergencyContacts && updated.emergencyContacts.length > 0) {
-        const { error: contactsInsertError } = await supabase.from('Recanto_ContatosEmergencia').insert(
-          updated.emergencyContacts.map(c => ({
-            resident_id: updated.id,
-            name: c.name,
-            relation: c.relation,
-            phone: c.phone
-          }))
-        );
-        if (contactsInsertError) throw contactsInsertError;
+      if (contactsChanged) {
+        const { error: contactsDeleteError } = await supabase.from('Recanto_ContatosEmergencia').delete().eq('resident_id', updated.id);
+        if (contactsDeleteError) throw contactsDeleteError;
+        if (updated.emergencyContacts && updated.emergencyContacts.length > 0) {
+          const { error: contactsInsertError } = await supabase.from('Recanto_ContatosEmergencia').insert(
+            updated.emergencyContacts.map(c => ({
+              resident_id: updated.id,
+              name: c.name,
+              relation: c.relation,
+              phone: c.phone
+            }))
+          );
+          if (contactsInsertError) throw contactsInsertError;
+        }
       }
 
       // 3. Responsável Legal (Upsert)
-      if (updated.legalGuardian && updated.legalGuardian.name) {
-        const { error: guardianError } = await supabase.from('Recanto_ResponsaveisLegais').upsert({
-          resident_id: updated.id,
-          name: updated.legalGuardian.name,
-          cpf: updated.legalGuardian.cpf || '',
-          phone: updated.legalGuardian.phone || '',
-          address: updated.legalGuardian.address || '',
-          is_primary: true
-        }, { onConflict: 'resident_id' });
-        if (guardianError) throw guardianError;
+      if (guardianChanged) {
+        if (updated.legalGuardian && updated.legalGuardian.name) {
+          const { error: guardianError } = await supabase.from('Recanto_ResponsaveisLegais').upsert({
+            resident_id: updated.id,
+            name: updated.legalGuardian.name,
+            cpf: updated.legalGuardian.cpf || '',
+            phone: updated.legalGuardian.phone || '',
+            address: updated.legalGuardian.address || '',
+            is_primary: true
+          }, { onConflict: 'resident_id' });
+          if (guardianError) throw guardianError;
+        } else {
+          const { error: guardianDeleteError } = await supabase
+            .from('Recanto_ResponsaveisLegais')
+            .delete()
+            .eq('resident_id', updated.id);
+          if (guardianDeleteError) throw guardianDeleteError;
+        }
       }
 
       // 4. Medicações (Bulk delete, bulk upsert e bulk insert de logs)
-      if (updated.medications) {
-        const originalResident = residents.find(r => r.id === updated.id);
-        if (originalResident && originalResident.medications) {
+      if (medicationsChanged && updated.medications) {
+        const newLogsToInsert: any[] = [];
+        updated.medications = updated.medications.map(medication => {
+          const medicationId = medication.id.length < 15 ? generateUUID() : medication.id;
+          const logs = (medication.logs || []).map(log => {
+            if (log.id.length >= 15) return log;
+            const logId = generateUUID();
+            newLogsToInsert.push({
+              id: logId,
+              medication_id: medicationId,
+              timestamp: log.timestamp,
+              administered_by: log.administeredBy,
+              status: log.status,
+              note: log.note || null
+            });
+            return { ...log, id: logId };
+          });
+          return { ...medication, id: medicationId, logs };
+        });
+
+        const originalResident = existingResident;
+        if (originalResident.medications) {
           const updatedMedIds = updated.medications.map(m => m.id);
           const deletedMedIds = originalResident.medications
             .filter(m => !updatedMedIds.includes(m.id) && m.id.length >= 15)
@@ -1134,8 +1306,8 @@ function AppInner() {
 
         if (updated.medications.length > 0) {
           const medsToUpsert = updated.medications.map(med => {
-            const isMockId = med.id.length < 15;
-            const item: any = {
+            return {
+              id: med.id,
               resident_id: updated.id,
               name: med.name,
               dosage: med.dosage,
@@ -1147,42 +1319,15 @@ function AppInner() {
               observations: med.observations || null,
               document_url: med.documentUrl || null
             };
-            if (!isMockId) item.id = med.id;
-            return item;
           });
 
-          const { data: upsertedMeds, error: medErr } = await supabase
+          const { error: medErr } = await supabase
             .from('Recanto_Medicacoes')
-            .upsert(medsToUpsert)
-            .select();
+            .upsert(medsToUpsert);
 
           if (medErr) throw medErr;
 
           // Inserir novos logs de medicação em lote
-          const newLogsToInsert: any[] = [];
-          if (upsertedMeds) {
-            for (const med of updated.medications) {
-              if (med.logs && med.logs.length > 0) {
-                const newLogs = med.logs.filter(log => log.id.length < 15);
-                if (newLogs.length > 0) {
-                  const realDbMed = upsertedMeds.find((m: any) =>
-                    (med.id.length >= 15 && m.id === med.id) || m.name === med.name
-                  );
-                  if (realDbMed) {
-                    for (const log of newLogs) {
-                      newLogsToInsert.push({
-                        medication_id: realDbMed.id,
-                        timestamp: log.timestamp,
-                        administered_by: log.administeredBy,
-                        status: log.status,
-                        note: log.note || null
-                      });
-                    }
-                  }
-                }
-              }
-            }
-          }
           if (newLogsToInsert.length > 0) {
             const { error: medicationLogsError } = await supabase
               .from('Recanto_LogsMedicacao')
@@ -1193,14 +1338,13 @@ function AppInner() {
       }
 
       // 5. Receitas Médicas (Bulk delete & insert)
-      if (updated.isDetailLoaded && updated.prescriptions !== undefined) {
-        const { data: existingPrescriptions, error: existingPrescError } = await supabase
-          .from('Recanto_Receitas')
-          .select('id')
-          .eq('resident_id', updated.id);
-        if (existingPrescError) throw existingPrescError;
+      if (prescriptionsChanged && updated.isDetailLoaded && updated.prescriptions !== undefined) {
+        updated.prescriptions = updated.prescriptions.map(prescription => ({
+          ...prescription,
+          id: prescription.id.length < 15 ? generateUUID() : prescription.id,
+        }));
         const updatedIds = updated.prescriptions.map(p => p.id);
-        const deletedPrescIds = (existingPrescriptions || [])
+        const deletedPrescIds = (existingResident.prescriptions || [])
           .filter(p => !updatedIds.includes(p.id))
           .map(p => p.id);
         if (deletedPrescIds.length > 0) {
@@ -1211,9 +1355,9 @@ function AppInner() {
           if (deletedPrescriptionsError) throw deletedPrescriptionsError;
         }
 
-        const newPrescriptions = updated.prescriptions.filter(p => p.id.length < 15);
-        if (newPrescriptions.length > 0) {
-          const prescToInsert = newPrescriptions.map(p => ({
+        if (updated.prescriptions.length > 0) {
+          const prescriptionsToUpsert = updated.prescriptions.map(p => ({
+            id: p.id,
             resident_id: updated.id,
             description: p.description,
             expiry_date: p.expiryDate,
@@ -1222,17 +1366,25 @@ function AppInner() {
           }));
           const { error: prescriptionsError } = await supabase
             .from('Recanto_Receitas')
-            .insert(prescToInsert);
+            .upsert(prescriptionsToUpsert);
           if (prescriptionsError) throw prescriptionsError;
         }
       }
 
       // 6. Sinais Vitais (Bulk Upsert com deduplicação por timestamp)
-      if (updated.vitals && updated.vitals.length > 0) {
+      if (vitalsChanged && updated.vitals && updated.vitals.length > 0) {
         const uniqueVitalsMap = new Map<string, any>();
+        const existingVitalsByTimestamp = new Map(
+          (existingResident.vitals || []).map(vital => [normalizeTimestampStr(vital.timestamp), vital])
+        );
         updated.vitals.forEach(vit => {
           if (vit.timestamp) {
             const normTs = normalizeTimestampStr(vit.timestamp);
+            const existingVital = existingVitalsByTimestamp.get(normTs);
+            if (existingVital && valuesAreEqual(
+              { ...(existingVital as any), timestamp: normTs },
+              { ...(vit as any), timestamp: normTs }
+            )) return;
             uniqueVitalsMap.set(normTs, {
               resident_id: updated.id,
               timestamp: normTs,
@@ -1254,10 +1406,14 @@ function AppInner() {
       }
 
       // 7. Planos de Assistência (Bulk Upsert em 1 única requisição)
-      if (updated.carePlan && updated.carePlan.length > 0) {
+      if (carePlanChanged && updated.carePlan && updated.carePlan.length > 0) {
+        updated.carePlan = updated.carePlan.map(plan => ({
+          ...plan,
+          id: plan.id.length < 15 ? generateUUID() : plan.id,
+        }));
         const cpToUpsert = updated.carePlan.map(cp => {
-          const isCpMock = cp.id.length < 15;
-          const item: any = {
+          return {
+            id: cp.id,
             resident_id: updated.id,
             title: cp.title,
             description: cp.description,
@@ -1265,8 +1421,6 @@ function AppInner() {
             assigned_to: cp.assignedTo,
             status: cp.status
           };
-          if (!isCpMock) item.id = cp.id;
-          return item;
         });
         const { error: cpErr } = await supabase
           .from('Recanto_PlanosAssistencia')
@@ -1276,9 +1430,9 @@ function AppInner() {
 
       // 8. Checklist Diário (Bulk Upsert com deduplicação por data/turno & Acompanhamento de Planos em lote)
       let didDebitMedication = false;
-      if (updated.dailyChecklists && updated.dailyChecklists.length > 0) {
+      if (dailyChecklistsChanged && changedDailyChecklists.length > 0) {
         const uniqueChecklistsMap = new Map<string, any>();
-        updated.dailyChecklists.forEach(chk => {
+        changedDailyChecklists.forEach(chk => {
           const key = `${chk.date}_${chk.shift || 'diurno'}`;
           uniqueChecklistsMap.set(key, {
             resident_id: updated.id,
@@ -1349,7 +1503,7 @@ function AppInner() {
           if (adherenceDeleteError) throw adherenceDeleteError;
 
           const adherenceToInsert: any[] = [];
-          for (const chk of updated.dailyChecklists) {
+          for (const chk of changedDailyChecklists) {
             const dbChk = chkDbMap.get(checklistMapKey(chk.date, chk.shift || 'diurno'));
             if (dbChk && chk.carePlanAdherence && chk.carePlanAdherence.length > 0) {
               for (const adh of chk.carePlanAdherence) {
@@ -1373,7 +1527,7 @@ function AppInner() {
           // Pré-carregar inventário em memória para evitar N+1 queries no inventário
           try {
             const currentInventory = await fetchInventario(currentUser?.empresaId);
-            for (const chk of updated.dailyChecklists) {
+            for (const chk of changedDailyChecklists) {
               const dbChk = chkDbMap.get(checklistMapKey(chk.date, chk.shift || 'diurno'));
               if (dbChk && chk.medicacoesAdministradas) {
                 const parsedMeds = JSON.parse(chk.medicacoesAdministradas);
@@ -1411,7 +1565,12 @@ function AppInner() {
 
       // 9. Pastas de Documentos & Documentos (Bulk)
       const folderIdMap = new Map<string, string>();
-      if (updated.documentFolders) {
+      if (documentFoldersChanged && updated.documentFolders) {
+        updated.documentFolders = updated.documentFolders.map(folder => {
+          const persistedId = folder.id.length < 15 ? generateUUID() : folder.id;
+          folderIdMap.set(folder.id, persistedId);
+          return { ...folder, id: persistedId };
+        });
         const keptRealIds = updated.documentFolders
           .map(f => f.id)
           .filter(id => id.length >= 15);
@@ -1426,11 +1585,10 @@ function AppInner() {
         if (foldersDeleteError) throw foldersDeleteError;
 
         for (const folder of updated.documentFolders) {
-          const isFolderMock = folder.id.length < 15;
           const { data: folderData, error: folderError } = await supabase
             .from('Recanto_DocumentosPastas')
             .upsert({
-              id: isFolderMock ? undefined : folder.id,
+              id: folder.id,
               resident_id: updated.id,
               name: folder.name
             })
@@ -1443,13 +1601,17 @@ function AppInner() {
         }
       }
 
-      if (updated.documents && updated.documents.length > 0) {
+      if (documentsChanged && updated.documents && updated.documents.length > 0) {
+        updated.documents = updated.documents.map(document => ({
+          ...document,
+          id: document.id.length < 15 ? generateUUID() : document.id,
+        }));
         const docsToUpsert = updated.documents.map(doc => {
-          const isDocMock = doc.id.length < 15;
           const resolvedFolderId = doc.folderId
             ? (folderIdMap.get(doc.folderId) ?? doc.folderId)
             : null;
           const item: any = {
+            id: doc.id,
             resident_id: updated.id,
             name: doc.name,
             type: doc.type,
@@ -1457,7 +1619,6 @@ function AppInner() {
             upload_date: doc.uploadDate,
             folder_id: resolvedFolderId
           };
-          if (!isDocMock) item.id = doc.id;
           return item;
         });
         const { error: documentsError } = await supabase
@@ -1467,13 +1628,13 @@ function AppInner() {
       }
 
       // 10. Plano de Dieta
-      if (updated.dietPlan === null) {
+      if (dietPlanChanged && updated.dietPlan === null) {
         const { error: delDpErr } = await supabase
           .from('Recanto_PlanosDieta')
           .delete()
           .eq('resident_id', updated.id);
         if (delDpErr) throw delDpErr;
-      } else if (updated.dietPlan) {
+      } else if (dietPlanChanged && updated.dietPlan) {
         const { data: existingDps, error: existingDpsError } = await supabase
           .from('Recanto_PlanosDieta')
           .select('id, updated_at')
@@ -1548,10 +1709,14 @@ function AppInner() {
       }
 
       // 11. Logs Nutricionais (Bulk Upsert)
-      if (updated.nutritionalLogs && updated.nutritionalLogs.length > 0) {
+      if (nutritionalLogsChanged && updated.nutritionalLogs && updated.nutritionalLogs.length > 0) {
+        updated.nutritionalLogs = updated.nutritionalLogs.map(log => ({
+          ...log,
+          id: log.id.length < 15 ? generateUUID() : log.id,
+        }));
         const nutToUpsert = updated.nutritionalLogs.map(n => {
-          const isNutMock = n.id.length < 15;
-          const item: any = {
+          return {
+            id: n.id,
             resident_id: updated.id,
             date: n.date,
             meal: n.meal,
@@ -1559,8 +1724,6 @@ function AppInner() {
             fluid_intake: n.fluidIntake || null,
             notes: n.notes || null
           };
-          if (!isNutMock) item.id = n.id;
-          return item;
         });
         const { error: nutritionLogsError } = await supabase
           .from('Recanto_LogsNutricao')
@@ -1569,14 +1732,13 @@ function AppInner() {
       }
 
       // 12. Visitas (Bulk delete & bulk upsert)
-      if (updated.isDetailLoaded && updated.visits) {
-        const { data: existingVisits, error: existingVisitsError } = await supabase
-          .from('Recanto_Visitas')
-          .select('id')
-          .eq('resident_id', updated.id);
-        if (existingVisitsError) throw existingVisitsError;
+      if (visitsChanged && updated.isDetailLoaded && updated.visits) {
+        updated.visits = updated.visits.map(visit => ({
+          ...visit,
+          id: visit.id.length < 15 ? generateUUID() : visit.id,
+        }));
         const updatedVisitIds = updated.visits.map(v => v.id);
-        const deletedVisitIds = (existingVisits || [])
+        const deletedVisitIds = (existingResident.visits || [])
           .filter(v => !updatedVisitIds.includes(v.id))
           .map(v => v.id);
         if (deletedVisitIds.length > 0) {
@@ -1589,8 +1751,8 @@ function AppInner() {
 
         if (updated.visits.length > 0) {
           const visitsToUpsert = updated.visits.map(vis => {
-            const isVisMock = vis.id.length < 15;
-            const item: any = {
+            return {
+              id: vis.id,
               resident_id: updated.id,
               visitor_name: vis.visitorName,
               relation: vis.relation,
@@ -1601,8 +1763,6 @@ function AppInner() {
               observations: vis.observations || null,
               created_by: vis.createdBy
             };
-            if (!isVisMock) item.id = vis.id;
-            return item;
           });
           const { error: visitsError } = await supabase
             .from('Recanto_Visitas')
@@ -1612,7 +1772,7 @@ function AppInner() {
       }
 
       // 13. Glicemia (Bulk delete & bulk upsert)
-      if (updated.isDetailLoaded && updated.glucoseReadings) {
+      if (glicemiaChanged && updated.isDetailLoaded && updated.glucoseReadings) {
         const { data: existingGlicemia, error: existingGlicemiaError } = await supabase
           .from('Recanto_Glicemia')
           .select('id')
@@ -1656,31 +1816,85 @@ function AppInner() {
         }
       }
 
-      // 14. Logs de Auditoria / Evoluções (Bulk insert)
-      if (updated.auditLogs) {
+      // 14. Logs de Auditoria / Evoluções (Bulk insert separando evoluções para a tabela dedicada Recanto_Evolucoes)
+      if (auditLogsChanged && updated.auditLogs) {
         const newAuditLogs = updated.auditLogs.filter(log => log.id.length < 15);
         if (newAuditLogs.length > 0) {
-          const auditToInsert = newAuditLogs.map(log => ({
-            resident_id: updated.id,
-            user_id: log.userId,
-            user_name: log.userName,
-            action: log.action,
-            details: log.details,
-            dados: log.data ?? null
+          const newAuditIds = new Map(newAuditLogs.map(log => [log.id, generateUUID()]));
+          updated.auditLogs = updated.auditLogs.map(log => ({
+            ...log,
+            id: newAuditIds.get(log.id) ?? log.id,
           }));
-          const { error: logErr } = await supabase.from('Recanto_LogsAuditoria').insert(auditToInsert);
-          if (logErr) {
-            console.error('Erro ao salvar logs de auditoria:', logErr);
+          const evolucoesToInsert = newAuditLogs
+            .filter(log => log.action === 'Evolução')
+            .map(log => ({
+              id: newAuditIds.get(log.id),
+              resident_id: updated.id,
+              empresa_id: (updated as any).empresaId || currentUser?.empresaId || null,
+              user_id: log.userId,
+              user_name: log.userName,
+              area: log.data?.evolutionArea || 'enfermagem',
+              detalhes: log.details
+            }));
+
+          const logsToInsert = newAuditLogs
+            .filter(log => log.action !== 'Evolução')
+            .map(log => ({
+              id: newAuditIds.get(log.id),
+              resident_id: updated.id,
+              user_id: log.userId,
+              user_name: log.userName,
+              action: log.action,
+              details: log.details,
+              dados: log.data ?? null
+            }));
+
+          if (evolucoesToInsert.length > 0) {
+            const { error: evoErr } = await supabase.from('Recanto_Evolucoes').insert(evolucoesToInsert);
+            if (evoErr) {
+              console.error('Erro ao salvar evoluções:', evoErr);
+            }
+          }
+
+          if (logsToInsert.length > 0) {
+            const { error: logErr } = await supabase.from('Recanto_LogsAuditoria').insert(logsToInsert);
+            if (logErr) {
+              console.error('Erro ao salvar logs de auditoria:', logErr);
+            }
           }
         }
       }
 
-      // `residents` is intentionally a lightweight summary. Do not inject the
-      // fully hydrated record here; fetchResidents below restores that contract.
-      await fetchResidents();
-      if (selectedResident?.id === updated.id) {
-        await refreshSelectedResidentDetail(updated.id);
-      }
+      // The persisted object already contains the canonical UI shape. Patch
+      // local state instead of downloading the company list and every clinical
+      // table after each small mutation.
+      const mergeSummary = (resident: Resident): Resident => ({
+        ...resident,
+        ...residentBaseSnapshot(updated),
+        emergencyContacts: updated.emergencyContacts,
+        legalGuardian: updated.legalGuardian,
+        allergies: updated.allergies,
+        medications: updated.medications,
+        carePlan: updated.carePlan,
+        documentFolders: updated.documentFolders,
+        dietPlan: updated.dietPlan,
+      });
+
+      setResidents(previous => previous.map(resident =>
+        resident.id === updated.id ? mergeSummary(resident) : resident
+      ));
+      setSelectedResident(previous =>
+        previous?.id === updated.id ? mergeSummary(previous) : previous
+      );
+      setSelectedResidentDetail(previous => {
+        if (!previous || previous.id !== updated.id) return previous;
+        return {
+          ...previous,
+          ...updated,
+          isDetailLoaded: previous.isDetailLoaded || updated.isDetailLoaded,
+          glicemiaLoaded: previous.glicemiaLoaded || updated.glicemiaLoaded,
+        };
+      });
     } catch (err: any) {
       console.error('Error updating resident:', err);
       toast.error(err.message || 'Erro ao atualizar dados do residente no servidor.');
@@ -1694,12 +1908,16 @@ function AppInner() {
   // way it does) so a failure in an unrelated section of the resident's record
   // can never silently block a folder rename/delete.
   const handleCreateDocumentFolder = async (residentId: string, name: string) => {
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('Recanto_DocumentosPastas')
-      .insert({ resident_id: residentId, name });
+      .insert({ resident_id: residentId, name })
+      .select('id,name')
+      .single();
     if (error) throw error;
-    await fetchResidents();
-    if (selectedResident?.id === residentId) await refreshSelectedResidentDetail(residentId);
+    patchResidentState(residentId, resident => ({
+      ...resident,
+      documentFolders: [...(resident.documentFolders || []), data],
+    }));
   };
 
   const handleRenameDocumentFolder = async (folderId: string, name: string, residentId: string) => {
@@ -1708,8 +1926,12 @@ function AppInner() {
       .update({ name })
       .eq('id', folderId);
     if (error) throw error;
-    await fetchResidents();
-    if (selectedResident?.id === residentId) await refreshSelectedResidentDetail(residentId);
+    patchResidentState(residentId, resident => ({
+      ...resident,
+      documentFolders: (resident.documentFolders || []).map(folder =>
+        folder.id === folderId ? { ...folder, name } : folder
+      ),
+    }));
   };
 
   const handleDeleteDocumentFolder = async (folderId: string, residentId: string) => {
@@ -1718,8 +1940,13 @@ function AppInner() {
       .delete()
       .eq('id', folderId);
     if (error) throw error;
-    await fetchResidents();
-    if (selectedResident?.id === residentId) await refreshSelectedResidentDetail(residentId);
+    patchResidentState(residentId, resident => ({
+      ...resident,
+      documentFolders: (resident.documentFolders || []).filter(folder => folder.id !== folderId),
+      documents: (resident.documents || []).map(document =>
+        document.folderId === folderId ? { ...document, folderId: null } : document
+      ),
+    }));
   };
 
   const handleMoveResidentDocument = async (documentId: string, folderId: string | null, residentId: string) => {
@@ -1728,8 +1955,12 @@ function AppInner() {
       .update({ folder_id: folderId })
       .eq('id', documentId);
     if (error) throw error;
-    await fetchResidents();
-    if (selectedResident?.id === residentId) await refreshSelectedResidentDetail(residentId);
+    patchResidentState(residentId, resident => ({
+      ...resident,
+      documents: (resident.documents || []).map(document =>
+        document.id === documentId ? { ...document, folderId } : document
+      ),
+    }));
   };
 
   const handleAddFinancialRecord = async (newRecord: FinancialRecord) => {
@@ -2217,22 +2448,14 @@ function AppInner() {
         );
       case ViewState.RESIDENT_DETAIL:
         if (!selectedResident) {
-          if (!dataLoaded) {
-            return (
-              <div className="flex flex-col items-center justify-center py-20">
-                <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-4" />
-                <p className="text-slate-500 font-medium text-sm">Carregando prontuário do residente...</p>
-              </div>
-            );
-          }
+          // While the resident id from the URL is being resolved, never mount
+          // ResidentsList as a fallback. Its paginated effect would issue a
+          // second list query just before this profile appears.
           return (
-            <ResidentsList
-              residents={residents}
-              rooms={rooms}
-              onSelectResident={handleSelectResident}
-              onAddResident={handleAddResident}
-              onUpdateResident={handleUpdateResident}
-            />
+            <div className="flex flex-col items-center justify-center py-20">
+              <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-4" />
+              <p className="text-slate-500 font-medium text-sm">Carregando prontuário do residente...</p>
+            </div>
           );
         }
         return (
