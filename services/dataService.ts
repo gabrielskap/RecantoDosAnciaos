@@ -375,6 +375,12 @@ function mapResidentRow(r: any, heavy: ResidentHeavyData): Resident {
 // log) and nutrition logs (needed by Reports/Nutrition views for all
 // residents in a date range). Everything else that grows without bound
 // (vitals, daily checklists, documents, audit trail, visits, prescriptions,
+// Fetches all residents of a company for the list/dashboard views.
+//
+// Only relations that are cheap and genuinely needed across every resident
+// at once are included: current medications (small, bounded — not a growing
+// log). Everything else that grows without bound
+// (vitals, daily checklists, documents, audit trail, visits, prescriptions,
 // medication administration logs) is history for ONE resident and is only
 // fetched by fetchResidentDetails() when that resident's profile is
 // actually opened. Fetching the complete unbounded history of every
@@ -394,26 +400,18 @@ export async function fetchResidentsSummary(empresaId: string): Promise<Resident
 
   const residentIds = residentsList.map((r: any) => r.id);
 
-  const [medsResult, nutriLogsResult] = await Promise.all([
-    supabase.from('Recanto_Medicacoes').select('*').in('resident_id', residentIds),
-    supabase.from('Recanto_LogsNutricao').select('*').in('resident_id', residentIds)
-  ]);
+  const medsResult = await supabase
+    .from('Recanto_Medicacoes')
+    .select('*')
+    .in('resident_id', residentIds);
 
   if (medsResult.error) throw medsResult.error;
-  if (nutriLogsResult.error) throw nutriLogsResult.error;
 
   const medsByResident = new Map<string, any[]>();
   for (const med of medsResult.data || []) {
     const arr = medsByResident.get(med.resident_id) || [];
     arr.push({ ...med, logs: [] });
     medsByResident.set(med.resident_id, arr);
-  }
-
-  const nutriLogsByResident = new Map<string, any[]>();
-  for (const log of nutriLogsResult.data || []) {
-    const arr = nutriLogsByResident.get(log.resident_id) || [];
-    arr.push(log);
-    nutriLogsByResident.set(log.resident_id, arr);
   }
 
   return residentsList.map((r: any) => mapResidentRow(r, {
@@ -424,11 +422,106 @@ export async function fetchResidentsSummary(empresaId: string): Promise<Resident
     dailyChecklists: [],
     documents: [],
     auditLogs: [],
-    nutritionalLogs: nutriLogsByResident.get(r.id) || [],
+    nutritionalLogs: [],
     visits: [],
     isDetailLoaded: false,
     glicemiaLoaded: false
   }));
+}
+
+export interface FetchResidentsPaginatedOptions {
+  page: number;
+  pageSize: number;
+  status?: 'ativo' | 'inativo';
+  search?: string;
+  careLevel?: 'I' | 'II' | 'III' | '';
+  sortBy?: 'name' | 'age' | 'room' | 'careLevel';
+  sortOrder?: 'asc' | 'desc';
+}
+
+// Backend-paginated query for Recanto_Residentes using Supabase range & count.
+// Keeps query duration and payload tiny (millisecs) even with thousands of residents.
+export async function fetchResidentsPaginated(
+  empresaId: string,
+  options: FetchResidentsPaginatedOptions
+): Promise<{ residents: Resident[]; totalCount: number }> {
+  const {
+    page,
+    pageSize,
+    status = 'ativo',
+    search = '',
+    careLevel = '',
+    sortBy = 'name',
+    sortOrder = 'asc'
+  } = options;
+
+  const from = (page - 1) * pageSize;
+  const to = from + pageSize - 1;
+
+  let query = supabase
+    .from('Recanto_Residentes')
+    .select(RESIDENT_BASE_SELECT, { count: 'exact' })
+    .eq('empresa_id', empresaId);
+
+  if (status === 'inativo') {
+    query = query.eq('status', 'inativo');
+  } else {
+    query = query.neq('status', 'inativo');
+  }
+
+  if (careLevel) {
+    query = query.eq('care_level', careLevel);
+  }
+
+  if (search && search.trim() !== '') {
+    const term = `%${search.trim()}%`;
+    query = query.or(`name.ilike.${term},room.ilike.${term}`);
+  }
+
+  let sortCol = 'name';
+  if (sortBy === 'age') sortCol = 'age';
+  else if (sortBy === 'room') sortCol = 'room';
+  else if (sortBy === 'careLevel') sortCol = 'care_level';
+
+  query = query.order(sortCol, { ascending: sortOrder === 'asc' }).range(from, to);
+
+  const { data: residentsData, count, error: residentsError } = await query;
+  if (residentsError) throw residentsError;
+
+  const residentsList = residentsData || [];
+  if (residentsList.length === 0) return { residents: [], totalCount: count || 0 };
+
+  const residentIds = residentsList.map((r: any) => r.id);
+
+  const { data: medsData, error: medsError } = await supabase
+    .from('Recanto_Medicacoes')
+    .select('*')
+    .in('resident_id', residentIds);
+
+  if (medsError) throw medsError;
+
+  const medsByResident = new Map<string, any[]>();
+  for (const med of medsData || []) {
+    const arr = medsByResident.get(med.resident_id) || [];
+    arr.push({ ...med, logs: [] });
+    medsByResident.set(med.resident_id, arr);
+  }
+
+  const mapped = residentsList.map((r: any) => mapResidentRow(r, {
+    medications: medsByResident.get(r.id) || [],
+    prescriptions: [],
+    vitals: [],
+    glucoseReadings: [],
+    dailyChecklists: [],
+    documents: [],
+    auditLogs: [],
+    nutritionalLogs: [],
+    visits: [],
+    isDetailLoaded: false,
+    glicemiaLoaded: false
+  }));
+
+  return { residents: mapped, totalCount: count || 0 };
 }
 
 // Fast path for the Glicemia tab. It reads only the canonical table, so this
@@ -444,12 +537,7 @@ export async function fetchResidentGlicemia(residentId: string): Promise<Glucose
   return (data || []).map(mapGlucoseReading);
 }
 
-// Fetches the complete clinical history for a SINGLE resident (vitals,
-// glucose readings, daily checklists, documents, audit trail, visits,
-// prescriptions and medication administration logs). This is the same data
-// fetchResidents() used to load for every resident at once — scoping it to
-// one resident_id keeps each query bounded and fast regardless of how much
-// history the facility has accumulated.
+// Fetches the complete clinical history for a SINGLE resident.
 export async function fetchResidentDetails(residentId: string): Promise<Resident | null> {
   const { data: residentRow, error: residentError } = await supabase
     .from('Recanto_Residentes')
@@ -477,7 +565,7 @@ export async function fetchResidentDetails(residentId: string): Promise<Resident
     supabase.from('Recanto_Glicemia').select('*').eq('resident_id', residentId).order('timestamp', { ascending: false }),
     supabase.from('Recanto_ChecklistDiario').select('*').eq('resident_id', residentId),
     supabase.from('Recanto_Documentos').select('*').eq('resident_id', residentId),
-    supabase.from('Recanto_LogsAuditoria').select('*').eq('resident_id', residentId).order('timestamp', { ascending: false }),
+    supabase.from('Recanto_LogsAuditoria').select('*').eq('resident_id', residentId).order('timestamp', { ascending: false }).limit(10),
     supabase.from('Recanto_LogsNutricao').select('*').eq('resident_id', residentId),
     supabase.from('Recanto_Visitas').select('*').eq('resident_id', residentId)
   ]);
@@ -734,4 +822,58 @@ export async function fetchRooms(empresaId: string): Promise<Room[]> {
     assets: q.assets || [],
     status: q.status || undefined
   }));
+}
+
+export interface FetchAuditLogsPaginatedOptions {
+  residentId: string;
+  page: number;
+  pageSize?: number;
+  actionFilter?: string;
+  dateFilter?: string;
+  searchTerm?: string;
+}
+
+export async function fetchResidentAuditLogsPaginated(
+  options: FetchAuditLogsPaginatedOptions
+): Promise<{ logs: any[]; totalCount: number }> {
+  const { residentId, page, pageSize = 10, actionFilter, dateFilter, searchTerm } = options;
+  const from = (page - 1) * pageSize;
+  const to = from + pageSize - 1;
+
+  let query = supabase
+    .from('Recanto_LogsAuditoria')
+    .select('*', { count: 'exact' })
+    .eq('resident_id', residentId);
+
+  if (actionFilter && actionFilter !== 'all') {
+    query = query.eq('action', actionFilter);
+  }
+
+  if (dateFilter && dateFilter.trim() !== '') {
+    const startOfDay = `${dateFilter}T00:00:00.000Z`;
+    const endOfDay = `${dateFilter}T23:59:59.999Z`;
+    query = query.gte('timestamp', startOfDay).lte('timestamp', endOfDay);
+  }
+
+  if (searchTerm && searchTerm.trim() !== '') {
+    const term = `%${searchTerm.trim()}%`;
+    query = query.or(`action.ilike.${term},details.ilike.${term},user_name.ilike.${term}`);
+  }
+
+  query = query.order('timestamp', { ascending: false }).range(from, to);
+
+  const { data, count, error } = await query;
+  if (error) throw error;
+
+  const mappedLogs = (data || []).map((al: any) => ({
+    id: al.id,
+    timestamp: al.timestamp,
+    userId: al.user_id,
+    userName: al.user_name,
+    action: al.action,
+    details: al.details || '',
+    data: al.dados || undefined
+  }));
+
+  return { logs: mappedLogs, totalCount: count || 0 };
 }

@@ -22,6 +22,7 @@ import {
   removeChecklistDraft,
   saveChecklistDraft,
 } from '../services/checklistDraftService';
+import { fetchResidentAuditLogsPaginated } from '../services/dataService';
 
 interface ChecklistMedication {
   id: string;
@@ -685,6 +686,44 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   const [auditSearchTerm, setAuditSearchTerm] = useState('');
   const [auditDateFilter, setAuditDateFilter] = useState('');
   const [auditActionFilter, setAuditActionFilter] = useState('all');
+
+  const [serverAuditLogs, setServerAuditLogs] = useState<AuditLog[]>([]);
+  const [serverAuditCount, setServerAuditCount] = useState<number | null>(null);
+  const [isLoadingAuditServer, setIsLoadingAuditServer] = useState(false);
+
+  const [debouncedAuditSearch, setDebouncedAuditSearch] = useState(auditSearchTerm);
+  React.useEffect(() => {
+    const handler = setTimeout(() => setDebouncedAuditSearch(auditSearchTerm), 300);
+    return () => clearTimeout(handler);
+  }, [auditSearchTerm]);
+
+  React.useEffect(() => {
+    if (activeTab !== 'history') return;
+
+    let isSubscribed = true;
+    setIsLoadingAuditServer(true);
+
+    fetchResidentAuditLogsPaginated({
+      residentId: resident.id,
+      page: auditLogPage,
+      pageSize: auditLogItemsPerPage,
+      actionFilter: auditActionFilter,
+      dateFilter: auditDateFilter,
+      searchTerm: debouncedAuditSearch
+    })
+      .then(res => {
+        if (isSubscribed) {
+          setServerAuditLogs(res.logs);
+          setServerAuditCount(res.totalCount);
+        }
+      })
+      .catch(err => console.error('Erro ao buscar logs de auditoria paginados:', err))
+      .finally(() => {
+        if (isSubscribed) setIsLoadingAuditServer(false);
+      });
+
+    return () => { isSubscribed = false; };
+  }, [resident.id, activeTab, auditLogPage, auditLogItemsPerPage, auditActionFilter, auditDateFilter, debouncedAuditSearch]);
 
   const [evolutionPage, setEvolutionPage] = useState(1);
   const [evolutionItemsPerPage, setEvolutionItemsPerPage] = useState(10);

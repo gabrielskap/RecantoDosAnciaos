@@ -6,6 +6,7 @@ import { compressImage, uploadResidentPhoto, uploadResidentDocument } from '../s
 import { residentAvatarSrc } from '../lib/avatar';
 import { toast } from '../services/toast';
 import { useAuth } from '../contexts/AuthContext';
+import { fetchResidentsPaginated } from '../services/dataService';
 
 interface ResidentsListProps {
   residents: Resident[];
@@ -82,9 +83,10 @@ const formatRG = (v: string): string => {
 };
 
 const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelectResident, onAddResident, onUpdateResident }) => {
-  const { hasPermission } = useAuth();
+  const { currentUser, hasPermission } = useAuth();
   const canCreate = hasPermission(ViewState.RESIDENTS, 'create');
   const canEdit = hasPermission(ViewState.RESIDENTS, 'edit');
+  const empresaId = currentUser?.empresaId;
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingResidentId, setEditingResidentId] = useState<string | null>(null);
@@ -101,6 +103,54 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
   const [uploadingOffboardingDoc, setUploadingOffboardingDoc] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(9);
+
+  const [serverResidents, setServerResidents] = useState<Resident[]>([]);
+  const [totalServerCount, setTotalServerCount] = useState<number | null>(null);
+  const [isLoadingServer, setIsLoadingServer] = useState<boolean>(false);
+  const [fetchTrigger, setFetchTrigger] = useState<number>(0);
+
+  const [debouncedSearch, setDebouncedSearch] = useState(search);
+  React.useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 300);
+    return () => clearTimeout(handler);
+  }, [search]);
+
+  React.useEffect(() => {
+    if (!empresaId) return;
+
+    let isSubscribed = true;
+    setIsLoadingServer(true);
+
+    fetchResidentsPaginated(empresaId, {
+      page: currentPage,
+      pageSize: itemsPerPage,
+      status: sectionTab === 'ativos' ? 'ativo' : 'inativo',
+      search: debouncedSearch,
+      careLevel: filterCareLevel,
+      sortBy,
+      sortOrder
+    })
+      .then(res => {
+        if (isSubscribed) {
+          setServerResidents(res.residents);
+          setTotalServerCount(res.totalCount);
+        }
+      })
+      .catch(err => {
+        console.error('Erro ao buscar residentes paginados do backend:', err);
+      })
+      .finally(() => {
+        if (isSubscribed) {
+          setIsLoadingServer(false);
+        }
+      });
+
+    return () => {
+      isSubscribed = false;
+    };
+  }, [empresaId, currentPage, itemsPerPage, sectionTab, debouncedSearch, filterCareLevel, sortBy, sortOrder, fetchTrigger]);
 
   React.useEffect(() => {
     if (!showSortMenu) return;
@@ -179,9 +229,6 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
     }
   };
 
-  // Dados cadastrais, de contato e clínicos só existem em memória até a
-  // confirmação do cadastro. Remove cópias legadas que podiam ficar expostas
-  // no navegador entre sessões.
   React.useEffect(() => {
     [
       'modal_residents_list_open',
@@ -192,12 +239,13 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
     ].forEach(key => localStorage.removeItem(key));
   }, []);
 
-  // A aba é apenas uma preferência de interface, sem conteúdo do prontuário.
   React.useEffect(() => {
     localStorage.setItem('modal_residents_active_tab', activeTab);
   }, [activeTab]);
 
   const careLevelOrder = { I: 1, II: 2, III: 3 };
+
+  const isServerPaginated = Boolean(empresaId && totalServerCount !== null);
 
   const activeResidents = residents.filter(r => r.status !== 'inativo');
   const inactiveResidents = residents.filter(r => r.status === 'inativo');
@@ -223,13 +271,13 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
     setCurrentPage(1);
   }, [search, filterCareLevel, sortBy, sortOrder, sectionTab]);
 
-  const totalItems = filtered.length;
+  const totalItems = isServerPaginated ? (totalServerCount || 0) : filtered.length;
   const totalPages = Math.ceil(totalItems / itemsPerPage) || 1;
   const safePage = Math.min(Math.max(1, currentPage), totalPages);
 
   const startIndex = (safePage - 1) * itemsPerPage;
   const endIndex = Math.min(startIndex + itemsPerPage, totalItems);
-  const paginatedResidents = filtered.slice(startIndex, endIndex);
+  const paginatedResidents = isServerPaginated ? serverResidents : filtered.slice(startIndex, endIndex);
 
   const MAX_EMERGENCY_CONTACTS = 3;
 
