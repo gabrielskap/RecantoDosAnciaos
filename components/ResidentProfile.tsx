@@ -22,7 +22,7 @@ import {
   removeChecklistDraft,
   saveChecklistDraft,
 } from '../services/checklistDraftService';
-import { fetchResidentAuditLogsPaginated } from '../services/dataService';
+import { fetchResidentAuditLogActions, fetchResidentAuditLogsPaginated } from '../services/dataService';
 
 interface ChecklistMedication {
   id: string;
@@ -690,6 +690,10 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   const [serverAuditLogs, setServerAuditLogs] = useState<AuditLog[]>([]);
   const [serverAuditCount, setServerAuditCount] = useState<number | null>(null);
   const [isLoadingAuditServer, setIsLoadingAuditServer] = useState(false);
+  const [auditLoadError, setAuditLoadError] = useState<string | null>(null);
+  const [auditReloadKey, setAuditReloadKey] = useState(0);
+  const [serverAuditActions, setServerAuditActions] = useState<string[]>([]);
+  const usesServerAuditPagination = Boolean(onLoadResidentDetail);
 
   const [debouncedAuditSearch, setDebouncedAuditSearch] = useState(auditSearchTerm);
   React.useEffect(() => {
@@ -698,10 +702,12 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   }, [auditSearchTerm]);
 
   React.useEffect(() => {
-    if (activeTab !== 'history') return;
+    if (activeTab !== 'history' || !usesServerAuditPagination) return;
 
     let isSubscribed = true;
     setIsLoadingAuditServer(true);
+    setAuditLoadError(null);
+    setServerAuditLogs([]);
 
     fetchResidentAuditLogsPaginated({
       residentId: resident.id,
@@ -715,15 +721,50 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
         if (isSubscribed) {
           setServerAuditLogs(res.logs);
           setServerAuditCount(res.totalCount);
+
+          const totalPages = Math.max(1, Math.ceil(res.totalCount / auditLogItemsPerPage));
+          if (auditLogPage > totalPages) {
+            setAuditLogPage(totalPages);
+          }
         }
       })
-      .catch(err => console.error('Erro ao buscar logs de auditoria paginados:', err))
+      .catch(err => {
+        console.error('Erro ao buscar logs de auditoria paginados:', err);
+        if (isSubscribed) {
+          setAuditLoadError(err?.message || 'Não foi possível carregar o histórico de auditoria.');
+        }
+      })
       .finally(() => {
         if (isSubscribed) setIsLoadingAuditServer(false);
       });
 
     return () => { isSubscribed = false; };
-  }, [resident.id, activeTab, auditLogPage, auditLogItemsPerPage, auditActionFilter, auditDateFilter, debouncedAuditSearch]);
+  }, [resident.id, resident.auditLogs?.[0]?.id, activeTab, auditLogPage, auditLogItemsPerPage, auditActionFilter, auditDateFilter, debouncedAuditSearch, auditReloadKey, usesServerAuditPagination]);
+
+  React.useEffect(() => {
+    if (activeTab !== 'history') return;
+
+    const localActions = Array.from(new Set<string>(
+      (resident.auditLogs || []).map(log => log.action).filter(Boolean)
+    )).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+
+    if (!usesServerAuditPagination) {
+      setServerAuditActions(localActions);
+      return;
+    }
+
+    let isSubscribed = true;
+    fetchResidentAuditLogActions(resident.id)
+      .then(actions => {
+        if (isSubscribed) setServerAuditActions(actions);
+      })
+      .catch(err => {
+        console.error('Erro ao buscar ações de auditoria:', err);
+        if (isSubscribed) setServerAuditActions(localActions);
+      });
+
+    return () => { isSubscribed = false; };
+  }, [resident.id, resident.auditLogs?.[0]?.id, activeTab, auditReloadKey, usesServerAuditPagination]);
 
   const [evolutionPage, setEvolutionPage] = useState(1);
   const [evolutionItemsPerPage, setEvolutionItemsPerPage] = useState(10);
@@ -741,6 +782,10 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     setAuditSearchTerm('');
     setAuditDateFilter('');
     setAuditActionFilter('all');
+    setServerAuditLogs([]);
+    setServerAuditCount(null);
+    setAuditLoadError(null);
+    setServerAuditActions([]);
   }, [resident.id]);
 
   const [isVisitModalOpen, setIsVisitModalOpen] = useState(false);
@@ -1395,12 +1440,14 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   const today = new Date().toISOString().split('T')[0];
   const [selectedChecklistDate, setSelectedChecklistDate] = useState(today);
   const [selectedShift, setSelectedShift] = useState<'diurno' | 'noturno' | 'diario'>('diurno');
-  const [isAllChecklistsModalOpen, setIsAllChecklistsModalOpen] = useState(false);
+  const [checklistHistoryPage, setChecklistHistoryPage] = useState(1);
+  const [checklistHistoryItemsPerPage, setChecklistHistoryItemsPerPage] = useState(5);
   const [isSignConfirmModalOpen, setIsSignConfirmModalOpen] = useState(false);
   const [isNoSignatureModalOpen, setIsNoSignatureModalOpen] = useState(false);
   const [isNoCpfModalOpen, setIsNoCpfModalOpen] = useState(false);
   const [signConfirmContext, setSignConfirmContext] = useState<'read' | 'edit'>('read');
   const [signatureMode, setSignatureMode] = useState<'simples' | 'certificado_a1'>('simples');
+  const checklistEditorRef = React.useRef<HTMLDivElement>(null);
 
   const [checklistDraft, setChecklistDraft] = useState<DailyChecklist | null>(null);
 
@@ -1415,8 +1462,57 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modeloBoletim]);
 
+  const dailyChecklistHistory = React.useMemo(() => {
+    const shiftOrder: Record<'diurno' | 'noturno' | 'diario', number> = {
+      diario: 3,
+      noturno: 2,
+      diurno: 1,
+    };
+
+    return (resident.dailyChecklists || [])
+      .filter(checklist => Boolean(checklist.date))
+      .slice()
+      .sort((a, b) => {
+        const byDate = b.date.localeCompare(a.date);
+        if (byDate !== 0) return byDate;
+
+        const aShift = a.shift || 'diurno';
+        const bShift = b.shift || 'diurno';
+        return shiftOrder[bShift] - shiftOrder[aShift];
+      });
+  }, [resident.dailyChecklists]);
+
+  const checklistHistoryTotalPages = Math.max(
+    1,
+    Math.ceil(dailyChecklistHistory.length / checklistHistoryItemsPerPage)
+  );
+  const safeChecklistHistoryPage = Math.min(checklistHistoryPage, checklistHistoryTotalPages);
+  const checklistHistoryStartIndex = (safeChecklistHistoryPage - 1) * checklistHistoryItemsPerPage;
+  const paginatedChecklistHistory = dailyChecklistHistory.slice(
+    checklistHistoryStartIndex,
+    checklistHistoryStartIndex + checklistHistoryItemsPerPage
+  );
+
+  React.useEffect(() => {
+    setChecklistHistoryPage(1);
+  }, [resident.id, resident.dailyChecklists?.length]);
+
+  React.useEffect(() => {
+    if (checklistHistoryPage > checklistHistoryTotalPages) {
+      setChecklistHistoryPage(checklistHistoryTotalPages);
+    }
+  }, [checklistHistoryPage, checklistHistoryTotalPages]);
+
+  const handleSelectChecklistFromHistory = (checklist: DailyChecklist) => {
+    setSelectedChecklistDate(checklist.date);
+    setSelectedShift(checklist.shift || 'diurno');
+    window.requestAnimationFrame(() => {
+      checklistEditorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
+
   // Registro do dia/turno selecionado. Boletins de modelos anteriores (diurno/noturno)
-  // continuam acessíveis via "Ver Todos Preenchidos", que lista todos os turnos.
+  // continuam acessíveis pelo histórico paginado, que lista todos os turnos.
   const selectedChecklist = resident.dailyChecklists?.find(
     c => c.date === selectedChecklistDate && (c.shift || 'diurno') === selectedShift
   ) || {
@@ -5669,28 +5765,20 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
           )}
 
           {activeTab === 'routine' && (
-            <div className="space-y-6 animate-in fade-in duration-200">
+            <div ref={checklistEditorRef} className="space-y-6 animate-in fade-in duration-200 scroll-mt-4">
               {/* Date Selector Header (only visible when not editing) */}
               {checklistDraft === null && (
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
                   <div>
                     <h3 className="font-bold text-slate-800 text-sm sm:text-base flex items-center gap-2">
                       <CalendarCheck className="h-5 w-5 text-indigo-600" />
-                      Histórico de Boletins Diários
+                      Inserir Boletim Diário
                     </h3>
                     <p className="text-xs text-slate-500">
-                      Consulte ou preencha boletins de datas anteriores.
+                      Selecione uma data para preencher ou consultar o boletim do residente.
                     </p>
                   </div>
                   <div className="flex items-center gap-2 w-full sm:w-auto justify-end flex-wrap">
-                    <button
-                      type="button"
-                      onClick={() => setIsAllChecklistsModalOpen(true)}
-                      className="flex items-center px-3 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 rounded-lg text-xs font-semibold transition-colors shadow-sm mr-2 cursor-pointer"
-                    >
-                      <ClipboardList className="h-3.5 w-3.5 mr-1" />
-                      Ver Todos Preenchidos
-                    </button>
                     <span className="text-xs font-semibold text-slate-600">Selecionar Data:</span>
                     <input 
                       type="date"
@@ -7083,6 +7171,197 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                   </div>
                 )}
               </div>
+
+              {checklistDraft === null && (
+                <section
+                  aria-labelledby="daily-checklist-history-title"
+                  className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden"
+                >
+                  <div className="px-5 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/60">
+                    <div>
+                      <h3
+                        id="daily-checklist-history-title"
+                        className="font-bold text-slate-800 flex items-center gap-2"
+                      >
+                        <ClipboardList className="h-5 w-5 text-indigo-600" />
+                        Histórico de Boletins Diários
+                      </h3>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Selecione um boletim para consultar os detalhes completos acima.
+                      </p>
+                    </div>
+                    <span className="self-start sm:self-auto text-xs font-semibold text-slate-600 bg-white border border-slate-200 px-3 py-1 rounded-full">
+                      {dailyChecklistHistory.length} {dailyChecklistHistory.length === 1 ? 'boletim' : 'boletins'}
+                    </span>
+                  </div>
+
+                  {dailyChecklistHistory.length === 0 ? (
+                    <div className="text-center py-12 px-4 flex flex-col items-center">
+                      <ClipboardList className="h-12 w-12 text-slate-300 mb-3" />
+                      <p className="text-sm font-semibold text-slate-700">
+                        Nenhum boletim diário preenchido para este residente.
+                      </p>
+                      <p className="text-xs text-slate-400 mt-1">
+                        Preencha o primeiro boletim acima para iniciar o histórico.
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="p-4 sm:p-5 space-y-3">
+                        {paginatedChecklistHistory.map(chk => {
+                          const shiftVal = chk.shift || 'diurno';
+                          const formattedDate = new Date(`${chk.date}T00:00:00`).toLocaleDateString('pt-BR');
+                          const isSelected = chk.date === selectedChecklistDate && shiftVal === selectedShift;
+
+                          return (
+                            <button
+                              key={`${chk.date}-${shiftVal}`}
+                              type="button"
+                              onClick={() => handleSelectChecklistFromHistory(chk)}
+                              aria-current={isSelected ? 'true' : undefined}
+                              className={`w-full text-left p-4 rounded-xl border shadow-sm transition-all flex flex-col md:flex-row justify-between items-start md:items-center gap-3 group cursor-pointer ${
+                                isSelected
+                                  ? 'bg-indigo-50/70 border-indigo-300 ring-1 ring-indigo-200'
+                                  : 'bg-white hover:bg-indigo-50/40 border-slate-200 hover:border-indigo-200'
+                              }`}
+                            >
+                              <span className="space-y-2 flex-1">
+                                <span className="flex items-center gap-2">
+                                  <CalendarCheck className="h-4.5 w-4.5 text-indigo-600 shrink-0" />
+                                  <span className="font-bold text-slate-800 text-sm">{formattedDate}</span>
+                                  <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                                    shiftVal === 'noturno'
+                                      ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                                      : shiftVal === 'diario'
+                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                      : 'bg-amber-50 text-amber-700 border-amber-200'
+                                  }`}>
+                                    {shiftVal === 'noturno' ? (
+                                      <Moon className="h-3 w-3" />
+                                    ) : shiftVal === 'diario' ? (
+                                      <CalendarCheck className="h-3 w-3" />
+                                    ) : (
+                                      <Sun className="h-3 w-3" />
+                                    )}
+                                    {getShiftLabel(shiftVal)}
+                                  </span>
+                                </span>
+
+                                <span className="flex flex-wrap gap-1.5">
+                                  {chk.intercorrencia === 'sim' ? (
+                                    <span className="bg-rose-100 text-rose-800 border border-rose-200 px-2 py-0.5 rounded-full text-[10px] font-bold inline-flex items-center">
+                                      <AlertOctagon className="h-3 w-3 mr-0.5" />
+                                      Intercorrência
+                                    </span>
+                                  ) : chk.intercorrencia === 'nao' ? (
+                                    <span className="bg-emerald-50 text-emerald-700 border border-emerald-100 px-2 py-0.5 rounded-full text-[10px] font-semibold">
+                                      Sem Intercorrência
+                                    </span>
+                                  ) : null}
+
+                                  {chk.queixaDor === 'sim' && (
+                                    <span className="bg-rose-50 text-rose-700 border border-rose-100 px-2 py-0.5 rounded-full text-[10px] font-semibold">
+                                      Queixa de Dor
+                                    </span>
+                                  )}
+
+                                  {chk.alteracoesPele === 'sim' && (
+                                    <span className="bg-amber-50 text-amber-700 border border-amber-100 px-2 py-0.5 rounded-full text-[10px] font-semibold">
+                                      Alteração de Pele
+                                    </span>
+                                  )}
+
+                                  {chk.alimentacao && (
+                                    <span className={`px-2 py-0.5 rounded-full text-[10px] border font-semibold ${
+                                      chk.alimentacao === 'boa'
+                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                                        : chk.alimentacao === 'moderada'
+                                        ? 'bg-amber-50 text-amber-700 border-amber-100'
+                                        : 'bg-rose-50 text-rose-700 border-rose-100'
+                                    }`}>
+                                      Alimentação: {chk.alimentacao === 'boa' ? 'Boa' : chk.alimentacao === 'moderada' ? 'Moderada' : 'Ruim'}
+                                    </span>
+                                  )}
+
+                                  {chk.estadoNeurologico && (
+                                    <span className={`px-2 py-0.5 rounded-full text-[10px] border font-semibold ${
+                                      chk.estadoNeurologico === 'lucido'
+                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                                        : 'bg-amber-50 text-amber-700 border-amber-100'
+                                    }`}>
+                                      Neurológico: {chk.estadoNeurologico === 'lucido' ? 'Lúcido' : 'Confuso'}
+                                    </span>
+                                  )}
+                                </span>
+                              </span>
+
+                              <span className="text-xs font-bold text-indigo-650 group-hover:text-indigo-800 transition-colors inline-flex items-center shrink-0">
+                                {isSelected ? 'Selecionado' : 'Visualizar'}
+                                <ChevronRight className="w-3.5 h-3.5 ml-1 transition-transform group-hover:translate-x-0.5" />
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      <div className="px-5 py-4 border-t border-slate-100 bg-slate-50/60 flex flex-col lg:flex-row items-center justify-between gap-4">
+                        <div className="text-xs text-slate-500">
+                          Exibindo{' '}
+                          <span className="font-semibold text-slate-700">{checklistHistoryStartIndex + 1}</span>
+                          {' '}a{' '}
+                          <span className="font-semibold text-slate-700">
+                            {Math.min(checklistHistoryStartIndex + checklistHistoryItemsPerPage, dailyChecklistHistory.length)}
+                          </span>
+                          {' '}de{' '}
+                          <span className="font-semibold text-slate-700">{dailyChecklistHistory.length}</span> boletins
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row items-center gap-3">
+                          <label className="flex items-center gap-1.5 text-xs text-slate-600">
+                            <span>Itens por página:</span>
+                            <select
+                              value={checklistHistoryItemsPerPage}
+                              onChange={event => {
+                                setChecklistHistoryItemsPerPage(Number(event.target.value));
+                                setChecklistHistoryPage(1);
+                              }}
+                              className="px-2 py-1 bg-white border border-slate-300 rounded text-xs focus:ring-1 focus:ring-primary-500"
+                            >
+                              <option value={5}>5</option>
+                              <option value={10}>10</option>
+                              <option value={20}>20</option>
+                            </select>
+                          </label>
+
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => setChecklistHistoryPage(page => Math.max(1, page - 1))}
+                              disabled={safeChecklistHistoryPage <= 1}
+                              className="p-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed text-slate-600 transition-colors cursor-pointer"
+                              title="Página anterior"
+                            >
+                              <ChevronLeft className="h-4 w-4" />
+                            </button>
+                            <span className="px-3 py-1 text-xs font-medium text-slate-700">
+                              Página {safeChecklistHistoryPage} de {checklistHistoryTotalPages}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setChecklistHistoryPage(page => Math.min(checklistHistoryTotalPages, page + 1))}
+                              disabled={safeChecklistHistoryPage >= checklistHistoryTotalPages}
+                              className="p-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed text-slate-600 transition-colors cursor-pointer"
+                              title="Próxima página"
+                            >
+                              <ChevronRight className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </section>
+              )}
             </div>
           )}
 
@@ -7562,19 +7841,28 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
           })()}
 
           {activeTab === 'history' && (() => {
-             const allRawLogs = (resident.auditLogs || [])
+             const localRawLogs = (resident.auditLogs || [])
                .slice()
-               .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+               .sort((a, b) => {
+                 const byTimestamp = new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+                 return byTimestamp || b.id.localeCompare(a.id);
+               });
 
-             const availableActions = Array.from(new Set(allRawLogs.map(l => l.action).filter(Boolean)));
-
-             const filteredLogs = allRawLogs.filter(log => {
+             // Demo/trial profiles do not have a backend loader. Keep their
+             // in-memory pagination while the production profile uses the
+             // already filtered and paginated server response as its sole source.
+             const filteredLocalLogs = localRawLogs.filter(log => {
                if (auditActionFilter !== 'all' && log.action !== auditActionFilter) {
                  return false;
                }
 
                if (auditDateFilter) {
-                 const logDateStr = new Date(log.timestamp).toISOString().slice(0, 10);
+                 const logDate = new Date(log.timestamp);
+                 const logDateStr = [
+                   logDate.getFullYear(),
+                   String(logDate.getMonth() + 1).padStart(2, '0'),
+                   String(logDate.getDate()).padStart(2, '0')
+                 ].join('-');
                  if (logDateStr !== auditDateFilter) {
                    return false;
                  }
@@ -7598,12 +7886,20 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                return true;
              });
 
-             const totalAuditLogs = filteredLogs.length;
+             const totalAuditLogs = usesServerAuditPagination
+               ? (serverAuditCount ?? 0)
+               : filteredLocalLogs.length;
              const totalAuditPages = Math.ceil(totalAuditLogs / auditLogItemsPerPage) || 1;
              const safeAuditPage = Math.min(auditLogPage, totalAuditPages);
              const startIdx = (safeAuditPage - 1) * auditLogItemsPerPage;
              const endIdx = startIdx + auditLogItemsPerPage;
-             const paginatedLogs = filteredLogs.slice(startIdx, endIdx);
+             const paginatedLogs = usesServerAuditPagination
+               ? serverAuditLogs
+               : filteredLocalLogs.slice(startIdx, endIdx);
+             const availableActions = serverAuditActions;
+             const isInitialAuditLoading = usesServerAuditPagination
+               && isLoadingAuditServer
+               && serverAuditCount === null;
 
              return (
                <div className="space-y-4">
@@ -7614,8 +7910,12 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                         Registro de auditoria de ações e alterações realizadas no prontuário.
                       </p>
                     </div>
-                    <span className="text-xs font-semibold text-slate-600 bg-slate-100 border border-slate-200 px-3 py-1 rounded-full">
-                      {totalAuditLogs} {totalAuditLogs === 1 ? 'registro' : 'registros'}
+                   <span className="text-xs font-semibold text-slate-600 bg-slate-100 border border-slate-200 px-3 py-1 rounded-full inline-flex items-center gap-1.5">
+                     {isInitialAuditLoading ? (
+                       <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Carregando...</>
+                     ) : (
+                       <>{totalAuditLogs} {totalAuditLogs === 1 ? 'registro' : 'registros'}</>
+                     )}
                     </span>
                   </div>
 
@@ -7631,7 +7931,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                           setAuditSearchTerm(e.target.value);
                           setAuditLogPage(1);
                         }}
-                        placeholder="Pesquisar por usuário, ação, registro ou detalhe..."
+                         placeholder="Pesquisar por usuário, ação ou detalhe..."
                         className="w-full pl-9 pr-8 py-2 bg-white border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all placeholder:text-slate-400"
                       />
                       {auditSearchTerm && (
@@ -7708,9 +8008,27 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                     </div>
                   )}
 
-                  {totalAuditLogs > 0 ? (
+                  {auditLoadError ? (
+                    <div className="text-center py-10 px-4 border border-rose-200 rounded-xl bg-rose-50/60 text-sm">
+                      <AlertOctagon className="h-7 w-7 text-rose-500 mx-auto mb-2" />
+                      <p className="font-semibold text-rose-800">Não foi possível carregar a auditoria.</p>
+                      <p className="text-xs text-rose-600 mt-1">{auditLoadError}</p>
+                      <button
+                        type="button"
+                        onClick={() => setAuditReloadKey(key => key + 1)}
+                        className="mt-4 px-4 py-2 bg-white border border-rose-200 text-rose-700 rounded-lg text-xs font-semibold hover:bg-rose-100 transition-colors cursor-pointer"
+                      >
+                        Tentar novamente
+                      </button>
+                    </div>
+                  ) : usesServerAuditPagination && isLoadingAuditServer && paginatedLogs.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-12 px-4 border border-slate-200 rounded-xl bg-slate-50/50 text-slate-500 text-sm">
+                      <Loader2 className="h-7 w-7 animate-spin text-primary-500 mb-3" />
+                      Carregando registros de auditoria...
+                    </div>
+                  ) : totalAuditLogs > 0 ? (
                     <>
-                      <div className="flow-root">
+                      <div className="flow-root" aria-busy={usesServerAuditPagination && isLoadingAuditServer}>
                         <ul role="list" className="-mb-8">
                           {paginatedLogs.map((log, logIdx) => (
                             <li key={log.id}>
@@ -7745,13 +8063,14 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                       {/* Controles de Paginação */}
                       <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-6 border-t border-slate-200 mt-8">
                         <div className="text-xs text-slate-500">
-                          Exibindo <span className="font-semibold text-slate-700">{startIdx + 1}</span> a <span className="font-semibold text-slate-700">{Math.min(endIdx, totalAuditLogs)}</span> de <span className="font-semibold text-slate-700">{totalAuditLogs}</span> registros
+                          Exibindo <span className="font-semibold text-slate-700">{startIdx + 1}</span> a <span className="font-semibold text-slate-700">{Math.min(startIdx + paginatedLogs.length, totalAuditLogs)}</span> de <span className="font-semibold text-slate-700">{totalAuditLogs}</span> registros
                         </div>
                         <div className="flex items-center gap-3">
                           <div className="flex items-center gap-1.5 text-xs text-slate-600">
                             <span>Itens por página:</span>
-                            <select
-                              value={auditLogItemsPerPage}
+                             <select
+                               value={auditLogItemsPerPage}
+                               disabled={usesServerAuditPagination && isLoadingAuditServer}
                               onChange={(e) => {
                                 setAuditLogItemsPerPage(Number(e.target.value));
                                 setAuditLogPage(1);
@@ -7766,9 +8085,9 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                           </div>
 
                           <div className="flex items-center gap-1">
-                            <button
-                              onClick={() => setAuditLogPage(p => Math.max(1, p - 1))}
-                              disabled={safeAuditPage <= 1}
+                             <button
+                               onClick={() => setAuditLogPage(p => Math.max(1, p - 1))}
+                               disabled={safeAuditPage <= 1 || (usesServerAuditPagination && isLoadingAuditServer)}
                               className="p-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed text-slate-600 transition-colors cursor-pointer"
                               title="Página Anterior"
                             >
@@ -7777,9 +8096,9 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                             <span className="px-3 py-1 text-xs font-medium text-slate-700">
                               Página {safeAuditPage} de {totalAuditPages}
                             </span>
-                            <button
-                              onClick={() => setAuditLogPage(p => Math.min(totalAuditPages, p + 1))}
-                              disabled={safeAuditPage >= totalAuditPages}
+                             <button
+                               onClick={() => setAuditLogPage(p => Math.min(totalAuditPages, p + 1))}
+                               disabled={safeAuditPage >= totalAuditPages || (usesServerAuditPagination && isLoadingAuditServer)}
                               className="p-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed text-slate-600 transition-colors cursor-pointer"
                               title="Próxima Página"
                             >
@@ -8798,162 +9117,6 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
         </div>
       )}
 
-      {/* Modal de Boletins Diários Preenchidos */}
-      {isAllChecklistsModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/50 backdrop-blur-sm">
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="bg-white w-full h-full sm:h-auto sm:rounded-2xl shadow-2xl sm:max-w-2xl overflow-hidden flex flex-col max-h-[100vh] sm:max-h-[90vh]"
-          >
-            {/* Modal Header */}
-            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-[#F8F7FF] shrink-0">
-              <div>
-                <h3 className="font-bold text-slate-800 flex items-center gap-2">
-                  <CalendarCheck className="h-5 w-5 text-indigo-600" />
-                  Histórico de Boletins Diários
-                </h3>
-                <p className="text-xs text-slate-400 mt-0.5">Selecione um boletim para visualizar os detalhes completos</p>
-              </div>
-              <button 
-                onClick={() => setIsAllChecklistsModalOpen(false)} 
-                className="w-9 h-9 rounded-xl hover:bg-slate-200 flex items-center justify-center transition-colors cursor-pointer"
-              >
-                <X className="h-5 w-5 text-slate-500" />
-              </button>
-            </div>
-
-            {/* Modal Body */}
-            <div className="p-5 overflow-y-auto flex-1 space-y-3 bg-slate-50/50">
-              {(() => {
-                // Filter only checklists that have actual content (excluding empty templates)
-                const filledChecklists = (resident.dailyChecklists || [])
-                  .filter(c => c.date && (
-                    c.hygiene || c.oralCare || c.feeding || c.hydration || c.mobility || c.dressings || c.leisure ||
-                    c.queixaDor === 'sim' || c.estadoNeurologico || c.alimentacao || c.eliminacaoEvacuacao || 
-                    c.diurese || c.usoFraldas || c.mobilidadeSet || c.alteracoesPele === 'sim' || c.sono || 
-                    c.medicacoesAdministradas || c.atividadesConsulta || c.intercorrencia === 'sim'
-                  ))
-                  .sort((a, b) => b.date.localeCompare(a.date));
-
-                if (filledChecklists.length === 0) {
-                  return (
-                    <div className="text-center py-12 px-4 bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col items-center">
-                      <ClipboardList className="h-12 w-12 text-slate-300 mb-3" />
-                      <p className="text-sm font-semibold text-slate-650">Nenhum boletim diário preenchido para este residente.</p>
-                      <p className="text-xs text-slate-400 mt-1">Preencha um boletim diário na aba "Rotina Diária" para iniciar o histórico.</p>
-                    </div>
-                  );
-                }
-
-                return (
-                  <div className="space-y-3">
-                    {filledChecklists.map((chk) => {
-                      const formattedDate = new Date(chk.date + 'T00:00:00').toLocaleDateString('pt-BR');
-                      const shiftVal = chk.shift || 'diurno';
-                      return (
-                        <div
-                          key={`${chk.date}-${shiftVal}`}
-                          onClick={() => {
-                            setSelectedChecklistDate(chk.date);
-                            setSelectedShift(shiftVal);
-                            setActiveTab('routine');
-                            setIsAllChecklistsModalOpen(false);
-                          }}
-                          className="bg-white hover:bg-indigo-50/40 p-4 rounded-xl border border-slate-200 shadow-sm hover:border-indigo-200 cursor-pointer transition-all flex flex-col md:flex-row justify-between items-start md:items-center gap-3 group"
-                        >
-                          <div className="space-y-2 flex-1">
-                            <div className="flex items-center gap-2">
-                              <CalendarCheck className="h-4.5 w-4.5 text-indigo-600 shrink-0" />
-                              <span className="font-bold text-slate-800 text-sm">{formattedDate}</span>
-                              <span className={`flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                                shiftVal === 'noturno'
-                                  ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
-                                  : shiftVal === 'diario'
-                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                  : 'bg-amber-50 text-amber-700 border-amber-200'
-                              }`}>
-                                {shiftVal === 'noturno' ? <Moon className="h-3 w-3" /> : shiftVal === 'diario' ? <CalendarCheck className="h-3 w-3" /> : <Sun className="h-3 w-3" />}
-                                {getShiftLabel(shiftVal)}
-                              </span>
-                            </div>
-
-                            {/* Bulletins Badges/Summaries */}
-                            <div className="flex flex-wrap gap-1.5 mt-1">
-                              {chk.intercorrencia === 'sim' ? (
-                                <span className="bg-rose-100 text-rose-800 border border-rose-200 px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center">
-                                  <AlertOctagon className="h-3 w-3 mr-0.5 animate-pulse" />
-                                  Intercorrência
-                                </span>
-                              ) : (
-                                <span className="bg-emerald-50 text-emerald-700 border border-emerald-100 px-2 py-0.5 rounded-full text-[10px] font-semibold">
-                                  Sem Intercorrência
-                                </span>
-                              )}
-
-                              {chk.queixaDor === 'sim' && (
-                                <span className="bg-rose-50 text-rose-700 border border-rose-100 px-2 py-0.5 rounded-full text-[10px] font-semibold">
-                                  Queixa de Dor
-                                </span>
-                              )}
-
-                              {chk.alteracoesPele === 'sim' && (
-                                <span className="bg-amber-50 text-amber-700 border border-amber-100 px-2 py-0.5 rounded-full text-[10px] font-semibold">
-                                  Alt. Pele
-                                </span>
-                              )}
-
-                              {chk.alimentacao && (
-                                <span className={`px-2 py-0.5 rounded-full text-[10px] border font-semibold ${
-                                  chk.alimentacao === 'boa' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' :
-                                  chk.alimentacao === 'moderada' ? 'bg-amber-50 text-amber-700 border-amber-100' :
-                                  'bg-rose-50 text-rose-700 border-rose-100'
-                                }`}>
-                                  Alimentação: {chk.alimentacao === 'boa' ? 'Boa' : chk.alimentacao === 'moderada' ? 'Mod.' : 'Ruim'}
-                                </span>
-                              )}
-
-                              {chk.estadoNeurologico && (
-                                <span className={`px-2 py-0.5 rounded-full text-[10px] border font-semibold ${
-                                  chk.estadoNeurologico === 'lucido'
-                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
-                                    : 'bg-amber-50 text-amber-700 border-amber-100'
-                                }`}>
-                                  Neurológico: {chk.estadoNeurologico === 'lucido' ? 'Lúcido' : 'Confuso'}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-
-                          <button
-                            type="button"
-                            className="text-xs font-bold text-indigo-650 group-hover:text-indigo-800 transition-colors flex items-center shrink-0"
-                          >
-                            Visualizar
-                            <svg className="w-3.5 h-3.5 ml-1 transform group-hover:translate-x-0.5 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                            </svg>
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                );
-              })()}
-            </div>
-
-            {/* Modal Footer */}
-            <div className="px-6 py-4 border-t border-slate-100 bg-[#F8F7FF] flex justify-end shrink-0">
-              <button
-                type="button"
-                onClick={() => setIsAllChecklistsModalOpen(false)}
-                className="px-5 py-2 border border-slate-250 hover:bg-slate-50 text-slate-700 font-semibold text-xs rounded-xl shadow-sm transition-colors cursor-pointer"
-              >
-                Fechar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       {/* Modal de Registro de Visita */}
       {isVisitModalOpen && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/50 backdrop-blur-sm">

@@ -1,5 +1,5 @@
 import { supabase } from './supabaseClient';
-import type { Resident, ResidentPrescriptionRecord, FinancialRecord, Contract, Invoice, StockItem, Employee, SystemAccessLog, TrainingRecord, CalendarEvent, Room, GlucoseReading } from '../types';
+import type { Resident, ResidentPrescriptionRecord, FinancialRecord, Contract, Invoice, StockItem, Employee, SystemAccessLog, TrainingRecord, CalendarEvent, Room, GlucoseReading, AuditLog } from '../types';
 
 // Relations that are cheap and needed just to render the resident list/cards
 // (contacts, allergies, care plan, diet, document folders). Kept identical
@@ -835,14 +835,16 @@ export interface FetchAuditLogsPaginatedOptions {
 
 export async function fetchResidentAuditLogsPaginated(
   options: FetchAuditLogsPaginatedOptions
-): Promise<{ logs: any[]; totalCount: number }> {
+): Promise<{ logs: AuditLog[]; totalCount: number }> {
   const { residentId, page, pageSize = 10, actionFilter, dateFilter, searchTerm } = options;
-  const from = (page - 1) * pageSize;
-  const to = from + pageSize - 1;
+  const normalizedPage = Math.max(1, Math.trunc(page) || 1);
+  const normalizedPageSize = Math.min(100, Math.max(1, Math.trunc(pageSize) || 10));
+  const from = (normalizedPage - 1) * normalizedPageSize;
+  const to = from + normalizedPageSize - 1;
 
   let query = supabase
     .from('Recanto_LogsAuditoria')
-    .select('*', { count: 'exact' })
+    .select('id,timestamp,user_id,user_name,action,details,dados', { count: 'exact' })
     .eq('resident_id', residentId);
 
   if (actionFilter && actionFilter !== 'all') {
@@ -850,22 +852,37 @@ export async function fetchResidentAuditLogsPaginated(
   }
 
   if (dateFilter && dateFilter.trim() !== '') {
-    const startOfDay = `${dateFilter}T00:00:00.000Z`;
-    const endOfDay = `${dateFilter}T23:59:59.999Z`;
-    query = query.gte('timestamp', startOfDay).lte('timestamp', endOfDay);
+    const [year, month, day] = dateFilter.split('-').map(Number);
+    const startOfDay = new Date(year, month - 1, day);
+    const endOfDay = new Date(year, month - 1, day + 1);
+
+    if (!Number.isNaN(startOfDay.getTime()) && !Number.isNaN(endOfDay.getTime())) {
+      // The date picker represents a local calendar day. Convert its bounds to
+      // UTC only when sending the query so logs close to midnight stay on the
+      // same day the user sees in the interface.
+      query = query
+        .gte('timestamp', startOfDay.toISOString())
+        .lt('timestamp', endOfDay.toISOString());
+    }
   }
 
   if (searchTerm && searchTerm.trim() !== '') {
-    const term = `%${searchTerm.trim()}%`;
-    query = query.or(`action.ilike.${term},details.ilike.${term},user_name.ilike.${term}`);
+    // `.or()` receives raw PostgREST syntax. Quoting the value prevents commas,
+    // parentheses and quotes typed by the user from breaking the filter.
+    const escapedTerm = searchTerm.trim().replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    const pattern = `"*${escapedTerm}*"`;
+    query = query.or(`action.ilike.${pattern},details.ilike.${pattern},user_name.ilike.${pattern}`);
   }
 
-  query = query.order('timestamp', { ascending: false }).range(from, to);
+  query = query
+    .order('timestamp', { ascending: false })
+    .order('id', { ascending: false })
+    .range(from, to);
 
   const { data, count, error } = await query;
   if (error) throw error;
 
-  const mappedLogs = (data || []).map((al: any) => ({
+  const mappedLogs: AuditLog[] = (data || []).map((al: any) => ({
     id: al.id,
     timestamp: al.timestamp,
     userId: al.user_id,
@@ -875,5 +892,23 @@ export async function fetchResidentAuditLogsPaginated(
     data: al.dados || undefined
   }));
 
-  return { logs: mappedLogs, totalCount: count || 0 };
+  return { logs: mappedLogs, totalCount: count ?? 0 };
+}
+
+export async function fetchResidentAuditLogActions(residentId: string): Promise<string[]> {
+  const { data, error } = await supabase
+    .from('Recanto_LogsAuditoria')
+    .select('action')
+    .eq('resident_id', residentId)
+    .not('action', 'is', null)
+    .order('action', { ascending: true })
+    .limit(1000);
+
+  if (error) throw error;
+
+  return Array.from(new Set(
+    (data || [])
+      .map((row: any) => String(row.action || '').trim())
+      .filter(Boolean)
+  ));
 }
