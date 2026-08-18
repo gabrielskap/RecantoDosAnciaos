@@ -7788,6 +7788,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                            aria-selected={isSelected}
                            onClick={() => {
                              setSelectedEvolutionArea(area.id);
+                             setNewNoteArea(area.id);
                              setEvolutionPage(1);
                            }}
                            className={`shrink-0 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
