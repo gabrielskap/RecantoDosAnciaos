@@ -833,82 +833,97 @@ export interface FetchAuditLogsPaginatedOptions {
   searchTerm?: string;
 }
 
+type FetchAuditLogsPaginatedResult = { logs: AuditLog[]; totalCount: number };
+const pendingAuditLogRequests = new Map<string, Promise<FetchAuditLogsPaginatedResult>>();
+
 export async function fetchResidentAuditLogsPaginated(
   options: FetchAuditLogsPaginatedOptions
-): Promise<{ logs: AuditLog[]; totalCount: number }> {
+): Promise<FetchAuditLogsPaginatedResult> {
   const { residentId, page, pageSize = 10, actionFilter, dateFilter, searchTerm } = options;
   const normalizedPage = Math.max(1, Math.trunc(page) || 1);
   const normalizedPageSize = Math.min(100, Math.max(1, Math.trunc(pageSize) || 10));
   const from = (normalizedPage - 1) * normalizedPageSize;
   const to = from + normalizedPageSize - 1;
 
-  let query = supabase
-    .from('Recanto_LogsAuditoria')
-    .select('id,timestamp,user_id,user_name,action,details,dados', { count: 'exact' })
-    .eq('resident_id', residentId);
+  const requestKey = JSON.stringify({
+    residentId,
+    page: normalizedPage,
+    pageSize: normalizedPageSize,
+    actionFilter: actionFilter || 'all',
+    dateFilter: dateFilter || '',
+    searchTerm: searchTerm?.trim() || '',
+  });
+  const pendingRequest = pendingAuditLogRequests.get(requestKey);
+  if (pendingRequest) return pendingRequest;
 
-  if (actionFilter && actionFilter !== 'all') {
-    query = query.eq('action', actionFilter);
-  }
+  const request = (async (): Promise<FetchAuditLogsPaginatedResult> => {
 
-  if (dateFilter && dateFilter.trim() !== '') {
-    const [year, month, day] = dateFilter.split('-').map(Number);
-    const startOfDay = new Date(year, month - 1, day);
-    const endOfDay = new Date(year, month - 1, day + 1);
+    let query = supabase
+      .from('Recanto_LogsAuditoria')
+      .select('id,timestamp,user_id,user_name,action,details,dados', { count: 'exact' })
+      .eq('resident_id', residentId);
 
-    if (!Number.isNaN(startOfDay.getTime()) && !Number.isNaN(endOfDay.getTime())) {
-      // The date picker represents a local calendar day. Convert its bounds to
-      // UTC only when sending the query so logs close to midnight stay on the
-      // same day the user sees in the interface.
-      query = query
-        .gte('timestamp', startOfDay.toISOString())
-        .lt('timestamp', endOfDay.toISOString());
+    if (actionFilter && actionFilter !== 'all') {
+      query = query.eq('action', actionFilter);
     }
-  }
 
-  if (searchTerm && searchTerm.trim() !== '') {
-    // `.or()` receives raw PostgREST syntax. Quoting the value prevents commas,
-    // parentheses and quotes typed by the user from breaking the filter.
-    const escapedTerm = searchTerm.trim().replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-    const pattern = `"*${escapedTerm}*"`;
-    query = query.or(`action.ilike.${pattern},details.ilike.${pattern},user_name.ilike.${pattern}`);
-  }
+    if (dateFilter && dateFilter.trim() !== '') {
+      const [year, month, day] = dateFilter.split('-').map(Number);
+      const startOfDay = new Date(year, month - 1, day);
+      const endOfDay = new Date(year, month - 1, day + 1);
 
-  query = query
-    .order('timestamp', { ascending: false })
-    .order('id', { ascending: false })
-    .range(from, to);
+      if (!Number.isNaN(startOfDay.getTime()) && !Number.isNaN(endOfDay.getTime())) {
+        // The date picker represents a local calendar day. Convert its bounds to
+        // UTC only when sending the query so logs close to midnight stay on the
+        // same day the user sees in the interface.
+        query = query
+          .gte('timestamp', startOfDay.toISOString())
+          .lt('timestamp', endOfDay.toISOString());
+      }
+    }
 
-  const { data, count, error } = await query;
-  if (error) throw error;
+    if (searchTerm && searchTerm.trim() !== '') {
+      // `.or()` receives raw PostgREST syntax. Quoting the value prevents commas,
+      // parentheses and quotes typed by the user from breaking the filter.
+      const escapedTerm = searchTerm.trim().replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+      const pattern = `"*${escapedTerm}*"`;
+      query = query.or(`action.ilike.${pattern},details.ilike.${pattern},user_name.ilike.${pattern}`);
+    }
 
-  const mappedLogs: AuditLog[] = (data || []).map((al: any) => ({
-    id: al.id,
-    timestamp: al.timestamp,
-    userId: al.user_id,
-    userName: al.user_name,
-    action: al.action,
-    details: al.details || '',
-    data: al.dados || undefined
-  }));
+    query = query
+      .order('timestamp', { ascending: false })
+      .order('id', { ascending: false })
+      .range(from, to);
 
-  return { logs: mappedLogs, totalCount: count ?? 0 };
-}
+    const { data, count, error } = await query;
+    if (error) throw error;
 
-export async function fetchResidentAuditLogActions(residentId: string): Promise<string[]> {
-  const { data, error } = await supabase
-    .from('Recanto_LogsAuditoria')
-    .select('action')
-    .eq('resident_id', residentId)
-    .not('action', 'is', null)
-    .order('action', { ascending: true })
-    .limit(1000);
+    const mappedLogs: AuditLog[] = (data || []).map((al: any) => ({
+      id: al.id,
+      timestamp: al.timestamp,
+      userId: al.user_id,
+      userName: al.user_name,
+      action: al.action,
+      details: al.details || '',
+      data: al.dados || undefined
+    }));
 
-  if (error) throw error;
+    return { logs: mappedLogs, totalCount: count ?? 0 };
+  })();
 
-  return Array.from(new Set(
-    (data || [])
-      .map((row: any) => String(row.action || '').trim())
-      .filter(Boolean)
-  ));
+  pendingAuditLogRequests.set(requestKey, request);
+  void request.then(
+    () => {
+      if (pendingAuditLogRequests.get(requestKey) === request) {
+        pendingAuditLogRequests.delete(requestKey);
+      }
+    },
+    () => {
+      if (pendingAuditLogRequests.get(requestKey) === request) {
+        pendingAuditLogRequests.delete(requestKey);
+      }
+    }
+  );
+
+  return request;
 }

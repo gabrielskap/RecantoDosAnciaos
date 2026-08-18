@@ -22,7 +22,7 @@ import {
   removeChecklistDraft,
   saveChecklistDraft,
 } from '../services/checklistDraftService';
-import { fetchResidentAuditLogActions, fetchResidentAuditLogsPaginated } from '../services/dataService';
+import { fetchResidentAuditLogsPaginated } from '../services/dataService';
 
 interface ChecklistMedication {
   id: string;
@@ -563,6 +563,7 @@ interface ResidentProfileProps {
 
 const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBack, onUpdateResident, onLoadGlicemia, onLoadResidentDetail, onSaveGlicemia, onDeleteGlicemia, onCreateFolder, onRenameFolder, onDeleteFolder, onMoveDocument }) => {
   const { currentUser, hasPermission, modeloBoletim } = useAuth();
+  const usesServerAuditPagination = Boolean(onLoadResidentDetail);
 
   const TAB_VIEW_STATE_MAP: Record<string, ViewState> = {
     info: ViewState.RESIDENT_DETAIL_INFO,
@@ -647,7 +648,12 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
 
   const residentDetailLoadRequestRef = React.useRef<string | null>(null);
   React.useEffect(() => {
-    if (activeTab === 'glicemia' || resident.isDetailLoaded !== false || !onLoadResidentDetail) return;
+    if (
+      activeTab === 'glicemia'
+      || (activeTab === 'history' && usesServerAuditPagination)
+      || resident.isDetailLoaded !== false
+      || !onLoadResidentDetail
+    ) return;
     if (residentDetailLoadRequestRef.current === resident.id) return;
 
     residentDetailLoadRequestRef.current = resident.id;
@@ -659,7 +665,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     // The request is deduplicated by resident id, so only tab/state changes are
     // intentional triggers here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, resident.id, resident.isDetailLoaded]);
+  }, [activeTab, resident.id, resident.isDetailLoaded, usesServerAuditPagination]);
 
   const [isEditingStatus, setIsEditingStatus] = useState(false);
   const [uploadingDoc, setUploadingDoc] = useState(false);
@@ -692,8 +698,6 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   const [isLoadingAuditServer, setIsLoadingAuditServer] = useState(false);
   const [auditLoadError, setAuditLoadError] = useState<string | null>(null);
   const [auditReloadKey, setAuditReloadKey] = useState(0);
-  const [serverAuditActions, setServerAuditActions] = useState<string[]>([]);
-  const usesServerAuditPagination = Boolean(onLoadResidentDetail);
 
   const [debouncedAuditSearch, setDebouncedAuditSearch] = useState(auditSearchTerm);
   React.useEffect(() => {
@@ -739,32 +743,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
       });
 
     return () => { isSubscribed = false; };
-  }, [resident.id, resident.auditLogs?.[0]?.id, activeTab, auditLogPage, auditLogItemsPerPage, auditActionFilter, auditDateFilter, debouncedAuditSearch, auditReloadKey, usesServerAuditPagination]);
-
-  React.useEffect(() => {
-    if (activeTab !== 'history') return;
-
-    const localActions = Array.from(new Set<string>(
-      (resident.auditLogs || []).map(log => log.action).filter(Boolean)
-    )).sort((a, b) => a.localeCompare(b, 'pt-BR'));
-
-    if (!usesServerAuditPagination) {
-      setServerAuditActions(localActions);
-      return;
-    }
-
-    let isSubscribed = true;
-    fetchResidentAuditLogActions(resident.id)
-      .then(actions => {
-        if (isSubscribed) setServerAuditActions(actions);
-      })
-      .catch(err => {
-        console.error('Erro ao buscar ações de auditoria:', err);
-        if (isSubscribed) setServerAuditActions(localActions);
-      });
-
-    return () => { isSubscribed = false; };
-  }, [resident.id, resident.auditLogs?.[0]?.id, activeTab, auditReloadKey, usesServerAuditPagination]);
+  }, [resident.id, activeTab, auditLogPage, auditLogItemsPerPage, auditActionFilter, auditDateFilter, debouncedAuditSearch, auditReloadKey, usesServerAuditPagination]);
 
   const [evolutionPage, setEvolutionPage] = useState(1);
   const [evolutionItemsPerPage, setEvolutionItemsPerPage] = useState(10);
@@ -785,7 +764,6 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     setServerAuditLogs([]);
     setServerAuditCount(null);
     setAuditLoadError(null);
-    setServerAuditActions([]);
   }, [resident.id]);
 
   const [isVisitModalOpen, setIsVisitModalOpen] = useState(false);
@@ -1439,7 +1417,9 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   // Daily Checklist State
   const today = new Date().toISOString().split('T')[0];
   const [selectedChecklistDate, setSelectedChecklistDate] = useState(today);
-  const [selectedShift, setSelectedShift] = useState<'diurno' | 'noturno' | 'diario'>('diurno');
+  const [selectedShift, setSelectedShift] = useState<'diurno' | 'noturno' | 'diario'>(() =>
+    modeloBoletim === 'diario' ? 'diario' : 'diurno'
+  );
   const [checklistHistoryPage, setChecklistHistoryPage] = useState(1);
   const [checklistHistoryItemsPerPage, setChecklistHistoryItemsPerPage] = useState(5);
   const [isSignConfirmModalOpen, setIsSignConfirmModalOpen] = useState(false);
@@ -1543,6 +1523,8 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   // de conter dados sensíveis, ele precisa sobreviver a troca de dispositivo.
   // A cópia local antiga é lida somente para migrar o registro ao banco.
   React.useEffect(() => {
+    if (activeTab !== 'routine') return;
+
     let active = true;
     setChecklistDraft(null);
     setHydratedChecklistDraftKey(null);
@@ -1578,22 +1560,18 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
 
     void loadDraft();
     return () => { active = false; };
-  }, [checklistDraftKey?.empresaId, checklistDraftKey?.authUserId, resident.id, selectedChecklistDate, selectedShift]);
+  }, [activeTab, checklistDraftKey?.empresaId, checklistDraftKey?.authUserId, resident.id, selectedChecklistDate, selectedShift]);
 
   // Salva cada alteração com uma pequena espera para não criar uma chamada por
   // tecla. O rascunho é removido apenas quando o usuário descarta ou assina o
   // boletim, nunca ao trocar de tela por acidente.
   React.useEffect(() => {
-    if (!checklistDraftKey || hydratedChecklistDraftKey !== checklistDraftStorageKey) return;
+    if (!checklistDraftKey || !checklistDraft || hydratedChecklistDraftKey !== checklistDraftStorageKey) return;
 
     const timer = window.setTimeout(() => {
       const persist = async () => {
         try {
-          if (checklistDraft) {
-            await saveChecklistDraft(checklistDraftKey, checklistDraft);
-          } else {
-            await removeChecklistDraft(checklistDraftKey);
-          }
+          await saveChecklistDraft(checklistDraftKey, checklistDraft);
         } catch (error) {
           console.error('Erro ao salvar rascunho clínico no banco:', error);
         }
@@ -7896,7 +7874,11 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
              const paginatedLogs = usesServerAuditPagination
                ? serverAuditLogs
                : filteredLocalLogs.slice(startIdx, endIdx);
-             const availableActions = serverAuditActions;
+             const availableActions = Array.from(new Set<string>(
+               [...localRawLogs, ...serverAuditLogs]
+                 .map(log => log.action)
+                 .filter(Boolean)
+             )).sort((a, b) => a.localeCompare(b, 'pt-BR'));
              const isInitialAuditLoading = usesServerAuditPagination
                && isLoadingAuditServer
                && serverAuditCount === null;
