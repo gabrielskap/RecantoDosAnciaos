@@ -207,6 +207,7 @@ const DemoLayoutInner: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
           <ResidentProfile
             resident={selectedResident}
             rooms={rooms}
+            residents={residents}
             onBack={() => navigateTo(ViewState.RESIDENTS)}
             onUpdateResident={handleUpdateResident}
           />

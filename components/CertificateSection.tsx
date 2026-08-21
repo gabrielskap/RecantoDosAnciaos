@@ -2,6 +2,7 @@ import React, { useState, useRef, useCallback } from 'react';
 import { X, Upload, Key, Lock, Trash2, RefreshCw, AlertCircle, CheckCircle, Clock, File } from 'lucide-react';
 import { AuthUser, DigitalCertificate } from '../types';
 import { toast } from '../services/toast';
+import { getTodayDateString } from '../utils/dateUtils';
 
 // ── Utilities ────────────────────────────────────────────────────────────────
 
@@ -584,6 +585,7 @@ const CertificateSection: React.FC<Props> = ({ user, onClose, onSave, onRemove }
                   </label>
                   <input
                     type="date"
+                    min={getTodayDateString()}
                     value={formData.certificate_expiration_date || ''}
                     onChange={e =>
                       setFormData(d => ({ ...d, certificate_expiration_date: e.target.value }))

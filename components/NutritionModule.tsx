@@ -122,7 +122,7 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
 
   const handleBatchUpdate = (residentId: string, acceptance: number) => {
     const resident = residents.find(r => r.id === residentId);
-    if (!resident) return;
+    if (!resident || resident.status === 'inativo') return;
     const idx = resident.nutritionalLogs?.findIndex(l => l.date === selectedDate && l.meal === selectedMeal);
     let logs = [...(resident.nutritionalLogs || [])];
     if (idx !== undefined && idx > -1) {
@@ -136,7 +136,7 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
   const handleCreatePlan = async () => {
     if (!newPlanResidentId || isSaving) return;
     const resident = residents.find(r => r.id === newPlanResidentId);
-    if (!resident) return;
+    if (!resident || resident.status === 'inativo') return;
     setIsSaving(true);
     try {
       const plan: DietPlan = {
@@ -160,7 +160,7 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
 
   const handleDietUpdate = async (residentId: string, newPlan: Partial<DietPlan>) => {
     const resident = residents.find(r => r.id === residentId);
-    if (!resident) return;
+    if (!resident || resident.status === 'inativo') return;
     const updated: DietPlan = {
       consistency: newPlan.consistency || resident.dietPlan?.consistency || 'Geral',
       type: newPlan.type || resident.dietPlan?.type || 'Livre',
@@ -589,7 +589,7 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
                   className={inputClass + (editingResidentId ? ' bg-slate-100 cursor-not-allowed text-slate-600' : '')}
                 >
                   <option value="">Selecione um residente...</option>
-                  {residents.map(r => (
+                  {residents.filter(r => r.status !== 'inativo').map(r => (
                     <option key={r.id} value={r.id}>{r.name} — Quarto {r.room}</option>
                   ))}
                 </select>

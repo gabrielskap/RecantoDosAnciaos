@@ -166,8 +166,10 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
 
   // Filter residents based on search input
   const filteredResidents = residents.filter(r =>
-    r.name.toLowerCase().includes(residentSearch.toLowerCase()) ||
-    r.room.toLowerCase().includes(residentSearch.toLowerCase())
+    r.status !== 'inativo' && (
+      r.name.toLowerCase().includes(residentSearch.toLowerCase()) ||
+      r.room.toLowerCase().includes(residentSearch.toLowerCase())
+    )
   );
 
   // Helper to get critical items count for a specific resident
@@ -901,7 +903,17 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
                   <tbody className="divide-y divide-slate-50">
                     {selectedHistoryItem.history.map(log => (
                       <tr key={log.id} className="hover:bg-slate-50">
-                        <td className="px-5 py-3 text-xs text-slate-600">{new Date(log.date).toLocaleDateString('pt-BR')}</td>
+                        <td className="px-5 py-3 text-xs text-slate-600">
+                          {(() => {
+                            if (!log.date) return '—';
+                            try {
+                              const d = new Date(log.date);
+                              return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('pt-BR');
+                            } catch {
+                              return '—';
+                            }
+                          })()}
+                        </td>
                         <td className="px-5 py-3">
                           {log.type === 'entrada'
                             ? <span className="flex items-center gap-1 text-xs font-semibold text-emerald-600"><ArrowUpCircle className="h-3.5 w-3.5" /> Entrada</span>

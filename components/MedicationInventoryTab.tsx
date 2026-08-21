@@ -14,6 +14,7 @@ import {
   dataTerminoPrevista, isBaixoEstoque, isVencido, isVencendo, precisaReposicao,
   motivoReposicao, LIMITE_DIAS_REPOSICAO, NovoInventarioInput,
 } from '../services/medicationInventoryService';
+import { isBeforeToday, getTodayDateString } from '../utils/dateUtils';
 
 interface Props {
   residents: Resident[];
@@ -52,8 +53,20 @@ const emptyForm = {
   embalagensIniciais: '1',
 };
 
-const fmtDate = (iso?: string | null) => (iso ? new Date(iso + 'T00:00:00').toLocaleDateString('pt-BR') : '—');
-const round2 = (n: number) => Math.round(n * 100) / 100;
+const fmtDate = (iso?: string | null) => {
+  if (!iso) return '—';
+  try {
+    const d = new Date(iso + 'T00:00:00');
+    if (isNaN(d.getTime())) return '—';
+    return d.toLocaleDateString('pt-BR');
+  } catch {
+    return '—';
+  }
+};
+const round2 = (n?: number | null) => {
+  if (n == null || !Number.isFinite(n)) return 0;
+  return Math.round(n * 100) / 100;
+};
 
 const MedicationInventoryTab: React.FC<Props> = ({ residents = [] }) => {
   const { currentUser, hasPermission } = useAuth();
@@ -145,6 +158,12 @@ const MedicationInventoryTab: React.FC<Props> = ({ residents = [] }) => {
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.nome || !form.concentracaoValor) return;
+
+    if (form.validade && isBeforeToday(form.validade)) {
+      alert('A data de validade não pode ser anterior à data atual.');
+      return;
+    }
+
     setSaving(true);
     try {
       const input: NovoInventarioInput = {
@@ -350,8 +369,10 @@ const MedicationInventoryTab: React.FC<Props> = ({ residents = [] }) => {
                     <p className="text-[10px] text-slate-400 font-medium uppercase tracking-wide">Cobertura</p>
                     {dias != null ? (
                       <>
-                        <p className="text-2xl font-bold text-slate-800">{dias} <span className="text-xs text-slate-400 font-normal">dias</span></p>
-                        <p className="text-[10px] text-slate-400">Término prev.: {fmtDate(termino)}</p>
+                        <p className="text-2xl font-bold text-slate-800">
+                          {dias > 36500 ? '>100 anos' : `${dias} dias`}
+                        </p>
+                        <p className="text-[10px] text-slate-400">Término prev.: {termino ? fmtDate(termino) : 'Longínquo'}</p>
                       </>
                     ) : (
                       <p className="text-xs text-slate-400 mt-1">Defina a posologia para calcular</p>
@@ -490,7 +511,7 @@ const MedicationInventoryTab: React.FC<Props> = ({ residents = [] }) => {
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1.5">Validade</label>
-                  <input type="date" value={form.validade} onChange={e => setForm({ ...form, validade: e.target.value })} className={inputClass} />
+                  <input type="date" min={getTodayDateString()} value={form.validade} onChange={e => setForm({ ...form, validade: e.target.value })} className={inputClass} />
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1.5">Lote (opcional)</label>

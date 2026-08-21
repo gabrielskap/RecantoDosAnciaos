@@ -1,8 +1,10 @@
 import React, { useState, useRef } from 'react';
 import { CalendarDays, Clock, MapPin, User, Plus, X, ChevronLeft, ChevronRight, Stethoscope, Users, Music, Activity, Edit3, Trash2, ShieldAlert } from 'lucide-react';
+import { toast } from '../services/toast';
 import { CalendarEvent, EventType, Resident, ViewState } from '../types';
 import CustomSelect from './CustomSelect';
 import { useAuth } from '../contexts/AuthContext';
+import { isBeforeToday, getTodayStartDatetimeLocal } from '../utils/dateUtils';
 
 const LEGACY_AGENDA_DRAFT_STORAGE_KEYS = [
   'modal_agenda_open',
@@ -101,6 +103,12 @@ const AgendaModule: React.FC<AgendaModuleProps> = ({ events, residents, onAddEve
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newEvent.title || !newEvent.start) return;
+
+    if (isBeforeToday(newEvent.start)) {
+      toast.error('A data e hora do evento não podem ser anteriores à data atual.');
+      return;
+    }
+
     const payload: CalendarEvent = {
       id: editingEventId || Math.random().toString(36).substr(2, 9),
       title: newEvent.title!,
@@ -350,7 +358,7 @@ const AgendaModule: React.FC<AgendaModuleProps> = ({ events, residents, onAddEve
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1.5">Data e Hora de Início</label>
-                <input required type="datetime-local" value={newEvent.start} onChange={e => setNewEvent({ ...newEvent, start: e.target.value })} className={inputClass} />
+                <input required type="datetime-local" min={getTodayStartDatetimeLocal()} value={newEvent.start} onChange={e => setNewEvent({ ...newEvent, start: e.target.value })} className={inputClass} />
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1.5">Residente (opcional)</label>
@@ -359,7 +367,7 @@ const AgendaModule: React.FC<AgendaModuleProps> = ({ events, residents, onAddEve
                   onChange={v => setNewEvent({ ...newEvent, residentId: v })}
                   options={[
                     { value: '', label: 'Nenhum (evento geral)' },
-                    ...residents.map(r => ({ value: r.id, label: r.name, desc: `Quarto ${r.room}` }))
+                    ...residents.filter(r => r.status !== 'inativo').map(r => ({ value: r.id, label: r.name, desc: `Quarto ${r.room}` }))
                   ]}
                   placeholder="Selecione um residente..."
                 />

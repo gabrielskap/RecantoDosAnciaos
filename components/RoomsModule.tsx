@@ -153,11 +153,22 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
       finalAssets.push(trimmedCustomAsset);
     }
 
+    const finalCapacity = roomType === 'Individual' ? 1 : roomCapacity;
+    const activeResidentsInRoom = residents.filter(
+      r => r.status !== 'inativo' && r.room.trim().toLowerCase() === (editingRoom ? editingRoom.number.trim().toLowerCase() : roomNumber.trim().toLowerCase())
+    );
+    if (finalCapacity < activeResidentsInRoom.length) {
+      toast.error(
+        `Não é possível definir a capacidade para ${finalCapacity} leito(s), pois o quarto possui ${activeResidentsInRoom.length} residente(s) ativo(s) alocado(s).`
+      );
+      return;
+    }
+
     const roomData: Room = {
       id: editingRoom?.id || Math.random().toString(36).substr(2, 9),
       number: roomNumber.trim(),
       type: roomType,
-      capacity: roomCapacity,
+      capacity: finalCapacity,
       assets: finalAssets,
       status: manualStatus === '' ? undefined : manualStatus
     };
@@ -214,9 +225,15 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
     const resident = residents.find(r => r.id === residentId);
     if (!resident) return;
 
-    const residentsInRoom = residents.filter(r => r.room === linkingRoom.number);
+    const residentsInRoom = residents.filter(
+      r => r.status !== 'inativo' && r.room.trim().toLowerCase() === linkingRoom.number.trim().toLowerCase()
+    );
     if (residentsInRoom.length >= linkingRoom.capacity) {
-      toast.warning('Este quarto já está com a capacidade máxima ocupada!');
+      toast.warning(
+        linkingRoom.type === 'Individual'
+          ? 'Este quarto individual já possui um residente alocado!'
+          : 'Este quarto já está com a capacidade máxima ocupada!'
+      );
       return;
     }
 
@@ -247,7 +264,9 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
   // Calculated stats
   const totalRooms = rooms.length;
   const capacityMap = rooms.reduce((acc, r) => {
-    const count = residents.filter(res => res.room === r.number).length;
+    const count = residents.filter(
+      res => res.status !== 'inativo' && res.room.trim().toLowerCase() === r.number.trim().toLowerCase()
+    ).length;
     acc.totalBeds += r.capacity;
     acc.occupiedBeds += count;
     return acc;
@@ -255,7 +274,9 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
 
   // Group residents by room number
   const getResidentsForRoom = (roomNumber: string) => {
-    return residents.filter(r => r.room === roomNumber);
+    return residents.filter(
+      r => r.status !== 'inativo' && r.room.trim().toLowerCase() === roomNumber.trim().toLowerCase()
+    );
   };
 
   // Compute status for room card
@@ -761,7 +782,7 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
               {/* Residents selection list */}
               <div className="space-y-2.5">
                 {residents
-                  .filter(res => res.room !== linkingRoom.number)
+                  .filter(res => res.status !== 'inativo' && res.room !== linkingRoom.number)
                   .map(res => {
                     const currentRoomName = res.room ? `Quarto ${res.room}` : 'Sem Quarto';
                     return (
@@ -794,7 +815,7 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
                     );
                   })}
 
-                {residents.filter(res => res.room !== linkingRoom.number).length === 0 && (
+                {residents.filter(res => res.status !== 'inativo' && res.room !== linkingRoom.number).length === 0 && (
                   <p className="text-center text-xs text-slate-400 italic py-6">Nenhum residente disponível para alocação.</p>
                 )}
               </div>

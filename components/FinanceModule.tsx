@@ -7,6 +7,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { deleteContractDocument, getContractDocumentUrl, uploadContractDocument } from '../services/supabaseClient';
 import { toast } from '../services/toast';
 import { residentAvatarSrc } from '../lib/avatar';
+import { isBeforeToday, getTodayDateString } from '../utils/dateUtils';
 
 const LEGACY_FINANCE_DRAFT_STORAGE_KEYS = [
   'modal_finance_record_open',
@@ -208,6 +209,12 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
   const handleContractSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newContract.residentId || !newContract.monthlyValue) return;
+
+    if (isBeforeToday(newContract.startDate)) {
+      toast.error('A data de início do contrato não pode ser anterior à data atual.');
+      return;
+    }
+
     if (contractFile && !validateContractFile(contractFile)) return;
     setIsCreatingContract(true);
     try {
@@ -654,7 +661,7 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1.5">Data de Início</label>
-                <input required type="date" value={newContract.startDate} onChange={e => setNewContract({ ...newContract, startDate: e.target.value })} className={inputClass} />
+                <input required type="date" min={getTodayDateString()} value={newContract.startDate} onChange={e => setNewContract({ ...newContract, startDate: e.target.value })} className={inputClass} />
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1.5">Contrato do idoso</label>

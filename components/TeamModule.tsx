@@ -6,6 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { toast } from '../services/toast';
 import CustomSelect from './CustomSelect';
 import UsersModule from './UsersModule';
+import { isBeforeToday, getTodayDateString } from '../utils/dateUtils';
 
 const LEGACY_TEAM_DRAFT_STORAGE_KEYS = [
   'modal_team_emp_open',
@@ -264,21 +265,30 @@ const TeamModule: React.FC<TeamModuleProps> = ({
 
   const handleTrainSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newTrain.title || !newTrain.date) return;
+    if (!newTrain.title?.trim() || !newTrain.date || !newTrain.instructor?.trim() || !newTrain.description?.trim()) {
+      toast.error('Preencha todos os campos obrigatórios, incluindo a descrição.');
+      return;
+    }
+
+    if (isBeforeToday(newTrain.date)) {
+      toast.error('A data de realização do treinamento não pode ser anterior à data atual.');
+      return;
+    }
 
     const training: TrainingRecord = {
       id: Math.random().toString(36).substr(2, 9),
-      title: newTrain.title!,
-      date: newTrain.date!,
-      instructor: newTrain.instructor!,
+      title: newTrain.title.trim(),
+      date: newTrain.date,
+      instructor: newTrain.instructor.trim(),
       participants: [], // In a real app, select multiple participants
-      description: newTrain.description || '',
+      description: newTrain.description.trim(),
       validUntil: newTrain.validUntil
     };
 
     try {
       await onAddTraining(training);
       setNewTrain({ title: '', instructor: '', date: '', description: '', validUntil: '' });
+      setIsTrainModalOpen(false);
     } catch (error) {
       // Mantém os dados do treinamento no modal para uma nova tentativa.
       console.error('Erro ao registrar treinamento:', error);
@@ -1058,10 +1068,10 @@ const TeamModule: React.FC<TeamModuleProps> = ({
                    <label className="block text-xs font-semibold text-slate-600 mb-1.5">Título do Curso</label>
                    <input required type="text" value={newTrain.title} onChange={e => setNewTrain({...newTrain, title: e.target.value})} className={inputClass} />
                 </div>
-                <div>
-                   <label className="block text-xs font-semibold text-slate-600 mb-1.5">Descrição</label>
-                   <textarea rows={2} value={newTrain.description} onChange={e => setNewTrain({...newTrain, description: e.target.value})} className={`${inputClass} resize-none`} />
-                </div>
+                 <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1.5">Descrição *</label>
+                    <textarea required rows={2} value={newTrain.description} onChange={e => setNewTrain({...newTrain, description: e.target.value})} className={`${inputClass} resize-none`} placeholder="Informe a descrição do treinamento" />
+                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-semibold text-slate-600 mb-1.5">Instrutor</label>
@@ -1069,12 +1079,12 @@ const TeamModule: React.FC<TeamModuleProps> = ({
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-slate-600 mb-1.5">Data de Realização</label>
-                    <input required type="date" value={newTrain.date} onChange={e => setNewTrain({...newTrain, date: e.target.value})} className={inputClass} />
+                    <input required type="date" min={getTodayDateString()} value={newTrain.date} onChange={e => setNewTrain({...newTrain, date: e.target.value})} className={inputClass} />
                   </div>
                 </div>
                 <div>
                    <label className="block text-xs font-semibold text-slate-600 mb-1.5">Validade (se houver)</label>
-                   <input type="date" value={newTrain.validUntil} onChange={e => setNewTrain({...newTrain, validUntil: e.target.value})} className={inputClass} />
+                   <input type="date" min={newTrain.date || getTodayDateString()} value={newTrain.validUntil} onChange={e => setNewTrain({...newTrain, validUntil: e.target.value})} className={inputClass} />
                 </div>
                 <div className="pt-4 border-t border-slate-100 flex gap-3 shrink-0">
                   <button

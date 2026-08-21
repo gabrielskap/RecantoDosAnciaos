@@ -472,6 +472,7 @@ const TrialEnvironment: React.FC = () => {
           <ResidentProfile
             resident={selectedResident}
             rooms={rooms}
+            residents={residents}
             onBack={() => navigateTo(ViewState.RESIDENTS)}
             onUpdateResident={handleUpdateResident}
           />

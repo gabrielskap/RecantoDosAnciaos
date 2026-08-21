@@ -49,7 +49,7 @@ function mapInventarioRow(row: any): MedicamentoInventarioItem {
 
 /** Unidades farmacêuticas consumidas por tomada. Ex.: 20 mg / 10 mg = 2 comprimidos. */
 export function unidadesPorTomada(inv: Pick<MedicamentoInventarioItem, 'dosePorTomada' | 'concentracaoValor'>): number | null {
-  if (!inv.dosePorTomada || !inv.concentracaoValor) return null;
+  if (!inv.dosePorTomada || !inv.concentracaoValor || inv.concentracaoValor <= 0 || inv.dosePorTomada <= 0) return null;
   const u = inv.dosePorTomada / inv.concentracaoValor;
   return Number.isFinite(u) && u > 0 ? u : null;
 }
@@ -57,16 +57,18 @@ export function unidadesPorTomada(inv: Pick<MedicamentoInventarioItem, 'dosePorT
 /** Consumo diário em unidades. Ex.: 2 comprimidos × 1 tomada = 2/dia. */
 export function consumoDiario(inv: Pick<MedicamentoInventarioItem, 'dosePorTomada' | 'concentracaoValor' | 'tomadasPorDia'>): number | null {
   const upt = unidadesPorTomada(inv);
-  if (upt == null || !inv.tomadasPorDia) return null;
+  if (upt == null || !inv.tomadasPorDia || inv.tomadasPorDia <= 0) return null;
   const c = upt * inv.tomadasPorDia;
-  return c > 0 ? c : null;
+  return Number.isFinite(c) && c > 0 ? c : null;
 }
 
 /** Dias de cobertura com o saldo atual. Ex.: 12 / 2 = 6 dias. */
 export function diasCobertura(inv: Pick<MedicamentoInventarioItem, 'dosePorTomada' | 'concentracaoValor' | 'tomadasPorDia' | 'saldoUnidades'>): number | null {
   const c = consumoDiario(inv);
-  if (c == null || c <= 0) return null;
-  return Math.floor(inv.saldoUnidades / c);
+  if (c == null || c <= 0 || !Number.isFinite(c)) return null;
+  if (!Number.isFinite(inv.saldoUnidades) || inv.saldoUnidades <= 0) return 0;
+  const dias = Math.floor(inv.saldoUnidades / c);
+  return Number.isFinite(dias) && dias >= 0 ? dias : null;
 }
 
 /** Data prevista de término (YYYY-MM-DD) a partir de `from` (default hoje). */
@@ -75,32 +77,50 @@ export function dataTerminoPrevista(
   from: Date = new Date()
 ): string | null {
   const dias = diasCobertura(inv);
-  if (dias == null) return null;
-  const d = new Date(from);
-  d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() + dias);
-  return d.toISOString().split('T')[0];
+  if (dias == null || !Number.isFinite(dias) || dias < 0) return null;
+  // Limita a 365.000 dias (~1.000 anos) para evitar RangeError: Invalid time value em Date.toISOString()
+  if (dias > 365000) return null;
+  try {
+    const d = new Date(from);
+    if (isNaN(d.getTime())) return null;
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() + dias);
+    if (isNaN(d.getTime())) return null;
+    return d.toISOString().split('T')[0];
+  } catch {
+    return null;
+  }
 }
 
 export function isBaixoEstoque(inv: Pick<MedicamentoInventarioItem, 'saldoUnidades' | 'estoqueMinimoUnidades'>): boolean {
+  if (!Number.isFinite(inv.saldoUnidades) || !Number.isFinite(inv.estoqueMinimoUnidades)) return false;
   return inv.saldoUnidades <= inv.estoqueMinimoUnidades;
 }
 
 export function isVencido(inv: Pick<MedicamentoInventarioItem, 'validade'>): boolean {
   if (!inv.validade) return false;
-  const today = new Date().toISOString().split('T')[0];
-  return inv.validade < today;
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    return inv.validade < today;
+  } catch {
+    return false;
+  }
 }
 
 /** Vence dentro de `dias` (default 30) e ainda não venceu. */
 export function isVencendo(inv: Pick<MedicamentoInventarioItem, 'validade'>, dias = 30): boolean {
   if (!inv.validade) return false;
-  const hoje = new Date();
-  hoje.setHours(0, 0, 0, 0);
-  const limite = new Date(hoje);
-  limite.setDate(limite.getDate() + dias);
-  const v = new Date(inv.validade + 'T00:00:00');
-  return v >= hoje && v <= limite;
+  try {
+    const hoje = new Date();
+    hoje.setHours(0, 0, 0, 0);
+    const limite = new Date(hoje);
+    limite.setDate(limite.getDate() + dias);
+    const v = new Date(inv.validade + 'T00:00:00');
+    if (isNaN(v.getTime())) return false;
+    return v >= hoje && v <= limite;
+  } catch {
+    return false;
+  }
 }
 
 /** Limiar (em dias de cobertura) para alertar que o medicamento está próximo de acabar. */
@@ -113,17 +133,17 @@ type ItemReposicao = Pick<MedicamentoInventarioItem, 'dosePorTomada' | 'concentr
  * abaixo do estoque mínimo (fallback para itens sem posologia definida).
  */
 export function precisaReposicao(inv: ItemReposicao, limiteDias = LIMITE_DIAS_REPOSICAO): boolean {
-  if (inv.saldoUnidades <= 0) return true;
+  if (!Number.isFinite(inv.saldoUnidades) || inv.saldoUnidades <= 0) return true;
   const dias = diasCobertura(inv);
-  if (dias != null && dias <= limiteDias) return true;
+  if (dias != null && Number.isFinite(dias) && dias <= limiteDias) return true;
   return isBaixoEstoque(inv);
 }
 
 /** Motivo do alerta de reposição, para exibição. Retorna null quando não há alerta. */
 export function motivoReposicao(inv: ItemReposicao, limiteDias = LIMITE_DIAS_REPOSICAO): { label: string; critico: boolean } | null {
-  if (inv.saldoUnidades <= 0) return { label: 'Esgotado', critico: true };
+  if (!Number.isFinite(inv.saldoUnidades) || inv.saldoUnidades <= 0) return { label: 'Esgotado', critico: true };
   const dias = diasCobertura(inv);
-  if (dias != null && dias <= limiteDias) {
+  if (dias != null && Number.isFinite(dias) && dias <= limiteDias) {
     return { label: `Acaba em ${dias} ${dias === 1 ? 'dia' : 'dias'}`, critico: dias <= 2 };
   }
   if (isBaixoEstoque(inv)) return { label: 'Abaixo do mínimo', critico: false };

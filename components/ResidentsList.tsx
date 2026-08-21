@@ -595,6 +595,25 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
 
     const originalResident = editingResidentId ? residents.find(r => r.id === editingResidentId) : undefined;
 
+    if (formData.room && rooms && rooms.length > 0) {
+      const targetRoom = rooms.find(r => r.number.trim().toLowerCase() === formData.room!.trim().toLowerCase());
+      if (targetRoom) {
+        const occupiedCount = residents.filter(
+          res => res.status !== 'inativo' && res.room.trim().toLowerCase() === targetRoom.number.trim().toLowerCase() && res.id !== editingResidentId
+        ).length;
+        const maxCap = targetRoom.capacity ?? 1;
+        if (occupiedCount >= maxCap) {
+          if (targetRoom.type === 'Individual') {
+            toast.error(`O Quarto ${targetRoom.number} é individual e já possui um residente alocado.`);
+          } else {
+            toast.error(`O Quarto ${targetRoom.number} já atingiu a capacidade máxima de ${maxCap} leitos.`);
+          }
+          setActiveTab('personal');
+          return;
+        }
+      }
+    }
+
     // Só valida CPF/RG quando o valor foi de fato alterado nesta edição. Sem
     // essa checagem, um residente antigo com CPF/RG de placeholder (dado legado
     // ou de demonstração) fica com o cadastro travado para sempre — nenhuma
@@ -1321,11 +1340,27 @@ const ResidentsList: React.FC<ResidentsListProps> = ({ residents, rooms, onSelec
                           className={inputClass}
                         >
                           <option value="">Selecione...</option>
-                          {rooms.map(r => (
-                            <option key={r.id} value={r.number}>
-                              Quarto {r.number} ({r.type})
-                            </option>
-                          ))}
+                          {rooms.map(r => {
+                            const occupiedCount = residents.filter(
+                              res => res.status !== 'inativo' && res.room.trim().toLowerCase() === r.number.trim().toLowerCase() && res.id !== editingResidentId
+                            ).length;
+                            const maxCap = r.capacity ?? 1;
+                            const isFull = occupiedCount >= maxCap;
+                            const disabled = isFull && (formData.room || '').trim().toLowerCase() !== r.number.trim().toLowerCase();
+
+                            let labelStatus = '';
+                            if (r.type === 'Individual') {
+                              labelStatus = occupiedCount >= 1 ? ' (Individual - Ocupado)' : ' (Individual - Vago)';
+                            } else {
+                              labelStatus = ` (Compartilhado - ${occupiedCount}/${maxCap} leitos${isFull ? ' - Lotado' : ''})`;
+                            }
+
+                            return (
+                              <option key={r.id} value={r.number} disabled={disabled}>
+                                Quarto {r.number}{labelStatus}
+                              </option>
+                            );
+                          })}
                         </select>
                       ) : (
                         <input

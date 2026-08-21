@@ -28,6 +28,7 @@ import ResetPassword from './components/ResetPassword';
 import ToastContainer from './components/ToastContainer';
 import { toast } from './services/toast';
 import NotificationsPanel from './components/NotificationsPanel';
+import ErrorBoundary from './components/ErrorBoundary';
 import type { AlertItem } from './components/NotificationsPanel';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { Menu, HeartPulse, Bell, ChevronDown, UserCircle, LogOut, Building2 } from 'lucide-react';
@@ -2262,6 +2263,10 @@ function AppInner() {
   };
 
   const handleAddTraining = async (newTraining: TrainingRecord) => {
+    if (!newTraining.description || !newTraining.description.trim()) {
+      toast.error('A descrição do treinamento é obrigatória.');
+      return;
+    }
     try {
       const { data: tData, error: tErr } = await supabase
         .from('Recanto_Treinamentos')
@@ -2462,6 +2467,7 @@ function AppInner() {
           <ResidentProfile
             resident={residentForProfile}
             rooms={rooms}
+            residents={residents}
             onBack={() => navigateTo(ViewState.RESIDENTS)}
             onUpdateResident={handleUpdateResident}
             onLoadGlicemia={loadResidentGlicemia}
@@ -2735,7 +2741,9 @@ function AppInner() {
 
         <div className="flex-1 overflow-y-auto p-4 md:p-8" ref={mainContentRef}>
           <div className="w-full">
-            {renderContent()}
+            <ErrorBoundary key={currentView}>
+              {renderContent()}
+            </ErrorBoundary>
           </div>
         </div>
       </main>

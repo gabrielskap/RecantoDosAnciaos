@@ -23,6 +23,7 @@ import {
   saveChecklistDraft,
 } from '../services/checklistDraftService';
 import { fetchResidentAuditLogsPaginated, fetchResidentVitalsPaginated } from '../services/dataService';
+import { isBeforeToday, getTodayDateString, getTodayStartDatetimeLocal } from '../utils/dateUtils';
 
 const VITALS_PAGE_SIZE = 50;
 
@@ -434,6 +435,85 @@ const parseMedications = (val?: string): ChecklistMedication[] | null => {
   return null;
 };
 
+interface ChecklistMissingField {
+  key: string;
+  label: string;
+}
+
+// Registro mínimo exigido para assinar um boletim. Sem essa checagem era
+// possível abrir o boletim diurno/noturno e assiná-lo sem nenhuma informação
+// clínica: o prontuário ficava vazio, mas aparecia como "Salvo/Assinado" no
+// histórico. Campos condicionais (descrições) só são exigidos quando a opção
+// que os revela está marcada, e "Qualidade de Sono" só existe fora do diurno.
+export const getChecklistMissingFields = (
+  draft: DailyChecklist | null | undefined,
+  shift: 'diurno' | 'noturno' | 'diario'
+): ChecklistMissingField[] => {
+  if (!draft) return [];
+
+  const missing: ChecklistMissingField[] = [];
+  const requireField = (isMissing: boolean, key: string, label: string) => {
+    if (isMissing) missing.push({ key, label });
+  };
+
+  requireField(!draft.date, 'date', 'Data do boletim');
+  requireField(!draft.queixaDor, 'queixaDor', 'Queixa de dor');
+  requireField(
+    draft.queixaDor === 'sim' && !draft.queixaDorDesc?.trim(),
+    'queixaDorDesc',
+    'Descrição da queixa de dor'
+  );
+  requireField(!draft.estadoNeurologico, 'estadoNeurologico', 'Estado neurológico');
+  requireField(!draft.alimentacao, 'alimentacao', 'Aceitação alimentar');
+  requireField(
+    draft.alimentacao === 'ruim' && !draft.alimentacaoDesc?.trim(),
+    'alimentacaoDesc',
+    'Motivo da baixa aceitação alimentar'
+  );
+  requireField(!draft.eliminacaoEvacuacao, 'eliminacaoEvacuacao', 'Fezes (defecação / eliminação)');
+  requireField(!draft.alteracoesPele, 'alteracoesPele', 'Alterações na pele / edema');
+  requireField(
+    draft.alteracoesPele === 'sim' && !draft.alteracoesPeleDesc?.trim(),
+    'alteracoesPeleDesc',
+    'Local e detalhes da lesão de pele'
+  );
+  if (shift !== 'diurno') {
+    requireField(!draft.sono, 'sono', 'Qualidade de sono');
+    requireField(
+      draft.sono === 'insatisfatorio' && !draft.sonoDesc?.trim(),
+      'sonoDesc',
+      'Descrição do distúrbio de sono'
+    );
+  }
+  requireField(!draft.intercorrencia, 'intercorrencia', 'Intercorrência durante o plantão');
+  requireField(
+    draft.intercorrencia === 'sim' && !draft.intercorrenciaDesc?.trim(),
+    'intercorrenciaDesc',
+    'Relato da intercorrência'
+  );
+
+  // A lista de doses nasce com status "pendente"; assinar sem responder cada
+  // dose esconderia medicação não administrada.
+  const meds = parseMedications(draft.medicacoesAdministradas);
+  if (meds && meds.length > 0 && meds.some(med => !med.status || med.status === 'pendente')) {
+    requireField(
+      true,
+      'medicacoesAdministradas',
+      'Medicações administradas (marque "Tomou" ou "Não Tomou" em todas as doses)'
+    );
+  }
+
+  return missing;
+};
+
+// Rótulo de campo obrigatório do boletim: marca o asterisco e fica vermelho
+// quando foi ele que bloqueou a assinatura.
+const ChecklistRequiredLabel: React.FC<{ error?: boolean; children: React.ReactNode }> = ({ error, children }) => (
+  <label className={`block text-xs font-bold ${error ? 'text-rose-700' : 'text-slate-700'}`}>
+    {children} <span className="text-rose-600" title="Campo obrigatório">*</span>
+  </label>
+);
+
 const getDayOfWeek = (dateString: string): 'domingo' | 'segunda' | 'terca' | 'quarta' | 'quinta' | 'sexta' | 'sabado' => {
   if (!dateString) return 'segunda';
   const [year, month, day] = dateString.split('-').map(Number);
@@ -551,6 +631,7 @@ const buildCarePlanPDF = (resident: Resident, plan: CarePlan): string => {
 interface ResidentProfileProps {
   resident: Resident;
   rooms: Room[];
+  residents?: Resident[];
   onBack: () => void;
   onUpdateResident?: (resident: Resident) => Promise<void> | void;
   onLoadGlicemia?: (residentId: string) => Promise<void>;
@@ -563,9 +644,10 @@ interface ResidentProfileProps {
   onMoveDocument?: (documentId: string, folderId: string | null, residentId: string) => Promise<void>;
 }
 
-const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBack, onUpdateResident, onLoadGlicemia, onLoadResidentDetail, onSaveGlicemia, onDeleteGlicemia, onCreateFolder, onRenameFolder, onDeleteFolder, onMoveDocument }) => {
+const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, residents = [], onBack, onUpdateResident, onLoadGlicemia, onLoadResidentDetail, onSaveGlicemia, onDeleteGlicemia, onCreateFolder, onRenameFolder, onDeleteFolder, onMoveDocument }) => {
   const { currentUser, hasPermission, modeloBoletim } = useAuth();
   const usesServerAuditPagination = Boolean(onLoadResidentDetail);
+  const isInactive = resident.status === 'inativo';
 
   const TAB_VIEW_STATE_MAP: Record<string, ViewState> = {
     info: ViewState.RESIDENT_DETAIL_INFO,
@@ -821,6 +903,10 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   const [docToDelete, setDocToDelete] = useState<string | null>(null);
 
   const handleDeleteDocument = async () => {
+    if (isInactive) {
+      toast.error('Operação não permitida: residente está desativado.');
+      return;
+    }
     if (!docToDelete || !onUpdateResident) return;
     const updatedResident = {
       ...resident,
@@ -838,6 +924,10 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
 
   const handleSaveVisit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isInactive) {
+      toast.error('Operação não permitida: residente está desativado.');
+      return;
+    }
     if (!onUpdateResident || !visitData.visitorName || !visitData.relation) return;
 
     const cleanVisitorName = visitData.visitorName.trim();
@@ -904,13 +994,8 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
       toast.error('A data e hora da visita são obrigatórias.');
       return;
     }
-    const visitDate = new Date(visitData.date);
-    if (visitDate.getTime() > Date.now() + 10 * 60 * 1000) {
-      toast.error('A data e hora da visita não podem estar no futuro.');
-      return;
-    }
-    if (visitDate.getFullYear() < 2000) {
-      toast.error('A data informada é inválida.');
+    if (isBeforeToday(visitData.date)) {
+      toast.error('A data e hora da visita não podem ser anteriores à data atual.');
       return;
     }
 
@@ -956,6 +1041,10 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   };
 
   const handleDeleteVisit = (visitId: string) => {
+    if (isInactive) {
+      toast.error('Operação não permitida: residente está desativado.');
+      return;
+    }
     if (!onUpdateResident) return;
     
     const visit = resident.visits?.find(v => v.id === visitId);
@@ -983,6 +1072,10 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   };
 
   const handleOpenGlicemiaModal = (reading?: GlucoseReading) => {
+    if (isInactive) {
+      toast.error('Operação não permitida: residente está desativado.');
+      return;
+    }
     if (reading) {
       setEditingGlicemiaId(reading.id);
       setGlicemiaFormData({
@@ -1011,6 +1104,10 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
 
   const handleSaveGlicemia = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isInactive) {
+      toast.error('Operação não permitida: residente está desativado.');
+      return;
+    }
     if (!onSaveGlicemia && !onUpdateResident) return;
 
     const value = parseInt(glicemiaFormData.value, 10);
@@ -1084,6 +1181,10 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   };
 
   const handleDeleteGlicemia = (readingId: string) => {
+    if (isInactive) {
+      toast.error('Operação não permitida: residente está desativado.');
+      return;
+    }
     if (!onDeleteGlicemia && !onUpdateResident) return;
 
     const reading = resident.glucoseReadings?.find(g => g.id === readingId);
@@ -1345,7 +1446,30 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
 
   const handleSaveResident = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isInactive && formData.status === 'inativo') {
+      toast.error('Residente desativado. Para alterar dados do residente, altere o status para Ativo primeiro.');
+      return;
+    }
     if (!onUpdateResident || !formData.name || !formData.room) return;
+
+    if (formData.room && rooms && rooms.length > 0) {
+      const targetRoom = rooms.find(r => r.number.trim().toLowerCase() === formData.room!.trim().toLowerCase());
+      if (targetRoom) {
+        const occupiedCount = (residents || []).filter(
+          res => res.status !== 'inativo' && res.room.trim().toLowerCase() === targetRoom.number.trim().toLowerCase() && res.id !== resident.id
+        ).length;
+        const maxCap = targetRoom.capacity ?? 1;
+        if (occupiedCount >= maxCap) {
+          if (targetRoom.type === 'Individual') {
+            toast.error(`O Quarto ${targetRoom.number} é individual e já possui um residente alocado.`);
+          } else {
+            toast.error(`O Quarto ${targetRoom.number} já atingiu a capacidade máxima de ${maxCap} leitos.`);
+          }
+          setModalActiveTab('personal');
+          return;
+        }
+      }
+    }
 
     const updated: Resident = {
       ...resident,
@@ -1514,8 +1638,31 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   const [signConfirmContext, setSignConfirmContext] = useState<'read' | 'edit'>('read');
   const [signatureMode, setSignatureMode] = useState<'simples' | 'certificado_a1'>('simples');
   const checklistEditorRef = React.useRef<HTMLDivElement>(null);
+  const checklistErrorSummaryRef = React.useRef<HTMLDivElement>(null);
 
   const [checklistDraft, setChecklistDraft] = useState<DailyChecklist | null>(null);
+  // Conta as tentativas de assinar com campos faltando. Só depois da primeira
+  // tentativa o boletim mostra os erros, para não abrir o formulário em vermelho.
+  const [checklistSignAttempts, setChecklistSignAttempts] = useState(0);
+
+  const checklistMissingFields = React.useMemo(
+    () => getChecklistMissingFields(checklistDraft, selectedShift),
+    [checklistDraft, selectedShift]
+  );
+  const showChecklistErrors = checklistSignAttempts > 0 && checklistMissingFields.length > 0;
+  const checklistMissingKeys = React.useMemo(
+    () => new Set(checklistMissingFields.map(field => field.key)),
+    [checklistMissingFields]
+  );
+  const hasChecklistFieldError = (field: string) =>
+    showChecklistErrors && checklistMissingKeys.has(field);
+
+  // Leva o usuário até a lista de pendências a cada nova tentativa bloqueada:
+  // o botão de assinar fica no fim de um formulário longo.
+  React.useEffect(() => {
+    if (checklistSignAttempts === 0) return;
+    checklistErrorSummaryRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [checklistSignAttempts]);
 
   // Quando a instituição usa o modelo de boletim único, força o turno para 'diario'
   // (exceto se já houver um rascunho em edição, para não perder o que está sendo digitado).
@@ -1614,6 +1761,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
     let active = true;
     setChecklistDraft(null);
     setHydratedChecklistDraftKey(null);
+    setChecklistSignAttempts(0);
 
     const loadDraft = async () => {
       if (!checklistDraftKey) return;
@@ -1678,6 +1826,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
       }
     }
     setChecklistDraft(null);
+    setChecklistSignAttempts(0);
   };
 
   React.useEffect(() => {
@@ -1794,7 +1943,16 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
 
   const handleSaveReceita = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isInactive) {
+      toast.error('Operação não permitida: residente está desativado.');
+      return;
+    }
     if (!onUpdateResident || !receitaFormData.description || !receitaFormData.expiryDate || !receitaFormData.fileUrl) return;
+
+    if (isBeforeToday(receitaFormData.expiryDate)) {
+      toast.error('A data de validade da receita não pode ser anterior à data atual.');
+      return;
+    }
 
     const newReceita: ResidentPrescriptionRecord = {
       id: Math.random().toString(36).substr(2, 9),
@@ -1827,6 +1985,10 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   };
 
   const handleDeleteReceita = (receitaId: string) => {
+    if (isInactive) {
+      toast.error('Operação não permitida: residente está desativado.');
+      return;
+    }
     if (!onUpdateResident) return;
     const receita = resident.prescriptions?.find(p => p.id === receitaId);
     if (!receita) return;
@@ -1876,6 +2038,27 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   }, [resident.id]);
 
   const handleRequestSign = async (context: 'read' | 'edit') => {
+    if (isInactive) {
+      toast.error('Operação não permitida: residente está desativado.');
+      return;
+    }
+    // Um boletim sem registro clínico não pode ser assinado: a assinatura é o
+    // que dá valor legal ao prontuário, então a validação vem antes de abrir o
+    // modal e antes de gravar qualquer assinatura.
+    if (context === 'edit') {
+      const missing = getChecklistMissingFields(checklistDraft, selectedShift);
+      if (missing.length > 0) {
+        setChecklistSignAttempts(attempts => attempts + 1);
+        toast.error(
+          missing.length === 1
+            ? `Preencha "${missing[0].label}" antes de assinar o boletim.`
+            : `Preencha os ${missing.length} campos obrigatórios destacados antes de assinar o boletim.`
+        );
+        return;
+      }
+      setChecklistSignAttempts(0);
+    }
+
     let mode: 'simples' | 'certificado_a1' = 'simples';
 
     if (currentUser?.empresaId) {
@@ -1926,6 +2109,19 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   };
 
   const handleConfirmSign = async () => {
+    if (isInactive) {
+      toast.error('Operação não permitida: residente está desativado.');
+      return;
+    }
+    // Rede de segurança: nenhuma assinatura é registrada para um boletim
+    // incompleto, mesmo que o formulário mude com o modal já aberto.
+    if (signConfirmContext === 'edit' && getChecklistMissingFields(checklistDraft, selectedShift).length > 0) {
+      setIsSignConfirmModalOpen(false);
+      setChecklistSignAttempts(attempts => attempts + 1);
+      toast.error('Boletim incompleto. Preencha os campos obrigatórios destacados antes de assinar.');
+      return;
+    }
+
     const rolePrefix: Record<string, string> = {
       Enfermeiro: 'Enf.',
       Médico: 'Dr(a).',
@@ -3586,6 +3782,10 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   };
 
   const handleStartEditChecklist = async () => {
+    if (isInactive) {
+      toast.error('Operação não permitida: residente está desativado.');
+      return;
+    }
     if (selectedChecklist.signedBy) return;
     if (!checklistDraftKey || hydratedChecklistDraftKey !== checklistDraftStorageKey) {
       toast.info('Carregando o rascunho clínico. Aguarde um instante.');
@@ -3626,6 +3826,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
       // fechamento logo após abrir o boletim não perde a primeira versão.
       await saveChecklistDraft(checklistDraftKey, draft);
       setChecklistDraft(draft);
+      setChecklistSignAttempts(0);
     } catch (error) {
       console.error('Erro ao criar rascunho clínico no banco:', error);
       toast.error('Não foi possível iniciar o boletim. Verifique a conexão e tente novamente.');
@@ -3663,7 +3864,16 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
 
   const handleSavePrescription = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isInactive) {
+      toast.error('Operação não permitida: residente está desativado.');
+      return;
+    }
     if (!onUpdateResident || !prescriptionData.name || !prescriptionData.dosage || !prescriptionData.frequency) return;
+
+    if (prescriptionData.startDate && isBeforeToday(prescriptionData.startDate)) {
+      toast.error('A data de início da prescrição não pode ser anterior à data atual.');
+      return;
+    }
 
     const newMed: Medication = {
       id: Math.random().toString(36).substr(2, 9),
@@ -3701,6 +3911,10 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   };
 
   const handleDeleteMedication = (medId: string) => {
+    if (isInactive) {
+      toast.error('Operação não permitida: residente está desativado.');
+      return;
+    }
     if (!onUpdateResident) return;
     if (confirm("Tem certeza que deseja excluir esta prescrição de medicamento?")) {
       const updatedMeds = (resident.medications || []).filter(med => med.id !== medId);
@@ -3720,6 +3934,10 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
 
   const handleAddCarePlan = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isInactive) {
+      toast.error('Operação não permitida: residente está desativado.');
+      return;
+    }
     if (!onUpdateResident || !canManageCarePlan) return;
 
     // Serialize frequencyDays selection to JSON string
@@ -3788,6 +4006,10 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   };
 
   const handleResidentDocUpload = async () => {
+    if (isInactive) {
+      toast.error('Operação não permitida: residente está desativado.');
+      return;
+    }
     if (!docUploadFile || !docUploadName.trim() || !onUpdateResident) return;
     setIsUploadingResidentDoc(true);
     try {
@@ -3832,6 +4054,10 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   };
 
   const handleSaveFolder = async () => {
+    if (isInactive) {
+      toast.error('Operação não permitida: residente está desativado.');
+      return;
+    }
     const name = folderName.trim();
     if (!name) return;
     try {
@@ -3862,6 +4088,10 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   };
 
   const handleDeleteFolder = async () => {
+    if (isInactive) {
+      toast.error('Operação não permitida: residente está desativado.');
+      return;
+    }
     if (!folderToDelete) return;
     try {
       if (onDeleteFolder) {
@@ -3888,6 +4118,10 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   };
 
   const handleMoveDocument = async () => {
+    if (isInactive) {
+      toast.error('Operação não permitida: residente está desativado.');
+      return;
+    }
     if (!docToMove) return;
     try {
       if (onMoveDocument) {
@@ -3917,6 +4151,10 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   };
 
   const handleSaveEvolutionNote = () => {
+    if (isInactive) {
+      toast.error('Operação não permitida: residente está desativado.');
+      return;
+    }
     if (!newNoteText.trim() || !onUpdateResident) return;
 
     const creatorRole = currentUser?.employeeRole || currentUser?.profile.type || 'Profissional';
@@ -3957,6 +4195,10 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   };
 
   const handleChecklistToggle = (field: keyof DailyChecklist) => {
+    if (isInactive) {
+      toast.error('Operação não permitida: residente está desativado.');
+      return;
+    }
     if (!onUpdateResident) return;
     
     // Create new list or update existing
@@ -3976,6 +4218,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   };
 
   const handleChecklistFieldChange = (field: keyof DailyChecklist, value: any) => {
+    if (isInactive) return;
     if (checklistDraft) {
       setChecklistDraft({ ...checklistDraft, [field]: value });
     } else {
@@ -3998,6 +4241,10 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
   };
 
   const handleAdministerMedication = (medId: string) => {
+    if (isInactive) {
+      toast.error('Operação não permitida: residente está desativado.');
+      return;
+    }
     if (!onUpdateResident) return;
 
     const updatedMeds = resident.medications.map(med => {
@@ -4088,7 +4335,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
             </div>
           </div>
           
-          {hasPermission(ViewState.RESIDENT_DETAIL_INFO, 'edit') && (
+          {hasPermission(ViewState.RESIDENT_DETAIL_INFO, 'edit') && !isInactive && (
             <div className="flex w-full md:w-auto gap-2 mt-2 md:mt-0">
                <button
                  onClick={handleStartEditResident}
@@ -4100,6 +4347,18 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
             </div>
           )}
         </div>
+
+        {isInactive && (
+          <div className="mx-4 md:mx-6 mt-4 p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-center gap-3 text-rose-800 shadow-sm">
+            <UserX className="w-6 h-6 text-rose-600 shrink-0" />
+            <div>
+              <p className="font-bold text-sm">Residente Desativado / Desligado</p>
+              <p className="text-xs text-rose-700">
+                Este residente está inativo{resident.dataDesligamento ? ` desde ${resident.dataDesligamento}` : ''}. Nenhuma edição ou adição de registros é permitida (modo somente leitura).
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Tabs Navigation - Improved Scroll */}
         <div className="border-b border-slate-200 bg-white sticky top-0 z-10">
@@ -4126,7 +4385,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
           
           {activeTab === 'info' && (
             <div className="space-y-6">
-              {hasPermission(ViewState.RESIDENT_DETAIL_INFO, 'edit') && (
+              {hasPermission(ViewState.RESIDENT_DETAIL_INFO, 'edit') && !isInactive && (
                 <div className="flex justify-end">
                   <button
                     onClick={handleStartEditResident}
@@ -5016,7 +5275,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <h4 className="text-sm font-semibold text-slate-700">Médias por Período e Momento</h4>
                     <div className="flex items-center gap-2">
-                      {canRegisterGlicemia && (
+                      {canRegisterGlicemia && !isInactive && (
                         <button
                           onClick={() => handleOpenGlicemiaModal()}
                           className="flex items-center gap-1.5 px-3 py-1.5 bg-primary-600 text-white text-xs font-semibold rounded-lg hover:bg-primary-700 transition-colors"
@@ -5153,7 +5412,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                                   ) : '—'}
                                 </td>
                                 <td className="px-4 py-3 text-xs text-slate-500 max-w-xs truncate">{reading.notes || '—'}</td>
-                                {(canRegisterGlicemia || canDeleteGlicemia) && (
+                                {(canRegisterGlicemia || canDeleteGlicemia) && !isInactive && (
                                   <td className="px-4 py-3">
                                     <div className="flex items-center justify-end gap-1.5">
                                       {canRegisterGlicemia && (
@@ -5488,7 +5747,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                     </div>
                   </td>
                   <td className="px-4 py-3 text-right">
-                    {hasPermission(ViewState.RESIDENT_DETAIL_MEDS, 'edit') && (
+                    {hasPermission(ViewState.RESIDENT_DETAIL_MEDS, 'edit') && !isInactive && (
                       <button
                         onClick={() => handleAdministerMedication(med.id)}
                         className="bg-emerald-600 text-white text-xs px-3 py-1.5 rounded hover:bg-emerald-700 transition-colors mr-2 cursor-pointer"
@@ -5496,10 +5755,12 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                         Checar
                       </button>
                     )}
-                    <button className="text-rose-500 hover:text-rose-700 p-1" title="Registrar Reação Adversa">
-                      <AlertOctagon size={16} />
-                    </button>
-                    {hasPermission(ViewState.RESIDENT_DETAIL_MEDS, 'delete') && (
+                    {!isInactive && (
+                      <button className="text-rose-500 hover:text-rose-700 p-1" title="Registrar Reação Adversa">
+                        <AlertOctagon size={16} />
+                      </button>
+                    )}
+                    {hasPermission(ViewState.RESIDENT_DETAIL_MEDS, 'delete') && !isInactive && (
                       <button
                         onClick={() => handleDeleteMedication(med.id)}
                         className="text-rose-600 hover:text-rose-800 p-1 ml-2 inline-flex items-center cursor-pointer"
@@ -5516,7 +5777,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
               <div className="space-y-6">
                 <div className="flex justify-between items-center">
                   <h3 className="text-lg font-semibold text-slate-800">Gestão de Medicamentos</h3>
-                  {hasPermission(ViewState.RESIDENT_DETAIL_MEDS, 'create') && (
+                  {hasPermission(ViewState.RESIDENT_DETAIL_MEDS, 'create') && !isInactive && (
                     <button
                       onClick={() => setIsPrescriptionModalOpen(true)}
                       className="flex items-center text-sm text-primary-600 font-medium bg-primary-50 px-3 py-1.5 rounded-lg border border-primary-100 cursor-pointer"
@@ -5738,7 +5999,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                                   >
                                     <FileText size={14} /> Ver
                                   </a>
-                                  {hasPermission(ViewState.RESIDENT_DETAIL_MEDS, 'delete') && (
+                                  {hasPermission(ViewState.RESIDENT_DETAIL_MEDS, 'delete') && !isInactive && (
                                     <button
                                       onClick={() => handleDeleteReceita(receita.id)}
                                       className="text-rose-500 hover:text-rose-700 p-1 inline-flex items-center cursor-pointer"
@@ -5793,6 +6054,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                     <input
                       type="date"
                       required
+                      min={getTodayDateString()}
                       value={receitaFormData.expiryDate}
                       onChange={e => setReceitaFormData(prev => ({ ...prev, expiryDate: e.target.value }))}
                       className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
@@ -5957,7 +6219,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                       <p className="text-sm text-slate-500 max-w-sm mb-6">
                         O prontuário {getShiftLabel(selectedShift, true)} para este dia ainda não foi iniciado para este residente. Crie o boletim para registrar a evolução de rotina.
                       </p>
-                      {hasPermission(ViewState.RESIDENT_DETAIL_ROUTINE, 'create') && (
+                      {hasPermission(ViewState.RESIDENT_DETAIL_ROUTINE, 'create') && !isInactive && (
                         <button
                           onClick={handleStartEditChecklist}
                           className="flex items-center px-6 py-3 bg-primary-600 text-white rounded-xl text-sm font-semibold hover:bg-primary-700 transition-all shadow-md hover:shadow-lg cursor-pointer"
@@ -6001,7 +6263,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 mr-1.5 animate-pulse"></span>
                                 Salvo no prontuário
                               </span>
-                              {hasPermission(ViewState.RESIDENT_DETAIL_ROUTINE, 'sign') && (
+                              {hasPermission(ViewState.RESIDENT_DETAIL_ROUTINE, 'sign') && !isInactive && (
                                 <button
                                   onClick={() => handleRequestSign('read')}
                                   className="flex items-center px-4 py-2 bg-blue-600 text-white border border-blue-700 rounded-xl text-xs font-semibold hover:bg-blue-700 transition-all shadow-sm cursor-pointer"
@@ -6010,7 +6272,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                                   Assinar Digitalmente
                                 </button>
                               )}
-                              {hasPermission(ViewState.RESIDENT_DETAIL_ROUTINE, 'edit') && (
+                              {hasPermission(ViewState.RESIDENT_DETAIL_ROUTINE, 'edit') && !isInactive && (
                                 <button
                                   onClick={handleStartEditChecklist}
                                   className="flex items-center px-4 py-2 bg-white text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold hover:bg-slate-50 transition-all shadow-sm cursor-pointer"
@@ -6483,13 +6745,18 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                         </h3>
                         <div className="flex items-center gap-2 mt-2">
                           <span className="text-xs font-semibold text-slate-600">Data do Boletim:</span>
-                          <input 
+                          <input
                             type="date"
                             value={checklistDraft.date}
                             onChange={(e) => handleChecklistFieldChange('date', e.target.value)}
-                            className="px-2.5 py-1 border border-slate-300 rounded-lg text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary-500 bg-slate-50 text-slate-800 shadow-sm"
+                            className={`px-2.5 py-1 border rounded-lg text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary-500 bg-slate-50 text-slate-800 shadow-sm ${
+                              hasChecklistFieldError('date') ? 'border-rose-400 ring-1 ring-rose-300' : 'border-slate-300'
+                            }`}
                           />
                         </div>
+                        <p className="text-[11px] text-slate-500 mt-2">
+                          Campos marcados com <span className="text-rose-600 font-bold">*</span> são obrigatórios para assinar o boletim.
+                        </p>
                       </div>
                       <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
                         <button
@@ -6510,6 +6777,26 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                       </div>
                     </div>
 
+                    {showChecklistErrors && (
+                      <div
+                        ref={checklistErrorSummaryRef}
+                        role="alert"
+                        className="scroll-mt-4 p-4 bg-rose-50 border border-rose-200 rounded-xl shadow-sm"
+                      >
+                        <p className="text-xs font-bold text-rose-800 flex items-center gap-1.5">
+                          <AlertOctagon size={14} className="shrink-0" />
+                          Boletim incompleto — preencha os itens abaixo para assinar:
+                        </p>
+                        <ul className="mt-2 space-y-1 list-disc list-inside">
+                          {checklistMissingFields.map(field => (
+                            <li key={field.key} className="text-xs text-rose-700 font-medium">
+                              {field.label}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
                     <div className="space-y-6">
                       {/* SECTION 1: QUEIXAS & ESTADO NEUROLÓGICO */}
                       <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
@@ -6519,7 +6806,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           {/* Queixa Dor */}
                           <div className="space-y-2">
-                            <label className="block text-xs font-bold text-slate-700">Queixa Dor</label>
+                            <ChecklistRequiredLabel error={hasChecklistFieldError('queixaDor')}>Queixa Dor</ChecklistRequiredLabel>
                             <div className="flex gap-2">
                               <button
                                 type="button"
@@ -6549,8 +6836,10 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                                 type="text"
                                 value={checklistDraft.queixaDorDesc || ''}
                                 onChange={(e) => handleChecklistFieldChange('queixaDorDesc', e.target.value)}
-                                placeholder="Descreva a dor..."
-                                className="w-full mt-2 px-3 py-1.5 border border-rose-300 rounded-lg text-xs focus:ring-1 focus:ring-rose-500 bg-rose-50/10 text-slate-800 placeholder-slate-400"
+                                placeholder="Descreva a dor... (obrigatório)"
+                                className={`w-full mt-2 px-3 py-1.5 border border-rose-300 rounded-lg text-xs focus:ring-1 focus:ring-rose-500 bg-rose-50/10 text-slate-800 placeholder-slate-400 ${
+                                  hasChecklistFieldError('queixaDorDesc') ? 'ring-2 ring-rose-400' : ''
+                                }`}
                               />
                             )}
                           </div>
@@ -6587,7 +6876,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
 
                         {/* Estado Neurológico */}
                         <div className="space-y-1.5">
-                          <label className="block text-xs font-bold text-slate-700">Estado neurológico:</label>
+                          <ChecklistRequiredLabel error={hasChecklistFieldError('estadoNeurologico')}>Estado neurológico:</ChecklistRequiredLabel>
                           <div className="flex gap-2">
                             <button
                               type="button"
@@ -6649,7 +6938,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           {/* Alimentação */}
                           <div className="space-y-2">
-                            <label className="block text-xs font-bold text-slate-700">Aceitação Alimentar</label>
+                            <ChecklistRequiredLabel error={hasChecklistFieldError('alimentacao')}>Aceitação Alimentar</ChecklistRequiredLabel>
                             <div className="grid grid-cols-3 gap-1.5">
                               {[
                                 { value: 'boa', label: 'Boa Aceitação' },
@@ -6679,15 +6968,17 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                                 type="text"
                                 value={checklistDraft.alimentacaoDesc || ''}
                                 onChange={(e) => handleChecklistFieldChange('alimentacaoDesc', e.target.value)}
-                                placeholder="Descreva os motivos..."
-                                className="w-full mt-2 px-3 py-1.5 border border-rose-350 rounded-lg text-xs focus:ring-1 focus:ring-rose-500 bg-rose-50/10 text-slate-800 placeholder-slate-400"
+                                placeholder="Descreva os motivos... (obrigatório)"
+                                className={`w-full mt-2 px-3 py-1.5 border border-rose-350 rounded-lg text-xs focus:ring-1 focus:ring-rose-500 bg-rose-50/10 text-slate-800 placeholder-slate-400 ${
+                                  hasChecklistFieldError('alimentacaoDesc') ? 'ring-2 ring-rose-400' : ''
+                                }`}
                               />
                             )}
                           </div>
 
                           {/* Eliminação / Evacuação */}
                           <div className="space-y-2">
-                            <label className="block text-xs font-bold text-slate-700">Fezes (Defecação / Eliminação)</label>
+                            <ChecklistRequiredLabel error={hasChecklistFieldError('eliminacaoEvacuacao')}>Fezes (Defecação / Eliminação)</ChecklistRequiredLabel>
                             <div className="flex gap-2">
                               <button
                                 type="button"
@@ -6823,7 +7114,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           {/* Alterações na pele ou edema/lesão */}
                           <div className="space-y-2">
-                            <label className="block text-xs font-bold text-slate-700">Alterações na pele / edema (lesão)</label>
+                            <ChecklistRequiredLabel error={hasChecklistFieldError('alteracoesPele')}>Alterações na pele / edema (lesão)</ChecklistRequiredLabel>
                             <div className="flex gap-2">
                               <button
                                 type="button"
@@ -6853,8 +7144,10 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                                 type="text"
                                 value={checklistDraft.alteracoesPeleDesc || ''}
                                 onChange={(e) => handleChecklistFieldChange('alteracoesPeleDesc', e.target.value)}
-                                placeholder="Informe o local e detalhes da lesão..."
-                                className="w-full mt-2 px-3 py-1.5 border border-rose-300 rounded-lg text-xs focus:ring-1 focus:ring-rose-500 bg-rose-50/10 text-slate-800 placeholder-slate-400"
+                                placeholder="Informe o local e detalhes da lesão... (obrigatório)"
+                                className={`w-full mt-2 px-3 py-1.5 border border-rose-300 rounded-lg text-xs focus:ring-1 focus:ring-rose-500 bg-rose-50/10 text-slate-800 placeholder-slate-400 ${
+                                  hasChecklistFieldError('alteracoesPeleDesc') ? 'ring-2 ring-rose-400' : ''
+                                }`}
                               />
                             )}
                           </div>
@@ -6862,7 +7155,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                           {/* Sono - boletim noturno ou boletim diário único */}
                           {selectedShift !== 'diurno' && (
                           <div className="space-y-2">
-                            <label className="block text-xs font-bold text-slate-700">Qualidade de Sono</label>
+                            <ChecklistRequiredLabel error={hasChecklistFieldError('sono')}>Qualidade de Sono</ChecklistRequiredLabel>
                             <div className="flex gap-2">
                               <button
                                 type="button"
@@ -6892,8 +7185,10 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                                 type="text"
                                 value={checklistDraft.sonoDesc || ''}
                                 onChange={(e) => handleChecklistFieldChange('sonoDesc', e.target.value)}
-                                placeholder="Descreva o distúrbio de sono observado..."
-                                className="w-full mt-2 px-3 py-1.5 border border-rose-300 rounded-lg text-xs focus:ring-1 focus:ring-rose-500 bg-rose-50/10 text-slate-800 placeholder-slate-400"
+                                placeholder="Descreva o distúrbio de sono observado... (obrigatório)"
+                                className={`w-full mt-2 px-3 py-1.5 border border-rose-300 rounded-lg text-xs focus:ring-1 focus:ring-rose-500 bg-rose-50/10 text-slate-800 placeholder-slate-400 ${
+                                  hasChecklistFieldError('sonoDesc') ? 'ring-2 ring-rose-400' : ''
+                                }`}
                               />
                             )}
                           </div>
@@ -6902,7 +7197,18 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
 
                         {/* Medicações administradas e horários */}
                         <div className="space-y-2 pt-2">
-                          <label className="block text-xs font-bold text-slate-700">Medicações Administradas e Horários:</label>
+                          <label
+                            className={`block text-xs font-bold ${
+                              hasChecklistFieldError('medicacoesAdministradas') ? 'text-rose-700' : 'text-slate-700'
+                            }`}
+                          >
+                            Medicações Administradas e Horários:
+                          </label>
+                          {hasChecklistFieldError('medicacoesAdministradas') && (
+                            <p className="text-[11px] text-rose-700 font-semibold">
+                              Marque "Tomou" ou "Não Tomou" em todas as doses listadas.
+                            </p>
+                          )}
                           {(() => {
                             const parsedMeds = parseMedications(checklistDraft.medicacoesAdministradas);
                             if (parsedMeds) {
@@ -6910,7 +7216,14 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                                 <div className="space-y-3 bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
                                   <div className="grid grid-cols-1 gap-3">
                                     {parsedMeds.map((med, idx) => (
-                                      <div key={med.id || idx} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100 hover:border-slate-200 transition-colors">
+                                      <div
+                                        key={med.id || idx}
+                                        className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-xl border transition-colors ${
+                                          showChecklistErrors && (!med.status || med.status === 'pendente')
+                                            ? 'bg-rose-50/60 border-rose-300'
+                                            : 'bg-slate-50 border-slate-100 hover:border-slate-200'
+                                        }`}
+                                      >
                                         <div>
                                           <span className="font-semibold text-xs text-slate-800 block">{med.name}</span>
                                           <span className="text-[10px] text-slate-500">{med.dosage}</span>
@@ -7021,8 +7334,13 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                         <div className="space-y-2 pt-2 border-t border-slate-100">
                           <label className="block text-xs font-bold text-rose-700 uppercase tracking-widest text-[10px] flex items-center">
                             <AlertOctagon size={14} className="mr-1 animate-pulse" />
-                            Houve alguma intercorrência durante o plantão?
+                            Houve alguma intercorrência durante o plantão? *
                           </label>
+                          {hasChecklistFieldError('intercorrencia') && (
+                            <p className="text-[11px] text-rose-700 font-semibold normal-case tracking-normal">
+                              Selecione uma das opções abaixo.
+                            </p>
+                          )}
                           <div className="flex gap-2 font-bold">
                             <button
                               type="button"
@@ -7052,8 +7370,10 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                               rows={3}
                               value={checklistDraft.intercorrenciaDesc || ''}
                               onChange={(e) => handleChecklistFieldChange('intercorrenciaDesc', e.target.value)}
-                              placeholder="Forneça o relato minucioso do ocorrido e providências clínicas tomadas..."
-                              className="w-full mt-2 px-3 py-2 border-2 border-rose-300 rounded-lg text-xs bg-rose-50/10 text-slate-800 placeholder-slate-400 focus:ring-1 focus:ring-rose-500 focus:outline-none focus:border-rose-400"
+                              placeholder="Forneça o relato minucioso do ocorrido e providências clínicas tomadas... (obrigatório)"
+                              className={`w-full mt-2 px-3 py-2 border-2 border-rose-300 rounded-lg text-xs bg-rose-50/10 text-slate-800 placeholder-slate-400 focus:ring-1 focus:ring-rose-500 focus:outline-none focus:border-rose-400 ${
+                                hasChecklistFieldError('intercorrenciaDesc') ? 'ring-2 ring-rose-400' : ''
+                              }`}
                             />
                           )}
                         </div>
@@ -7239,7 +7559,15 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                       </div>
 
                       {/* Bottom Sticky Action Bar in Edit Mode */}
-                      <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 bg-slate-50 rounded-b-xl">
+                      <div className="flex flex-wrap items-center justify-end gap-3 pt-4 border-t border-slate-200 bg-slate-50 rounded-b-xl">
+                        {showChecklistErrors && (
+                          <p className="mr-auto text-xs font-semibold text-rose-700 flex items-center gap-1.5">
+                            <AlertOctagon size={14} className="shrink-0" />
+                            {checklistMissingFields.length === 1
+                              ? '1 campo obrigatório pendente'
+                              : `${checklistMissingFields.length} campos obrigatórios pendentes`}
+                          </p>
+                        )}
                         <button
                           type="button"
                           onClick={handleCancelEditChecklist}
@@ -7458,7 +7786,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
             <div className="space-y-6 animate-in fade-in duration-200">
               <div className="flex justify-between items-center">
                 <h3 className="text-lg font-semibold text-slate-800">Plano Individual de Cuidados</h3>
-                {canManageCarePlan && (
+                {canManageCarePlan && !isInactive && (
                   <button 
                     onClick={() => setShowPlanForm(!showPlanForm)}
                     className="flex items-center px-3 py-1.5 bg-primary-600 text-white rounded-lg text-sm hover:bg-primary-700 transition-colors"
@@ -7640,7 +7968,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                     <p className="text-[10px] text-slate-400 mt-1">{new Date(doc.uploadDate).toLocaleDateString('pt-BR')}</p>
                   </div>
                 </a>
-                {canManageDocuments && (
+                {canManageDocuments && !isInactive && (
                   <div className="ml-2 flex items-center gap-0.5 shrink-0">
                     <button
                       onClick={(e) => { e.stopPropagation(); openMoveDocument(doc); }}
@@ -7673,7 +8001,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
               <div className="space-y-6">
                 <div className="flex justify-between items-center gap-2">
                   <h3 className="text-lg font-semibold text-slate-800">Documentos Digitalizados</h3>
-                  {canCreate && (
+                  {canCreate && !isInactive && (
                     <div className="flex items-center gap-2">
                       <button
                         onClick={openCreateFolder}
@@ -8222,7 +8550,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                       Registro e controle das visitas recebidas pelo residente.
                     </p>
                   </div>
-                  {canRegisterVisits && (
+                  {canRegisterVisits && !isInactive && (
                     <button 
                       onClick={() => {
                         setVisitData({
@@ -8280,7 +8608,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                                 <span>Registrado por: {visit.createdBy}</span>
                               </div>
                             </div>
-                            {canRegisterVisits && (
+                            {canRegisterVisits && !isInactive && (
                               <button 
                                 onClick={() => handleDeleteVisit(visit.id)}
                                 className="text-rose-500 hover:text-rose-700 p-1.5 bg-white border border-slate-200 hover:border-rose-100 hover:bg-rose-50 rounded-lg transition-all shadow-sm opacity-0 group-hover:opacity-100 cursor-pointer"
@@ -8441,11 +8769,27 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                           className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                         >
                           <option value="">Selecione...</option>
-                          {rooms.map(r => (
-                            <option key={r.id} value={r.number}>
-                              Quarto {r.number} ({r.type})
-                            </option>
-                          ))}
+                          {rooms.map(r => {
+                            const occupiedCount = (residents || []).filter(
+                              res => res.status !== 'inativo' && res.room.trim().toLowerCase() === r.number.trim().toLowerCase() && res.id !== resident.id
+                            ).length;
+                            const maxCap = r.capacity ?? 1;
+                            const isFull = occupiedCount >= maxCap;
+                            const disabled = isFull && (formData.room || '').trim().toLowerCase() !== r.number.trim().toLowerCase();
+
+                            let labelStatus = '';
+                            if (r.type === 'Individual') {
+                              labelStatus = occupiedCount >= 1 ? ' (Individual - Ocupado)' : ' (Individual - Vago)';
+                            } else {
+                              labelStatus = ` (Compartilhado - ${occupiedCount}/${maxCap} leitos${isFull ? ' - Lotado' : ''})`;
+                            }
+
+                            return (
+                              <option key={r.id} value={r.number} disabled={disabled}>
+                                Quarto {r.number}{labelStatus}
+                              </option>
+                            );
+                          })}
                         </select>
                       ) : (
                         <input
@@ -9125,6 +9469,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                     <input
                       required
                       type="date"
+                      min={getTodayDateString()}
                       value={prescriptionData.startDate}
                       onChange={e => setPrescriptionData({ ...prescriptionData, startDate: e.target.value })}
                       className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
@@ -9139,7 +9484,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                         required
                         type="date"
                         value={prescriptionData.endDate}
-                        min={prescriptionData.startDate}
+                        min={prescriptionData.startDate || getTodayDateString()}
                         onChange={e => setPrescriptionData({ ...prescriptionData, endDate: e.target.value })}
                         className="w-full px-3 py-2.5 border border-amber-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 bg-white"
                       />
@@ -9284,6 +9629,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, onBa
                   <input 
                     required 
                     type="datetime-local" 
+                    min={getTodayStartDatetimeLocal()}
                     value={visitData.date} 
                     onChange={e => setVisitData(prev => ({ ...prev, date: e.target.value }))} 
                     className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" 
