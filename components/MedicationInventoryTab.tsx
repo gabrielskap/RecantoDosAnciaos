@@ -12,7 +12,7 @@ import {
   fetchInventario, addInventarioItem, registrarMovimentacao, deleteInventarioItem,
   fetchPrescricoesResidente, unidadesPorTomada, consumoDiario, diasCobertura,
   dataTerminoPrevista, isBaixoEstoque, isVencido, isVencendo, precisaReposicao,
-  motivoReposicao, LIMITE_DIAS_REPOSICAO, NovoInventarioInput,
+  motivoReposicao, formatTomadasPorDia, LIMITE_DIAS_REPOSICAO, NovoInventarioInput,
 } from '../services/medicationInventoryService';
 import { isBeforeToday, getTodayDateString } from '../utils/dateUtils';
 
@@ -48,6 +48,7 @@ const emptyForm = {
   estoqueMinimoUnidades: '',
   dosePorTomada: '',
   tomadasPorDia: '',
+  periodicidade: 'diaria' as 'diaria' | 'semanal',
   validade: '',
   lote: '',
   embalagensIniciais: '1',
@@ -177,7 +178,9 @@ const MedicationInventoryTab: React.FC<Props> = ({ residents = [] }) => {
         unidadesPorEmbalagem: form.unidadesPorEmbalagem ? parseFloat(form.unidadesPorEmbalagem) : undefined,
         estoqueMinimoUnidades: form.estoqueMinimoUnidades ? parseFloat(form.estoqueMinimoUnidades) : 0,
         dosePorTomada: form.dosePorTomada ? parseFloat(form.dosePorTomada) : undefined,
-        tomadasPorDia: form.tomadasPorDia ? parseFloat(form.tomadasPorDia) : undefined,
+        tomadasPorDia: form.tomadasPorDia
+          ? (form.periodicidade === 'semanal' ? parseFloat(form.tomadasPorDia) / 7 : parseFloat(form.tomadasPorDia))
+          : undefined,
         validade: form.validade || undefined,
         lote: form.lote.trim() || undefined,
       };
@@ -385,7 +388,7 @@ const MedicationInventoryTab: React.FC<Props> = ({ residents = [] }) => {
                   {item.dosePorTomada && item.tomadasPorDia ? (
                     <p className="text-xs text-slate-600">
                       <span className="font-semibold text-slate-700">Posologia:</span>{' '}
-                      {round2(item.dosePorTomada)} {item.concentracaoUnidade}/tomada · {round2(item.tomadasPorDia)}x/dia
+                      {round2(item.dosePorTomada)} {item.concentracaoUnidade}/tomada · {formatTomadasPorDia(item.tomadasPorDia)}
                       {upt != null && <span className="text-slate-400"> = {round2(upt)} {unit}/tomada · {cd != null ? round2(cd) : '—'} {unit}/dia</span>}
                     </p>
                   ) : (
@@ -502,7 +505,27 @@ const MedicationInventoryTab: React.FC<Props> = ({ residents = [] }) => {
                   <input type="number" step="any" min="0" value={form.dosePorTomada} onChange={e => setForm({ ...form, dosePorTomada: e.target.value })} className={inputClass} placeholder="Ex: 20" />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">Tomadas por dia</label>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-xs font-semibold text-slate-600">
+                      Tomadas por {form.periodicidade === 'semanal' ? 'semana' : 'dia'}
+                    </label>
+                    <div className="flex rounded-lg border border-slate-200 overflow-hidden shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setForm({ ...form, periodicidade: 'diaria' })}
+                        className={`px-2 py-0.5 text-[10px] font-semibold transition-colors ${form.periodicidade === 'diaria' ? 'bg-blue-600 text-white' : 'bg-white text-slate-500 hover:bg-slate-50'}`}
+                      >
+                        Dia
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setForm({ ...form, periodicidade: 'semanal' })}
+                        className={`px-2 py-0.5 text-[10px] font-semibold transition-colors border-l border-slate-200 ${form.periodicidade === 'semanal' ? 'bg-blue-600 text-white' : 'bg-white text-slate-500 hover:bg-slate-50'}`}
+                      >
+                        Semana
+                      </button>
+                    </div>
+                  </div>
                   <input type="number" step="any" min="0" value={form.tomadasPorDia} onChange={e => setForm({ ...form, tomadasPorDia: e.target.value })} className={inputClass} placeholder="Ex: 1" />
                 </div>
                 <div>

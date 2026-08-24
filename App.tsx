@@ -1879,6 +1879,7 @@ function AppInner() {
         carePlan: updated.carePlan,
         documentFolders: updated.documentFolders,
         dietPlan: updated.dietPlan,
+        nutritionalLogs: updated.nutritionalLogs,
       });
 
       setResidents(previous => previous.map(resident =>

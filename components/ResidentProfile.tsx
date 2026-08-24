@@ -280,6 +280,30 @@ export const classifyGlicemia = (value: number, moment: GlicemiaMomento): { labe
 
 // ── Medication schedule helpers ──────────────────────────────────────────────
 
+export type DayOfWeek = 'domingo' | 'segunda' | 'terca' | 'quarta' | 'quinta' | 'sexta' | 'sabado';
+
+export const getDayOfWeek = (dateString: string): DayOfWeek => {
+  if (!dateString) return 'segunda';
+  const [year, month, day] = dateString.split('-').map(Number);
+  const date = new Date(year, month - 1, day);
+  const days: DayOfWeek[] = [
+    'domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado'
+  ];
+  return days[date.getDay()];
+};
+
+const WEEKDAY_LABELS: Record<DayOfWeek, string> = {
+  domingo: 'Domingo',
+  segunda: 'Segunda-feira',
+  terca: 'Terça-feira',
+  quarta: 'Quarta-feira',
+  quinta: 'Quinta-feira',
+  sexta: 'Sexta-feira',
+  sabado: 'Sábado',
+};
+
+export const WEEKLY_FREQUENCY_PREFIX = 'Semanal (1x por semana)';
+
 export const FREQUENCY_OPTIONS = [
   { label: '1h em 1h',              hours: 1  },
   { label: '2h em 2h',              hours: 2  },
@@ -291,14 +315,28 @@ export const FREQUENCY_OPTIONS = [
   { label: '24h em 24h (1× ao dia)', hours: 24 },
   { label: '48h em 48h (a cada 2 dias)', hours: 48 },
   { label: '72h em 72h (a cada 3 dias)', hours: 72 },
+  { label: WEEKLY_FREQUENCY_PREFIX, hours: 168 },
 ];
 
 export const parseFrequencyHours = (label: string): number => {
   const opt = FREQUENCY_OPTIONS.find(o => o.label === label);
   if (opt) return opt.hours;
+  if (label.startsWith('Semanal')) return 168;
   const m = label.match(/^(\d+)h/);
   return m ? parseInt(m[1], 10) : 0;
 };
+
+/** Ex.: "Semanal (1x por semana)" ou "Semanal (1x por semana) — Segunda-feira". */
+export const isWeeklyFrequency = (label: string): boolean => label.startsWith('Semanal');
+
+/** Extrai o dia da semana embutido no rótulo de frequência semanal, se houver. */
+export const parseWeeklyDay = (label: string): DayOfWeek | null => {
+  const entry = (Object.entries(WEEKDAY_LABELS) as [DayOfWeek, string][]).find(([, dayLabel]) => label.includes(dayLabel));
+  return entry ? entry[0] : null;
+};
+
+export const buildWeeklyFrequencyLabel = (day: DayOfWeek): string =>
+  `${WEEKLY_FREQUENCY_PREFIX} — ${WEEKDAY_LABELS[day]}`;
 
 const fmtMins = (totalMins: number): string => {
   const h = Math.floor(totalMins / 60) % 24;
@@ -390,8 +428,36 @@ export const computeDailySchedule = (
   return results;
 };
 
+const diffInCalendarDays = (fromDate: string, toDate: string): number => {
+  const [fy, fm, fd] = fromDate.split('-').map(Number);
+  const [ty, tm, td] = toDate.split('-').map(Number);
+  const from = new Date(fy, (fm || 1) - 1, fd || 1).getTime();
+  const to = new Date(ty, (tm || 1) - 1, td || 1).getTime();
+  return Math.round((to - from) / 86400000);
+};
+
+// Indica se uma medicação deve ser administrada numa data específica, cobrindo
+// os casos em que a frequência não é diária: semanal (dia da semana escolhido
+// na prescrição) e a cada 48h/72h (intervalo de dias contado a partir da Data
+// de Início). Frequências horárias (≤24h) ocorrem todos os dias.
+export const isMedicationDueOnDate = (med: Medication, dateString: string): boolean => {
+  if (isWeeklyFrequency(med.frequency)) {
+    const day = parseWeeklyDay(med.frequency);
+    return !!day && getDayOfWeek(dateString) === day;
+  }
+  const freqH = parseFrequencyHours(med.frequency);
+  if (freqH >= 48 && freqH % 24 === 0) {
+    const intervalDays = freqH / 24;
+    const start = med.startDate || dateString;
+    const daysSince = diffInCalendarDays(start, dateString);
+    return daysSince >= 0 && daysSince % intervalDays === 0;
+  }
+  return true;
+};
+
 // Monta a lista de medicações a perguntar num boletim, restrita às doses cujo
-// horário cai dentro do turno selecionado (diurno: 06h–18h / noturno: 18h–06h).
+// horário cai dentro do turno selecionado (diurno: 06h–18h / noturno: 18h–06h)
+// e ao dia certo para medicações não-diárias (semanal, 48h, 72h).
 // Medicamentos com múltiplas doses/dia geram uma linha por horário de dose.
 // No modelo de boletim único ("diario") nenhum filtro de turno é aplicado.
 export const getMedicationChecklistItems = (
@@ -401,6 +467,7 @@ export const getMedicationChecklistItems = (
 ): ChecklistMedication[] => {
   if (!medications || medications.length === 0) return [];
   const activeMeds = medications.filter(med => {
+    if (!isMedicationDueOnDate(med, bulletinDate)) return false;
     if (!med.endDate) return true;
     const start = med.startDate || '2000-01-01';
     return start <= bulletinDate && med.endDate >= bulletinDate;
@@ -513,16 +580,6 @@ const ChecklistRequiredLabel: React.FC<{ error?: boolean; children: React.ReactN
     {children} <span className="text-rose-600" title="Campo obrigatório">*</span>
   </label>
 );
-
-const getDayOfWeek = (dateString: string): 'domingo' | 'segunda' | 'terca' | 'quarta' | 'quinta' | 'sexta' | 'sabado' => {
-  if (!dateString) return 'segunda';
-  const [year, month, day] = dateString.split('-').map(Number);
-  const date = new Date(year, month - 1, day);
-  const days: ('domingo' | 'segunda' | 'terca' | 'quarta' | 'quinta' | 'sexta' | 'sabado')[] = [
-    'domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado'
-  ];
-  return days[date.getDay()];
-};
 
 const isCarePlanActiveOnDate = (plan: CarePlan, dateString: string): boolean => {
   if (!plan.frequency) return true;
@@ -643,6 +700,20 @@ interface ResidentProfileProps {
   onDeleteFolder?: (folderId: string, residentId: string) => Promise<void>;
   onMoveDocument?: (documentId: string, folderId: string | null, residentId: string) => Promise<void>;
 }
+
+const getDefaultPrescriptionData = () => ({
+  name: '',
+  dosage: '',
+  route: 'Oral',
+  frequency: '12h em 12h',
+  nextDose: '08:00',
+  startDate: new Date().toISOString().split('T')[0],
+  endDate: '',
+  isTemporary: false,
+  observations: '',
+  documentUrl: '',
+  documentName: ''
+});
 
 const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, residents = [], onBack, onUpdateResident, onLoadGlicemia, onLoadResidentDetail, onSaveGlicemia, onDeleteGlicemia, onCreateFolder, onRenameFolder, onDeleteFolder, onMoveDocument }) => {
   const { currentUser, hasPermission, modeloBoletim } = useAuth();
@@ -1880,19 +1951,9 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, resi
 
   // Prescription Form Modal States
   const [isPrescriptionModalOpen, setIsPrescriptionModalOpen] = useState(false);
-  const [prescriptionData, setPrescriptionData] = useState({
-    name: '',
-    dosage: '',
-    route: 'Oral',
-    frequency: '12h em 12h',
-    nextDose: '08:00',
-    startDate: new Date().toISOString().split('T')[0],
-    endDate: '',
-    isTemporary: false,
-    observations: '',
-    documentUrl: '',
-    documentName: ''
-  });
+  const [editingMedicationId, setEditingMedicationId] = useState<string | null>(null);
+  const [medicationToCheck, setMedicationToCheck] = useState<Medication | null>(null);
+  const [prescriptionData, setPrescriptionData] = useState(getDefaultPrescriptionData);
 
   React.useEffect(() => {
     const openKey = `recanto_prescription_open_${resident.id}`;
@@ -1901,19 +1962,8 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, resi
     localStorage.removeItem(openKey);
     localStorage.removeItem(dataKey);
     setIsPrescriptionModalOpen(false);
-    setPrescriptionData({
-      name: '',
-      dosage: '',
-      route: 'Oral',
-      frequency: '12h em 12h',
-      nextDose: '08:00',
-      startDate: new Date().toISOString().split('T')[0],
-      endDate: '',
-      isTemporary: false,
-      observations: '',
-      documentUrl: '',
-      documentName: ''
-    });
+    setEditingMedicationId(null);
+    setPrescriptionData(getDefaultPrescriptionData());
   }, [resident.id]);
 
   // Receitas Médicas
@@ -3862,7 +3912,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, resi
     }
   };
 
-  const handleSavePrescription = (e: React.FormEvent) => {
+  const handleSavePrescription = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isInactive) {
       toast.error('Operação não permitida: residente está desativado.');
@@ -3870,13 +3920,19 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, resi
     }
     if (!onUpdateResident || !prescriptionData.name || !prescriptionData.dosage || !prescriptionData.frequency) return;
 
-    if (prescriptionData.startDate && isBeforeToday(prescriptionData.startDate)) {
+    if (isWeeklyFrequency(prescriptionData.frequency) && !parseWeeklyDay(prescriptionData.frequency)) {
+      toast.error('Selecione o dia da semana para a medicação semanal.');
+      return;
+    }
+
+    // Prescrições existentes podem legitimamente ter começado no passado;
+    // essa validação só faz sentido ao cadastrar uma prescrição nova.
+    if (!editingMedicationId && prescriptionData.startDate && isBeforeToday(prescriptionData.startDate)) {
       toast.error('A data de início da prescrição não pode ser anterior à data atual.');
       return;
     }
 
-    const newMed: Medication = {
-      id: Math.random().toString(36).substr(2, 9),
+    const baseMed = {
       name: prescriptionData.name,
       dosage: prescriptionData.dosage,
       route: prescriptionData.route,
@@ -3886,28 +3942,22 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, resi
       endDate: (prescriptionData.isTemporary && prescriptionData.endDate) ? prescriptionData.endDate : undefined,
       observations: prescriptionData.observations || undefined,
       documentUrl: prescriptionData.documentUrl || undefined,
-      logs: []
     };
 
-    onUpdateResident({
-      ...resident,
-      medications: [...(resident.medications || []), newMed]
-    });
+    const isEditing = !!editingMedicationId;
+    const updatedMedications = isEditing
+      ? resident.medications.map(med => med.id === editingMedicationId ? { ...med, ...baseMed } : med)
+      : [...(resident.medications || []), { ...baseMed, id: Math.random().toString(36).substr(2, 9), logs: [] } as Medication];
 
-    setPrescriptionData({
-      name: '',
-      dosage: '',
-      route: 'Oral',
-      frequency: '12h em 12h',
-      nextDose: '08:00',
-      startDate: new Date().toISOString().split('T')[0],
-      endDate: '',
-      isTemporary: false,
-      observations: '',
-      documentUrl: '',
-      documentName: ''
-    });
-    setIsPrescriptionModalOpen(false);
+    try {
+      await onUpdateResident({ ...resident, medications: updatedMedications });
+      toast.success(isEditing ? 'Prescrição atualizada com sucesso.' : 'Prescrição cadastrada com sucesso.');
+    } catch {
+      // handleUpdateResident já exibe um toast de erro específico.
+      return;
+    }
+
+    closePrescriptionModal();
   };
 
   const handleDeleteMedication = (medId: string) => {
@@ -4240,32 +4290,43 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, resi
     }
   };
 
-  const handleAdministerMedication = (medId: string) => {
-    if (isInactive) {
-      toast.error('Operação não permitida: residente está desativado.');
-      return;
-    }
-    if (!onUpdateResident) return;
+  const formatLastLog = (med: Medication): string | null => {
+    if (!med.logs || med.logs.length === 0) return null;
+    const last = [...med.logs].sort((a, b) => b.timestamp.localeCompare(a.timestamp))[0];
+    const statusLabel = last.status === 'recusado' ? 'Recusado' : last.status === 'atrasado' ? 'Atrasado' : 'Checado';
+    const dtLabel = new Date(last.timestamp).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    return `${statusLabel} em ${dtLabel} por ${last.administeredBy}`;
+  };
 
-    const updatedMeds = resident.medications.map(med => {
-      if (med.id === medId) {
-        return {
-          ...med,
-          logs: [
-            ...(med.logs || []),
-            {
-              id: Math.random().toString(36).substr(2, 9),
-              timestamp: new Date().toISOString(),
-              administeredBy: 'Enfermagem',
-              status: 'administrado' as const
-            }
-          ]
-        };
-      }
-      return med;
+  const handleOpenNewPrescription = () => {
+    setEditingMedicationId(null);
+    setPrescriptionData(getDefaultPrescriptionData());
+    setIsPrescriptionModalOpen(true);
+  };
+
+  const handleOpenEditPrescription = (med: Medication) => {
+    setPrescriptionData({
+      name: med.name,
+      dosage: med.dosage,
+      route: med.route,
+      frequency: med.frequency,
+      nextDose: med.nextDose || '08:00',
+      startDate: med.startDate || new Date().toISOString().split('T')[0],
+      endDate: med.endDate || '',
+      isTemporary: !!med.endDate,
+      observations: med.observations || '',
+      documentUrl: med.documentUrl || '',
+      documentName: med.documentUrl ? 'Documento anexado' : ''
     });
+    setEditingMedicationId(med.id);
+    setMedicationToCheck(null);
+    setIsPrescriptionModalOpen(true);
+  };
 
-    onUpdateResident({ ...resident, medications: updatedMeds });
+  const closePrescriptionModal = () => {
+    setIsPrescriptionModalOpen(false);
+    setEditingMedicationId(null);
+    setPrescriptionData(getDefaultPrescriptionData());
   };
 
   const getRoomStatusColor = (status?: RoomStatus) => {
@@ -5719,6 +5780,15 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, resi
                     {med.observations && (
                       <div className="text-xs text-slate-450 font-normal mt-0.5 max-w-xs break-words">{med.observations}</div>
                     )}
+                    {(() => {
+                      const lastLog = formatLastLog(med);
+                      return lastLog && (
+                        <div className="text-[11px] text-emerald-600 font-medium mt-0.5 flex items-center gap-1">
+                          <CheckCircle size={11} className="shrink-0" />
+                          <span>{lastLog}</span>
+                        </div>
+                      );
+                    })()}
                   </td>
                   <td className="px-4 py-3">{med.dosage} ({med.route})</td>
                   <td className="px-4 py-3">{med.frequency}</td>
@@ -5749,15 +5819,10 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, resi
                   <td className="px-4 py-3 text-right">
                     {hasPermission(ViewState.RESIDENT_DETAIL_MEDS, 'edit') && !isInactive && (
                       <button
-                        onClick={() => handleAdministerMedication(med.id)}
+                        onClick={() => setMedicationToCheck(med)}
                         className="bg-emerald-600 text-white text-xs px-3 py-1.5 rounded hover:bg-emerald-700 transition-colors mr-2 cursor-pointer"
                       >
                         Checar
-                      </button>
-                    )}
-                    {!isInactive && (
-                      <button className="text-rose-500 hover:text-rose-700 p-1" title="Registrar Reação Adversa">
-                        <AlertOctagon size={16} />
                       </button>
                     )}
                     {hasPermission(ViewState.RESIDENT_DETAIL_MEDS, 'delete') && !isInactive && (
@@ -5779,7 +5844,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, resi
                   <h3 className="text-lg font-semibold text-slate-800">Gestão de Medicamentos</h3>
                   {hasPermission(ViewState.RESIDENT_DETAIL_MEDS, 'create') && !isInactive && (
                     <button
-                      onClick={() => setIsPrescriptionModalOpen(true)}
+                      onClick={handleOpenNewPrescription}
                       className="flex items-center text-sm text-primary-600 font-medium bg-primary-50 px-3 py-1.5 rounded-lg border border-primary-100 cursor-pointer"
                     >
                       <Plus className="h-4 w-4 mr-1" /> Nova Prescrição
@@ -5869,6 +5934,15 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, resi
                                   {med.observations && (
                                     <div className="text-xs text-slate-450 font-normal mt-0.5 max-w-xs break-words">{med.observations}</div>
                                   )}
+                                  {(() => {
+                                    const lastLog = formatLastLog(med);
+                                    return lastLog && (
+                                      <div className="text-[11px] text-emerald-600 font-medium mt-0.5 flex items-center gap-1">
+                                        <CheckCircle size={11} className="shrink-0" />
+                                        <span>{lastLog}</span>
+                                      </div>
+                                    );
+                                  })()}
                                 </td>
                                 <td className="px-4 py-3">{med.dosage} ({med.route})</td>
                                 <td className="px-4 py-3">{med.frequency}</td>
@@ -5909,15 +5983,12 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, resi
                                 <td className="px-4 py-3 text-right">
                                   {hasPermission(ViewState.RESIDENT_DETAIL_MEDS, 'edit') && (
                       <button
-                        onClick={() => handleAdministerMedication(med.id)}
+                        onClick={() => setMedicationToCheck(med)}
                         className="bg-emerald-600 text-white text-xs px-3 py-1.5 rounded hover:bg-emerald-700 transition-colors mr-2 cursor-pointer"
                       >
                         Checar
                       </button>
                     )}
-                                  <button className="text-rose-500 hover:text-rose-700 p-1" title="Registrar Reação Adversa">
-                                    <AlertOctagon size={16} />
-                                  </button>
                                   {hasPermission(ViewState.RESIDENT_DETAIL_MEDS, 'delete') && (
                       <button
                         onClick={() => handleDeleteMedication(med.id)}
@@ -9325,12 +9396,14 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, resi
             <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-[#F8F7FF] shrink-0">
               <div>
                 <h3 className="font-bold text-slate-800 flex items-center gap-1.5">
-                  <Pill className="h-5 w-5 text-blue-600" /> Nova Prescrição de Medicamento
+                  <Pill className="h-5 w-5 text-blue-600" /> {editingMedicationId ? 'Editar Prescrição de Medicamento' : 'Nova Prescrição de Medicamento'}
                 </h3>
-                <p className="text-xs text-slate-400 mt-0.5">Insira as informações da receita médica</p>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {editingMedicationId ? 'Atualize as informações da receita médica' : 'Insira as informações da receita médica'}
+                </p>
               </div>
-              <button 
-                onClick={() => setIsPrescriptionModalOpen(false)} 
+              <button
+                onClick={closePrescriptionModal}
                 className="w-9 h-9 rounded-xl hover:bg-slate-200 flex items-center justify-center transition-colors"
               >
                 <X className="h-5 w-5 text-slate-500" />
@@ -9386,10 +9459,26 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, resi
                   <label className="block text-xs font-semibold text-slate-600 mb-1.5">Frequência</label>
                   <select
                     required
-                    value={prescriptionData.frequency}
-                    onChange={e => setPrescriptionData({ ...prescriptionData, frequency: e.target.value })}
+                    value={isWeeklyFrequency(prescriptionData.frequency) ? WEEKLY_FREQUENCY_PREFIX : prescriptionData.frequency}
+                    onChange={e => {
+                      const frequency = e.target.value;
+                      // Ao selecionar "Semanal", já embute um dia padrão (hoje) no rótulo
+                      // armazenado, mantendo o <select> exibindo apenas o rótulo base.
+                      if (isWeeklyFrequency(frequency)) {
+                        setPrescriptionData({ ...prescriptionData, frequency: buildWeeklyFrequencyLabel(getDayOfWeek(prescriptionData.startDate || new Date().toISOString().split('T')[0])) });
+                      } else {
+                        setPrescriptionData({ ...prescriptionData, frequency });
+                      }
+                    }}
                     className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                   >
+                    {/* Prescrições antigas podem ter um rótulo de frequência em texto livre
+                        que não existe mais nas opções padrão (ex: "Diário", "Se necessário").
+                        Sem isso, o <select> cairia na 1ª opção sem avisar, divergindo do
+                        valor real armazenado em prescriptionData.frequency. */}
+                    {!isWeeklyFrequency(prescriptionData.frequency) && !FREQUENCY_OPTIONS.some(opt => opt.label === prescriptionData.frequency) && (
+                      <option value={prescriptionData.frequency}>{prescriptionData.frequency}</option>
+                    )}
                     {FREQUENCY_OPTIONS.map(opt => (
                       <option key={opt.label} value={opt.label}>{opt.label}</option>
                     ))}
@@ -9406,17 +9495,43 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, resi
                 </div>
               </div>
 
+              {isWeeklyFrequency(prescriptionData.frequency) && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">Dia da Semana</label>
+                  <select
+                    required
+                    value={parseWeeklyDay(prescriptionData.frequency) || ''}
+                    onChange={e => setPrescriptionData({ ...prescriptionData, frequency: buildWeeklyFrequencyLabel(e.target.value as DayOfWeek) })}
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                  >
+                    <option value="" disabled>Selecione o dia</option>
+                    {(['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado'] as DayOfWeek[]).map(day => (
+                      <option key={day} value={day}>{buildWeeklyFrequencyLabel(day).split('— ')[1]}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               {/* Preview dos horários calculados */}
               {prescriptionData.nextDose && prescriptionData.frequency && (() => {
                 const freqH = parseFrequencyHours(prescriptionData.frequency);
                 const schedule = computeDailySchedule(prescriptionData.nextDose, freqH);
                 const diurno = schedule.filter(s => s.shift === 'diurno');
                 const noturno = schedule.filter(s => s.shift === 'noturno');
+                const weeklyDay = parseWeeklyDay(prescriptionData.frequency);
+                const repeatCaption = weeklyDay
+                  ? `Repete toda ${buildWeeklyFrequencyLabel(weeklyDay).split('— ')[1]}`
+                  : (freqH >= 48 && freqH % 24 === 0)
+                  ? `Repete a cada ${freqH / 24} dias, a partir da Data de Início`
+                  : null;
                 return (
                   <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
                     <p className="text-xs font-semibold text-slate-600 mb-1">
                       Horários calculados ({schedule.length} dose{schedule.length !== 1 ? 's' : ''}/dia)
                     </p>
+                    {repeatCaption && (
+                      <p className="text-[11px] text-slate-500">{repeatCaption}</p>
+                    )}
                     {diurno.length > 0 && (
                       <div className="flex flex-wrap items-center gap-1.5">
                         <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
@@ -9469,7 +9584,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, resi
                     <input
                       required
                       type="date"
-                      min={getTodayDateString()}
+                      min={editingMedicationId ? undefined : getTodayDateString()}
                       value={prescriptionData.startDate}
                       onChange={e => setPrescriptionData({ ...prescriptionData, startDate: e.target.value })}
                       className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
@@ -9536,24 +9651,169 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, resi
               </div>
 
               <div className="pt-4 border-t border-slate-100 flex gap-3">
-                <button 
-                  type="button" 
-                  onClick={() => setIsPrescriptionModalOpen(false)} 
+                <button
+                  type="button"
+                  onClick={closePrescriptionModal}
                   className="flex-1 sm:flex-none px-5 py-2.5 border border-slate-200 rounded-xl text-slate-600 font-semibold text-sm hover:bg-slate-50 transition-colors"
                 >
                   Cancelar
                 </button>
-                <button 
-                  type="submit" 
+                <button
+                  type="submit"
                   className="flex-1 sm:flex-none px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold text-sm transition-colors"
                 >
-                  Cadastrar Prescrição
+                  {editingMedicationId ? 'Salvar Alterações' : 'Cadastrar Prescrição'}
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
+
+      {/* Modal de Checagem/Confirmação de Administração */}
+      {medicationToCheck && (() => {
+        const med = medicationToCheck;
+        const freqH = parseFrequencyHours(med.frequency);
+        const schedule = computeDailySchedule(med.nextDose || '08:00', freqH);
+        const diurno = schedule.filter(s => s.shift === 'diurno');
+        const noturno = schedule.filter(s => s.shift === 'noturno');
+        const weeklyDay = parseWeeklyDay(med.frequency);
+        const repeatCaption = weeklyDay
+          ? `Repete toda ${buildWeeklyFrequencyLabel(weeklyDay).split('— ')[1]}`
+          : (freqH >= 48 && freqH % 24 === 0)
+          ? `Repete a cada ${freqH / 24} dias, a partir da Data de Início`
+          : null;
+        const lastLog = formatLastLog(med);
+        const fmtDate = (d: string) => d.split('-').reverse().join('/');
+        const today = new Date().toISOString().split('T')[0];
+        const isTemporary = !!med.endDate;
+        const isExpired = isTemporary && med.endDate! < today;
+        const isNotStarted = isTemporary && !!(med.startDate && med.startDate > today);
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white w-full h-full sm:h-auto sm:rounded-2xl shadow-2xl sm:max-w-lg overflow-hidden flex flex-col max-h-[100vh] sm:max-h-[90vh] animate-in slide-in-from-bottom-4 duration-300"
+            >
+              <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-emerald-50 shrink-0">
+                <div>
+                  <h3 className="font-bold text-slate-800 flex items-center gap-1.5">
+                    <Check className="h-5 w-5 text-emerald-600" /> Checar Prescrição
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">Dados cadastrados da prescrição</p>
+                </div>
+                <button
+                  onClick={() => setMedicationToCheck(null)}
+                  className="w-9 h-9 rounded-xl hover:bg-slate-200 flex items-center justify-center transition-colors"
+                >
+                  <X className="h-5 w-5 text-slate-500" />
+                </button>
+              </div>
+
+              <div className="p-6 overflow-y-auto flex-1 space-y-4">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h4 className="text-lg font-bold text-slate-800">{med.name}</h4>
+                  {med.documentUrl && (
+                    <a
+                      href={med.documentUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-500 hover:text-blue-700 inline-flex items-center gap-0.5 text-xs font-normal"
+                      title="Visualizar receita digitalizada"
+                    >
+                      <FileText size={14} className="text-blue-500" />
+                      <span className="underline">Receita</span>
+                    </a>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-xs font-semibold text-slate-500 mb-0.5">Dosagem / Via</p>
+                    <p className="text-sm text-slate-800 font-medium">{med.dosage} ({med.route})</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold text-slate-500 mb-0.5">Frequência</p>
+                    <p className="text-sm text-slate-800 font-medium">{med.frequency}</p>
+                  </div>
+                </div>
+
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
+                  <p className="text-xs font-semibold text-slate-600 mb-1">
+                    Horários calculados ({schedule.length} dose{schedule.length !== 1 ? 's' : ''}/dia)
+                  </p>
+                  {repeatCaption && (
+                    <p className="text-[11px] text-slate-500">{repeatCaption}</p>
+                  )}
+                  {diurno.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
+                        <Sun className="w-3 h-3" /> Diurno
+                      </span>
+                      {diurno.map(s => (
+                        <span key={s.time} className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-800 border border-amber-200">
+                          {s.time}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {noturno.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded-full">
+                        <Moon className="w-3 h-3" /> Noturno
+                      </span>
+                      {noturno.map(s => (
+                        <span key={s.time} className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-50 text-indigo-800 border border-indigo-200">
+                          {s.time}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {isTemporary && (
+                  <div>
+                    <p className="text-xs font-semibold text-slate-500 mb-0.5">Período</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm text-slate-800 font-medium">
+                        {med.startDate ? fmtDate(med.startDate) : '—'} → {fmtDate(med.endDate!)}
+                      </p>
+                      {!isExpired && !isNotStarted && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">Ativa</span>}
+                      {isExpired && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-slate-200 text-slate-500">Encerrada</span>}
+                      {isNotStarted && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">Futura</span>}
+                    </div>
+                  </div>
+                )}
+
+                {med.observations && (
+                  <div>
+                    <p className="text-xs font-semibold text-slate-500 mb-0.5">Observações</p>
+                    <p className="text-sm text-slate-600 break-words">{med.observations}</p>
+                  </div>
+                )}
+
+                {lastLog && (
+                  <div className="flex items-center gap-1.5 text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-xl px-3 py-2">
+                    <CheckCircle size={13} className="shrink-0" />
+                    <span className="font-medium">Última checagem: {lastLog}</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="p-6 pt-4 border-t border-slate-100 flex gap-3 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => handleOpenEditPrescription(med)}
+                  className="flex-1 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold text-sm transition-colors inline-flex items-center justify-center gap-2"
+                >
+                  <Edit2 className="h-4 w-4" /> Editar Prescrição
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Modal de Registro de Visita */}
       {isVisitModalOpen && (

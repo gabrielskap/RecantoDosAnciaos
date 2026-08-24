@@ -92,6 +92,22 @@ export function dataTerminoPrevista(
   }
 }
 
+/**
+ * Rótulo amigável para `tomadas_por_dia`. Como o campo guarda sempre uma taxa
+ * diária (posologias semanais são convertidas ao salvar, ex.: 1x/semana = 1/7),
+ * uma taxa que aproxima um número inteiro pequeno de vezes por semana é exibida
+ * como "Nx/semana" em vez da fração diária (ex.: "0.14x/dia").
+ */
+export function formatTomadasPorDia(tomadasPorDia?: number | null): string {
+  if (!tomadasPorDia || tomadasPorDia <= 0) return '—';
+  const porSemana = tomadasPorDia * 7;
+  const arredondado = Math.round(porSemana);
+  if (arredondado >= 1 && arredondado <= 6 && Math.abs(porSemana - arredondado) < 0.02) {
+    return `${arredondado}x/semana`;
+  }
+  return `${Math.round(tomadasPorDia * 100) / 100}x/dia`;
+}
+
 export function isBaixoEstoque(inv: Pick<MedicamentoInventarioItem, 'saldoUnidades' | 'estoqueMinimoUnidades'>): boolean {
   if (!Number.isFinite(inv.saldoUnidades) || !Number.isFinite(inv.estoqueMinimoUnidades)) return false;
   return inv.saldoUnidades <= inv.estoqueMinimoUnidades;

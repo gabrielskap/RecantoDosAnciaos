@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Utensils, AlertTriangle, CheckCircle2, PieChart as PieIcon, FileText, Droplets, Plus, X, Pencil, Trash2, Search } from 'lucide-react';
+import { Utensils, AlertTriangle, CheckCircle2, PieChart as PieIcon, FileText, Droplets, Plus, X, Pencil, Trash2, Search, FileBarChart, Download } from 'lucide-react';
 import { Resident, DietPlan, DietConsistency, DietType, MealTime, NutritionalLog, ViewState } from '../types';
 import { PieChart as RechartPie, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 import { residentAvatarSrc } from '../lib/avatar';
 import { useAuth } from '../contexts/AuthContext';
 import { toast } from '../services/toast';
+import { openPrintWindow } from '../services/pdfPrint';
 
 interface NutritionModuleProps {
   residents: Resident[];
@@ -22,20 +23,23 @@ const LEGACY_NUTRITION_PLAN_DRAFT_KEYS = [
   'recanto_nutrition_new_plan_observations',
 ];
 
+const getTodayStr = () => new Date().toISOString().split('T')[0];
+
 const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateResident }) => {
-  const { hasPermission } = useAuth();
+  const { hasPermission, currentUser } = useAuth();
   const canCreate = hasPermission(ViewState.NUTRITION, 'create');
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'daily' | 'plans'>(() => {
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'daily' | 'plans' | 'report'>(() => {
     const urlParams = new URLSearchParams(window.location.search);
-    const tabParam = urlParams.get('tab') as 'dashboard' | 'daily' | 'plans' | null;
-    if (tabParam && ['dashboard', 'daily', 'plans'].includes(tabParam)) {
+    const tabParam = urlParams.get('tab') as 'dashboard' | 'daily' | 'plans' | 'report' | null;
+    if (tabParam && ['dashboard', 'daily', 'plans', 'report'].includes(tabParam)) {
       return tabParam;
     }
     return (localStorage.getItem('recanto_nutrition_active_tab') as any) || 'dashboard';
   });
   const [selectedDate, setSelectedDate] = useState(() => {
-    return localStorage.getItem('recanto_nutrition_selected_date') || new Date().toISOString().split('T')[0];
+    const saved = localStorage.getItem('recanto_nutrition_selected_date') || getTodayStr();
+    return saved < getTodayStr() ? getTodayStr() : saved;
   });
   const [selectedMeal, setSelectedMeal] = useState<MealTime>(() => {
     return (localStorage.getItem('recanto_nutrition_selected_meal') as MealTime) || 'Almoço';
@@ -59,6 +63,15 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
   const [deletingResident, setDeletingResident] = useState<Resident | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [planSearchQuery, setPlanSearchQuery] = useState('');
+
+  // Report tab state
+  const [reportStartDate, setReportStartDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 6);
+    return d.toISOString().split('T')[0];
+  });
+  const [reportEndDate, setReportEndDate] = useState(getTodayStr);
+  const [reportSearchQuery, setReportSearchQuery] = useState('');
 
   useEffect(() => {
     localStorage.setItem('recanto_nutrition_active_tab', activeTab);
@@ -120,7 +133,7 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
     return (r.nutritionalLogs?.filter(l => l.acceptance < 50 && l.date >= cutoff) || []).map(log => ({ resident: r.name, ...log }));
   });
 
-  const handleBatchUpdate = (residentId: string, acceptance: number) => {
+  const handleBatchUpdate = async (residentId: string, acceptance: number) => {
     const resident = residents.find(r => r.id === residentId);
     if (!resident || resident.status === 'inativo') return;
     const idx = resident.nutritionalLogs?.findIndex(l => l.date === selectedDate && l.meal === selectedMeal);
@@ -130,7 +143,11 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
     } else {
       logs.push({ id: Math.random().toString(36).substr(2, 9), date: selectedDate, meal: selectedMeal, acceptance });
     }
-    onUpdateResident({ ...resident, nutritionalLogs: logs });
+    try {
+      await onUpdateResident({ ...resident, nutritionalLogs: logs });
+    } catch {
+      // handleUpdateResident já exibe o toast de erro.
+    }
   };
 
   const handleCreatePlan = async () => {
@@ -199,7 +216,31 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
     { id: 'dashboard', label: 'Visão Geral',    icon: PieIcon   },
     { id: 'daily',     label: 'Registro Diário', icon: Utensils  },
     { id: 'plans',     label: 'Planos Alimentares', icon: FileText },
+    { id: 'report',    label: 'Relatório',       icon: FileBarChart },
   ];
+
+  const handleExportNutritionReport = (rows: { resident: Resident; logsCount: number; avgAcceptance: number | null; lowCount: number; lastDate: string | null }[]) => {
+    const body = `
+      <h1>Relatório Nutricional</h1>
+      <div class="meta">Período: ${new Date(reportStartDate + 'T00:00:00').toLocaleDateString('pt-BR')} a ${new Date(reportEndDate + 'T00:00:00').toLocaleDateString('pt-BR')}</div>
+      <table>
+        <thead><tr><th>Residente</th><th>Dieta Prescrita</th><th>Registros</th><th>Aceitação Média</th><th>Refeições &lt; 50%</th><th>Último Registro</th></tr></thead>
+        <tbody>
+          ${rows.length === 0 ? `<tr><td colspan="6" class="empty">Nenhum residente no período</td></tr>` :
+            rows.map(row => `
+              <tr>
+                <td>${row.resident.name}</td>
+                <td>${row.resident.dietPlan?.type || 'Não definida'}</td>
+                <td>${row.logsCount}</td>
+                <td>${row.avgAcceptance !== null ? `<span class="badge ${row.avgAcceptance >= 70 ? 'g' : row.avgAcceptance >= 40 ? 'y' : 'r'}">${row.avgAcceptance}%</span>` : '—'}</td>
+                <td>${row.lowCount}</td>
+                <td>${row.lastDate ? new Date(row.lastDate + 'T00:00:00').toLocaleDateString('pt-BR') : '—'}</td>
+              </tr>
+            `).join('')}
+        </tbody>
+      </table>`;
+    openPrintWindow('Relatório Nutricional', body, currentUser?.empresaId ?? currentUser?.id ?? 'anon');
+  };
 
   return (
     <div className="space-y-6">
@@ -304,7 +345,13 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
           <div className="bg-white rounded-2xl shadow-sm shadow-blue-100/40 overflow-hidden">
             <div className="px-5 py-4 border-b border-slate-100 flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
               <div className="flex gap-3 flex-wrap items-center">
-                <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className={inputClass + ' w-auto'} />
+                <input
+                  type="date"
+                  value={selectedDate}
+                  min={getTodayStr()}
+                  onChange={e => setSelectedDate(e.target.value < getTodayStr() ? getTodayStr() : e.target.value)}
+                  className={inputClass + ' w-auto'}
+                />
                 <select value={selectedMeal} onChange={e => setSelectedMeal(e.target.value as MealTime)} className={inputClass + ' w-auto'}>
                   {['Café da Manhã', 'Colação', 'Almoço', 'Lanche da Tarde', 'Jantar', 'Ceia'].map(m => <option key={m} value={m}>{m}</option>)}
                 </select>
@@ -554,6 +601,128 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
                 ))}
               </div>
             )}
+          </div>
+        );
+      })()}
+
+      {/* REPORT */}
+      {activeTab === 'report' && (() => {
+        const rows = residents
+          .filter(r => {
+            if (!reportSearchQuery.trim()) return true;
+            const query = reportSearchQuery.toLowerCase().trim();
+            return r.name.toLowerCase().includes(query) || (r.room && String(r.room).toLowerCase().includes(query));
+          })
+          .map(r => {
+            const logs = (r.nutritionalLogs || []).filter(l => l.date >= reportStartDate && l.date <= reportEndDate);
+            const avgAcceptance = logs.length ? Math.round(logs.reduce((a, l) => a + l.acceptance, 0) / logs.length) : null;
+            const lowCount = logs.filter(l => l.acceptance < 50).length;
+            const lastDate = logs.length ? logs.map(l => l.date).sort().slice(-1)[0] : null;
+            return { resident: r, logsCount: logs.length, avgAcceptance, lowCount, lastDate };
+          });
+
+        const residentsWithLogs = rows.filter(row => row.logsCount > 0);
+        const overallAvg = residentsWithLogs.length
+          ? Math.round(residentsWithLogs.reduce((a, row) => a + (row.avgAcceptance || 0), 0) / residentsWithLogs.length)
+          : null;
+        const alertCount = rows.filter(row => row.avgAcceptance !== null && row.avgAcceptance < 50).length;
+
+        return (
+          <div className="space-y-4">
+            <div className="bg-white rounded-2xl shadow-sm shadow-blue-100/40 p-5 flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+              <div className="flex flex-wrap gap-3 items-center">
+                <div className="flex items-center gap-2">
+                  <label className="text-xs font-semibold text-slate-500">De</label>
+                  <input
+                    type="date"
+                    value={reportStartDate}
+                    max={reportEndDate}
+                    onChange={e => setReportStartDate(e.target.value)}
+                    className={inputClass + ' w-auto'}
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <label className="text-xs font-semibold text-slate-500">Até</label>
+                  <input
+                    type="date"
+                    value={reportEndDate}
+                    min={reportStartDate}
+                    max={getTodayStr()}
+                    onChange={e => setReportEndDate(e.target.value)}
+                    className={inputClass + ' w-auto'}
+                  />
+                </div>
+                <div className="relative">
+                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Buscar residente..."
+                    value={reportSearchQuery}
+                    onChange={e => setReportSearchQuery(e.target.value)}
+                    className="pl-10 pr-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-56"
+                  />
+                </div>
+              </div>
+              <button
+                onClick={() => handleExportNutritionReport(rows)}
+                className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors shadow-sm shadow-blue-200 whitespace-nowrap"
+              >
+                <Download className="h-4 w-4" /> Exportar PDF
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="bg-white rounded-2xl shadow-sm shadow-blue-100/40 p-5">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Aceitação Média Geral</p>
+                <p className="text-2xl font-bold text-slate-800">{overallAvg !== null ? `${overallAvg}%` : '—'}</p>
+              </div>
+              <div className="bg-white rounded-2xl shadow-sm shadow-blue-100/40 p-5">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Residentes em Alerta</p>
+                <p className="text-2xl font-bold text-rose-600">{alertCount}</p>
+              </div>
+              <div className="bg-white rounded-2xl shadow-sm shadow-blue-100/40 p-5">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Registros no Período</p>
+                <p className="text-2xl font-bold text-slate-800">{rows.reduce((a, row) => a + row.logsCount, 0)}</p>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl shadow-sm shadow-blue-100/40 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="border-b border-slate-100">
+                    <tr>{['Residente', 'Dieta Prescrita', 'Registros', 'Aceitação Média', 'Refeições < 50%', 'Último Registro'].map(h => (
+                      <th key={h} className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">{h}</th>
+                    ))}</tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {rows.length === 0 ? (
+                      <tr><td colSpan={6} className="text-center py-10 text-slate-400 text-sm">Nenhum residente encontrado</td></tr>
+                    ) : rows.map(row => (
+                      <tr key={row.resident.id} className="hover:bg-slate-50/60 transition-colors">
+                        <td className="px-6 py-4 font-semibold text-slate-800">{row.resident.name}</td>
+                        <td className="px-6 py-4 text-slate-600">{row.resident.dietPlan?.type || <span className="text-slate-400 italic">Não definida</span>}</td>
+                        <td className="px-6 py-4 text-slate-600">{row.logsCount}</td>
+                        <td className="px-6 py-4">
+                          {row.avgAcceptance !== null ? (
+                            <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${row.avgAcceptance >= 70 ? 'bg-emerald-50 text-emerald-700' : row.avgAcceptance >= 40 ? 'bg-amber-50 text-amber-700' : 'bg-rose-50 text-rose-700'}`}>
+                              {row.avgAcceptance}%
+                            </span>
+                          ) : <span className="text-slate-400 text-xs">Sem registros</span>}
+                        </td>
+                        <td className="px-6 py-4">
+                          {row.lowCount > 0
+                            ? <span className="font-semibold text-rose-600">{row.lowCount}</span>
+                            : <span className="text-slate-400">0</span>}
+                        </td>
+                        <td className="px-6 py-4 text-slate-600">
+                          {row.lastDate ? new Date(row.lastDate + 'T00:00:00').toLocaleDateString('pt-BR') : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
         );
       })()}
