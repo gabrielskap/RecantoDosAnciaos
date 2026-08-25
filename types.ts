@@ -102,7 +102,7 @@ export interface DailyChecklist {
   eliminacaoEvacuacao?: 'presente' | 'ausente';
   eliminacaoEvacuacaoDias?: string;
   aspectoEvacuacoes?: 'endurecidas' | 'pastosa' | 'semi-liquidas' | 'liquida-diarreia';
-  diurese?: 'ausente' | 'aumentada' | 'diminuida';
+  diurese?: 'normal' | 'adequada' | 'ausente' | 'aumentada' | 'diminuida';
   diureseAspecto?: 'clara' | 'concentrada' | 'odor-sangue-ardencia';
   usoFraldas?: 'sim' | 'nao';
   mobilidadeSet?: 'independente' | 'auxilio' | 'acamado';
