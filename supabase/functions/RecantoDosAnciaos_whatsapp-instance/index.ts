@@ -69,13 +69,26 @@ function pick(obj: any, paths: string[]): any {
 function extractToken(d: any): string | null {
   return pick(d, ['token', 'instance.token', 'instance.apikey', 'hash', 'apikey']);
 }
-function extractStatus(d: any): string | null {
-  const raw = pick(d, ['status', 'instance.status', 'state', 'instance.state', 'connectionStatus']);
-  if (!raw) return null;
-  const s = String(raw).toLowerCase();
-  if (['connected', 'open', 'online'].includes(s)) return 'connected';
-  if (['connecting', 'qrcode', 'pairing', 'syncing'].includes(s)) return 'connecting';
+function classifyStatusString(s: string): string {
+  const v = s.toLowerCase();
+  if (['connected', 'open', 'online'].includes(v)) return 'connected';
+  if (['connecting', 'qrcode', 'pairing', 'syncing'].includes(v)) return 'connecting';
   return 'disconnected';
+}
+
+function extractStatus(d: any): string | null {
+  // instance.status é sempre string ("connected"/"connecting"/...). O campo top-level
+  // "status" nesta API pode vir como OBJETO ({connected, jid, loggedIn, resetting}) em vez
+  // de string — por isso instance.status tem prioridade aqui.
+  const raw = pick(d, ['instance.status', 'state', 'instance.state', 'connectionStatus']);
+  if (typeof raw === 'string') return classifyStatusString(raw);
+
+  const statusField = d?.status;
+  if (typeof statusField === 'string') return classifyStatusString(statusField);
+  if (statusField && typeof statusField === 'object') {
+    if (statusField.connected === true || statusField.loggedIn === true) return 'connected';
+  }
+  return null;
 }
 function extractQr(d: any): string | null {
   return pick(d, ['qrcode', 'instance.qrcode', 'qrCode', 'instance.qrCode', 'base64', 'qr']);
