@@ -158,7 +158,7 @@ Deno.serve(async (req: Request) => {
     // ── disconnect ───────────────────────────────────────────────────────
     if (action === 'disconnect') {
       if (existing?.uazapi_token) {
-        await api('/instance/disconnect', 'POST', { token: existing.uazapi_token }).catch(() => {});
+        await api('/instance/disconnect', 'POST', { token: existing.uazapi_token }).catch(() => { });
       }
       await persist({ status: 'disconnected', last_qr: null });
       return json({ status: 'disconnected', connected: false });
