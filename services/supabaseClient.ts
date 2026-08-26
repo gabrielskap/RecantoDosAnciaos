@@ -287,3 +287,42 @@ export const deleteComplianceStorageObject = async (filePath: string): Promise<v
 
   if (error) throw error;
 };
+
+// Certidões de regularidade dos colaboradores ficam em bucket privado,
+// organizadas por funcionário. O banco guarda apenas o caminho do objeto.
+export const uploadEmployeeCertificate = async (file: File, employeeId: string): Promise<string> => {
+  const fileExt = file.name.split('.').pop()?.toLowerCase() || 'pdf';
+  const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}.${fileExt}`;
+  const filePath = `${employeeId}/${fileName}`;
+
+  const { error } = await supabase.storage
+    .from('employee-documents')
+    .upload(filePath, file, {
+      contentType: file.type || 'application/octet-stream',
+      upsert: false,
+    });
+
+  if (error) throw error;
+  return filePath;
+};
+
+export const getEmployeeCertificateUrl = async (filePath: string): Promise<string> => {
+  if (/^(https?:|data:|blob:)/i.test(filePath)) return filePath;
+
+  const { data, error } = await supabase.storage
+    .from('employee-documents')
+    .createSignedUrl(filePath, 60 * 10);
+
+  if (error) throw error;
+  return data.signedUrl;
+};
+
+export const deleteEmployeeCertificateStorageObject = async (filePath: string): Promise<void> => {
+  if (/^(https?:|data:|blob:)/i.test(filePath)) return;
+
+  const { error } = await supabase.storage
+    .from('employee-documents')
+    .remove([filePath]);
+
+  if (error) throw error;
+};

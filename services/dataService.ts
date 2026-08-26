@@ -1,5 +1,5 @@
 import { supabase } from './supabaseClient';
-import type { Resident, ResidentPrescriptionRecord, FinancialRecord, Contract, Invoice, StockItem, Employee, SystemAccessLog, TrainingRecord, CalendarEvent, Room, GlucoseReading, AuditLog, Medication, VitalSign } from '../types';
+import type { Resident, ResidentPrescriptionRecord, FinancialRecord, Contract, Invoice, StockItem, Employee, SystemAccessLog, TrainingRecord, CalendarEvent, Room, GlucoseReading, AuditLog, Medication, VitalSign, MealTime } from '../types';
 
 // Relations that are cheap and needed just to render the resident list/cards
 // (contacts, allergies, care plan, diet, document folders). Kept identical
@@ -678,6 +678,45 @@ export function fetchCompanyMedicationsPaginated(
   });
 }
 
+export interface NutritionOverviewLogEntry {
+  residentId: string;
+  residentName: string;
+  date: string;
+  meal: MealTime;
+  acceptance: number;
+}
+
+// Aggregated nutrition logs for every resident of a tenant within a date
+// range, used by the Nutrition module's "Visão Geral" dashboard. The base
+// resident fetches (fetchResidentsSummary/fetchResidentsPaginated) always
+// return nutritionalLogs: [] to stay cheap, so this is the only place that
+// reads real acceptance history without opening each resident's profile.
+export async function fetchNutritionOverviewLogs(
+  empresaId: string,
+  startDate: string,
+  endDate: string,
+): Promise<NutritionOverviewLogEntry[]> {
+  const normalizedEmpresaId = empresaId.trim();
+
+  const { data, error } = await supabase
+    .from('Recanto_LogsNutricao')
+    .select('resident_id,date,meal,acceptance,resident:Recanto_Residentes!inner(empresa_id,name)')
+    .eq('resident.empresa_id', normalizedEmpresaId)
+    .gte('date', startDate)
+    .lte('date', endDate)
+    .order('date', { ascending: true });
+
+  if (error) throw error;
+
+  return (data || []).map((row: any) => ({
+    residentId: row.resident_id,
+    residentName: row.resident?.name || 'Residente',
+    date: row.date,
+    meal: row.meal,
+    acceptance: row.acceptance,
+  }));
+}
+
 // Fetches the complete clinical history for a SINGLE resident.
 export function fetchResidentDetails(residentId: string): Promise<Resident | null> {
   const normalizedResidentId = residentId.trim();
@@ -904,6 +943,9 @@ export async function fetchEmployees(empresaId: string): Promise<Employee[]> {
     email: e.email,
     phone: e.phone || '',
     registrationNumber: e.registration_number || undefined,
+    registrationCertificateValidUntil: e.registration_certificate_valid_until || undefined,
+    registrationCertificateStoragePath: e.registration_certificate_storage_path || undefined,
+    registrationCertificateFileName: e.registration_certificate_file_name || undefined,
     isTechnicalLead: e.is_technical_lead,
     shift: e.shift,
     shiftStart: e.shift_start ? e.shift_start.slice(0, 5) : undefined,

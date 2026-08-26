@@ -1,11 +1,25 @@
-import React, { useState, useEffect } from 'react';
-import { Utensils, AlertTriangle, CheckCircle2, PieChart as PieIcon, FileText, Droplets, Plus, X, Pencil, Trash2, Search, FileBarChart, Download } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Utensils, AlertTriangle, CheckCircle2, PieChart as PieIcon, FileText, Droplets, Plus, X, Pencil, Trash2, Search, FileBarChart, Download, TrendingUp, ListOrdered } from 'lucide-react';
 import { Resident, DietPlan, DietConsistency, DietType, MealTime, NutritionalLog, ViewState } from '../types';
-import { PieChart as RechartPie, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
+import { PieChart as RechartPie, Pie, Cell, ResponsiveContainer, Tooltip, Legend, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, ReferenceLine } from 'recharts';
 import { residentAvatarSrc } from '../lib/avatar';
 import { useAuth } from '../contexts/AuthContext';
 import { toast } from '../services/toast';
 import { openPrintWindow } from '../services/pdfPrint';
+import { fetchNutritionOverviewLogs, NutritionOverviewLogEntry } from '../services/dataService';
+
+const MEAL_ORDER: MealTime[] = ['Café da Manhã', 'Colação', 'Almoço', 'Lanche da Tarde', 'Jantar', 'Ceia'];
+const MEAL_SHORT: Record<MealTime, string> = {
+  'Café da Manhã': 'Café',
+  'Colação': 'Colação',
+  'Almoço': 'Almoço',
+  'Lanche da Tarde': 'Lanche',
+  'Jantar': 'Jantar',
+  'Ceia': 'Ceia',
+};
+const OVERVIEW_RANGE_DAYS = 14;
+
+const acceptanceColor = (avg: number | null) => avg === null ? '#cbd5e1' : avg >= 70 ? '#10b981' : avg >= 40 ? '#f59e0b' : '#f43f5e';
 
 interface NutritionModuleProps {
   residents: Resident[];
@@ -73,6 +87,34 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
   const [reportEndDate, setReportEndDate] = useState(getTodayStr);
   const [reportSearchQuery, setReportSearchQuery] = useState('');
 
+  // Dashboard tab state — pulls the real acceptance history straight from
+  // Supabase, since the `residents` prop always arrives with
+  // nutritionalLogs: [] (see fetchResidentsSummary/fetchResidentsPaginated).
+  const [overviewLogs, setOverviewLogs] = useState<NutritionOverviewLogEntry[]>([]);
+  const [overviewLoading, setOverviewLoading] = useState(false);
+  const [overviewError, setOverviewError] = useState<string | null>(null);
+  const overviewStartDate = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - (OVERVIEW_RANGE_DAYS - 1));
+    return d.toISOString().split('T')[0];
+  }, []);
+  const overviewEndDate = getTodayStr();
+
+  useEffect(() => {
+    if (activeTab !== 'dashboard' || !currentUser?.empresaId) return;
+    let cancelled = false;
+    setOverviewLoading(true);
+    setOverviewError(null);
+    fetchNutritionOverviewLogs(currentUser.empresaId, overviewStartDate, overviewEndDate)
+      .then(data => { if (!cancelled) setOverviewLogs(data); })
+      .catch(err => {
+        console.error('Erro ao carregar histórico de aceitação alimentar:', err);
+        if (!cancelled) setOverviewError('Não foi possível carregar o histórico de aceitação alimentar.');
+      })
+      .finally(() => { if (!cancelled) setOverviewLoading(false); });
+    return () => { cancelled = true; };
+  }, [activeTab, currentUser?.empresaId, overviewStartDate, overviewEndDate]);
+
   useEffect(() => {
     localStorage.setItem('recanto_nutrition_active_tab', activeTab);
   }, [activeTab]);
@@ -128,10 +170,65 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
   const dietChartData = Object.entries(dietsCount).map(([name, value]) => ({ name, value }));
   const COLORS = ['#1d4ed8', '#10b981', '#f59e0b', '#f43f5e', '#6366f1'];
 
-  const lowAcceptanceAlerts = residents.flatMap(r => {
+  // Aceitação média por dia, últimos OVERVIEW_RANGE_DAYS dias (inclui dias sem
+  // registro como `avg: null` para o gráfico mostrar a lacuna, não um zero).
+  const trendData = useMemo(() => {
+    const byDate = new Map<string, { sum: number; count: number }>();
+    overviewLogs.forEach(l => {
+      const entry = byDate.get(l.date) || { sum: 0, count: 0 };
+      entry.sum += l.acceptance;
+      entry.count += 1;
+      byDate.set(l.date, entry);
+    });
+    const days: { date: string; label: string; avg: number | null }[] = [];
+    for (let i = 0; i < OVERVIEW_RANGE_DAYS; i++) {
+      const d = new Date(overviewStartDate + 'T00:00:00');
+      d.setDate(d.getDate() + i);
+      const key = d.toISOString().split('T')[0];
+      const entry = byDate.get(key);
+      days.push({
+        date: key,
+        label: d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
+        avg: entry ? Math.round(entry.sum / entry.count) : null,
+      });
+    }
+    return days;
+  }, [overviewLogs, overviewStartDate]);
+
+  // Aceitação média por refeição, para comparar café/almoço/jantar etc.
+  const mealData = useMemo(() => MEAL_ORDER.map(meal => {
+    const mealLogs = overviewLogs.filter(l => l.meal === meal);
+    const avg = mealLogs.length ? Math.round(mealLogs.reduce((a, l) => a + l.acceptance, 0) / mealLogs.length) : null;
+    return { meal, avg, count: mealLogs.length };
+  }), [overviewLogs]);
+
+  // Top 5 residentes com menor aceitação média no período — quem precisa de atenção agora.
+  const residentRanking = useMemo(() => {
+    const byResident = new Map<string, { name: string; sum: number; count: number }>();
+    overviewLogs.forEach(l => {
+      const entry = byResident.get(l.residentId) || { name: l.residentName, sum: 0, count: 0 };
+      entry.sum += l.acceptance;
+      entry.count += 1;
+      byResident.set(l.residentId, entry);
+    });
+    return Array.from(byResident.values())
+      .map(r => ({ name: r.name, avg: Math.round(r.sum / r.count), count: r.count }))
+      .sort((a, b) => a.avg - b.avg)
+      .slice(0, 5);
+  }, [overviewLogs]);
+
+  const overviewOverallAvg = overviewLogs.length
+    ? Math.round(overviewLogs.reduce((a, l) => a + l.acceptance, 0) / overviewLogs.length)
+    : null;
+  const undefinedDietCount = residents.filter(r => !r.dietPlan).length;
+
+  const lowAcceptanceAlerts = useMemo(() => {
     const cutoff = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-    return (r.nutritionalLogs?.filter(l => l.acceptance < 50 && l.date >= cutoff) || []).map(log => ({ resident: r.name, ...log }));
-  });
+    return overviewLogs
+      .filter(l => l.acceptance < 50 && l.date >= cutoff)
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .map(l => ({ resident: l.residentName, ...l }));
+  }, [overviewLogs]);
 
   const handleBatchUpdate = async (residentId: string, acceptance: number) => {
     const resident = residents.find(r => r.id === residentId);
@@ -272,55 +369,186 @@ const NutritionModule: React.FC<NutritionModuleProps> = ({ residents, onUpdateRe
 
       {/* DASHBOARD */}
       {activeTab === 'dashboard' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <div className="space-y-5">
 
-          {/* Low acceptance alerts */}
-          <div className="bg-white rounded-2xl shadow-sm shadow-blue-100/40 overflow-hidden">
-            <div className="px-5 pt-5 pb-3 flex items-center gap-2">
-              <div className="w-8 h-8 rounded-xl bg-rose-50 flex items-center justify-center">
-                <AlertTriangle className="h-4 w-4 text-rose-500" />
-              </div>
-              <div>
-                <h3 className="font-bold text-slate-800 text-sm">Alertas de Baixa Aceitação</h3>
-                <p className="text-xs text-slate-400">Últimos 3 dias — abaixo de 50%</p>
-              </div>
-            </div>
-            <div className="px-5 pb-5 space-y-2.5 max-h-64 overflow-y-auto">
-              {lowAcceptanceAlerts.length > 0 ? lowAcceptanceAlerts.map((a, i) => (
-                <div key={i} className="flex justify-between items-center p-3 bg-rose-50 border border-rose-100 rounded-xl">
-                  <div>
-                    <p className="font-semibold text-slate-800 text-sm">{a.resident}</p>
-                    <p className="text-xs text-slate-500">{new Date(a.date).toLocaleDateString('pt-BR')} · {a.meal}</p>
+          {overviewError && (
+            <div className="bg-rose-50 border border-rose-100 text-rose-700 text-sm rounded-xl px-4 py-3">{overviewError}</div>
+          )}
+
+          {/* KPI strip */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            {[
+              { label: 'Aceitação Média (14 dias)', value: overviewOverallAvg !== null ? `${overviewOverallAvg}%` : '—', icon: CheckCircle2, bg: 'bg-emerald-50', color: 'text-emerald-600' },
+              { label: 'Registros no Período', value: String(overviewLogs.length), icon: Utensils, bg: 'bg-blue-50', color: 'text-blue-600' },
+              { label: 'Refeições em Alerta (<50%)', value: String(overviewLogs.filter(l => l.acceptance < 50).length), icon: AlertTriangle, bg: 'bg-rose-50', color: 'text-rose-600' },
+              { label: 'Dietas Não Definidas', value: String(undefinedDietCount), icon: FileText, bg: 'bg-amber-50', color: 'text-amber-600' },
+            ].map(kpi => (
+              <div key={kpi.label} className="bg-white rounded-2xl shadow-sm shadow-blue-100/40 p-5">
+                <div className="flex items-start justify-between mb-2">
+                  <p className="text-xs font-medium text-slate-500">{kpi.label}</p>
+                  <div className={`w-9 h-9 rounded-xl ${kpi.bg} flex items-center justify-center flex-shrink-0`}>
+                    <kpi.icon className={`h-4 w-4 ${kpi.color}`} />
                   </div>
-                  <span className="font-bold text-rose-600 bg-white px-3 py-1 rounded-lg border border-rose-200 text-sm">{a.acceptance}%</span>
                 </div>
-              )) : (
-                <div className="py-8 flex flex-col items-center gap-2 text-center">
-                  <CheckCircle2 className="h-8 w-8 text-emerald-300" />
-                  <p className="text-sm text-slate-400">Nenhum alerta de baixa aceitação.</p>
-                </div>
-              )}
-            </div>
+                <p className="text-2xl font-bold text-slate-800">{overviewLoading ? '—' : kpi.value}</p>
+              </div>
+            ))}
           </div>
 
-          {/* Diet distribution pie */}
+          {/* Acceptance trend */}
           <div className="bg-white rounded-2xl shadow-sm shadow-blue-100/40 p-6">
             <div className="flex items-center gap-2 mb-5">
               <div className="w-8 h-8 rounded-xl bg-blue-50 flex items-center justify-center">
-                <PieIcon className="h-4 w-4 text-blue-600" />
+                <TrendingUp className="h-4 w-4 text-blue-600" />
               </div>
-              <h3 className="font-bold text-slate-800 text-sm">Distribuição de Dietas</h3>
+              <div>
+                <h3 className="font-bold text-slate-800 text-sm">Tendência de Aceitação Alimentar</h3>
+                <p className="text-xs text-slate-400">Média diária — últimos {OVERVIEW_RANGE_DAYS} dias</p>
+              </div>
             </div>
-            <div className="h-52">
-              <ResponsiveContainer width="100%" height={208} minWidth={0}>
-                <RechartPie>
-                  <Pie data={dietChartData} cx="50%" cy="50%" innerRadius={50} outerRadius={72} paddingAngle={4} dataKey="value">
-                    {dietChartData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
-                  </Pie>
-                  <Tooltip />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                </RechartPie>
-              </ResponsiveContainer>
+            {overviewLoading ? (
+              <div className="h-64 flex items-center justify-center text-sm text-slate-400">Carregando...</div>
+            ) : overviewLogs.length === 0 ? (
+              <div className="h-64 flex flex-col items-center justify-center gap-2 text-center">
+                <Utensils className="h-8 w-8 text-slate-200" />
+                <p className="text-sm text-slate-400">Nenhum registro de aceitação nos últimos {OVERVIEW_RANGE_DAYS} dias.</p>
+              </div>
+            ) : (
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height={256} minWidth={0}>
+                  <AreaChart data={trendData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="nutritionTrendFill" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#1d4ed8" stopOpacity={0.25} />
+                        <stop offset="100%" stopColor="#1d4ed8" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                    <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={36} />
+                    <ReferenceLine y={50} stroke="#f43f5e" strokeDasharray="4 4" strokeOpacity={0.6} />
+                    <Tooltip formatter={(v: any) => v === null ? ['Sem registro', 'Aceitação'] : [`${v}%`, 'Aceitação média']} labelStyle={{ fontWeight: 600 }} />
+                    <Area type="monotone" dataKey="avg" stroke="#1d4ed8" strokeWidth={2} fill="url(#nutritionTrendFill)" connectNulls dot={{ r: 3, fill: '#1d4ed8', strokeWidth: 0 }} activeDot={{ r: 5 }} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            {/* Acceptance by meal */}
+            <div className="bg-white rounded-2xl shadow-sm shadow-blue-100/40 p-6">
+              <div className="flex items-center gap-2 mb-5">
+                <div className="w-8 h-8 rounded-xl bg-indigo-50 flex items-center justify-center">
+                  <Utensils className="h-4 w-4 text-indigo-600" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-800 text-sm">Aceitação Média por Refeição</h3>
+                  <p className="text-xs text-slate-400">Últimos {OVERVIEW_RANGE_DAYS} dias</p>
+                </div>
+              </div>
+              <div className="h-56">
+                <ResponsiveContainer width="100%" height={224} minWidth={0}>
+                  <BarChart data={mealData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis dataKey="meal" tickFormatter={(m: MealTime) => MEAL_SHORT[m] || m} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} interval={0} />
+                    <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={36} />
+                    <Tooltip formatter={(v: any, _n: any, p: any) => [v === null ? 'Sem registro' : `${v}%`, `Aceitação (${p?.payload?.count ?? 0} registro(s))`]} />
+                    <Bar dataKey="avg" radius={[6, 6, 0, 0]} barSize={28}>
+                      {mealData.map((entry, i) => <Cell key={i} fill={acceptanceColor(entry.avg)} />)}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Diet distribution pie */}
+            <div className="bg-white rounded-2xl shadow-sm shadow-blue-100/40 p-6">
+              <div className="flex items-center gap-2 mb-5">
+                <div className="w-8 h-8 rounded-xl bg-blue-50 flex items-center justify-center">
+                  <PieIcon className="h-4 w-4 text-blue-600" />
+                </div>
+                <h3 className="font-bold text-slate-800 text-sm">Distribuição de Dietas</h3>
+              </div>
+              <div className="h-52">
+                <ResponsiveContainer width="100%" height={208} minWidth={0}>
+                  <RechartPie>
+                    <Pie data={dietChartData} cx="50%" cy="50%" innerRadius={50} outerRadius={72} paddingAngle={4} dataKey="value">
+                      {dietChartData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                    </Pie>
+                    <Tooltip />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                  </RechartPie>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            {/* Low acceptance alerts */}
+            <div className="bg-white rounded-2xl shadow-sm shadow-blue-100/40 overflow-hidden">
+              <div className="px-5 pt-5 pb-3 flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-rose-50 flex items-center justify-center">
+                  <AlertTriangle className="h-4 w-4 text-rose-500" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-800 text-sm">Alertas de Baixa Aceitação</h3>
+                  <p className="text-xs text-slate-400">Últimos 3 dias — abaixo de 50%</p>
+                </div>
+              </div>
+              <div className="px-5 pb-5 space-y-2.5 max-h-64 overflow-y-auto">
+                {overviewLoading ? (
+                  <p className="text-sm text-slate-400 text-center py-8">Carregando...</p>
+                ) : lowAcceptanceAlerts.length > 0 ? lowAcceptanceAlerts.map((a, i) => (
+                  <div key={i} className="flex justify-between items-center p-3 bg-rose-50 border border-rose-100 rounded-xl">
+                    <div>
+                      <p className="font-semibold text-slate-800 text-sm">{a.resident}</p>
+                      <p className="text-xs text-slate-500">{new Date(a.date + 'T00:00:00').toLocaleDateString('pt-BR')} · {a.meal}</p>
+                    </div>
+                    <span className="font-bold text-rose-600 bg-white px-3 py-1 rounded-lg border border-rose-200 text-sm">{a.acceptance}%</span>
+                  </div>
+                )) : (
+                  <div className="py-8 flex flex-col items-center gap-2 text-center">
+                    <CheckCircle2 className="h-8 w-8 text-emerald-300" />
+                    <p className="text-sm text-slate-400">Nenhum alerta de baixa aceitação.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Residents needing attention */}
+            <div className="bg-white rounded-2xl shadow-sm shadow-blue-100/40 p-6">
+              <div className="flex items-center gap-2 mb-5">
+                <div className="w-8 h-8 rounded-xl bg-rose-50 flex items-center justify-center">
+                  <ListOrdered className="h-4 w-4 text-rose-500" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-800 text-sm">Residentes que Precisam de Atenção</h3>
+                  <p className="text-xs text-slate-400">Menor aceitação média — últimos {OVERVIEW_RANGE_DAYS} dias</p>
+                </div>
+              </div>
+              {overviewLoading ? (
+                <div className="h-48 flex items-center justify-center text-sm text-slate-400">Carregando...</div>
+              ) : residentRanking.length === 0 ? (
+                <div className="py-8 flex flex-col items-center gap-2 text-center">
+                  <CheckCircle2 className="h-8 w-8 text-emerald-300" />
+                  <p className="text-sm text-slate-400">Sem registros suficientes no período.</p>
+                </div>
+              ) : (
+                <div className="h-48">
+                  <ResponsiveContainer width="100%" height={192} minWidth={0}>
+                    <BarChart data={residentRanking} layout="vertical" margin={{ top: 0, right: 24, left: 0, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
+                      <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                      <YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 11, fill: '#475569' }} axisLine={false} tickLine={false} />
+                      <Tooltip formatter={(v: any, _n: any, p: any) => [`${v}%`, `Aceitação (${p?.payload?.count ?? 0} registro(s))`]} />
+                      <Bar dataKey="avg" radius={[0, 6, 6, 0]} barSize={16}>
+                        {residentRanking.map((entry, i) => <Cell key={i} fill={acceptanceColor(entry.avg)} />)}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
             </div>
           </div>
         </div>

@@ -6,7 +6,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { toast } from '../services/toast';
 import CustomSelect from './CustomSelect';
 import UsersModule from './UsersModule';
-import { isBeforeToday, getTodayDateString } from '../utils/dateUtils';
+import { isBeforeToday, getTodayDateString, addYearsToDateString } from '../utils/dateUtils';
+import { uploadEmployeeCertificate, getEmployeeCertificateUrl, deleteEmployeeCertificateStorageObject } from '../services/supabaseClient';
 
 const LEGACY_TEAM_DRAFT_STORAGE_KEYS = [
   'modal_team_emp_open',
@@ -15,6 +16,40 @@ const LEGACY_TEAM_DRAFT_STORAGE_KEYS = [
   'modal_team_new_emp',
   'modal_team_new_train',
 ];
+
+// Cargos com conselho profissional (CRM/COREN/CRN/CREFITO) exigem Nº de
+// Registro + Certidão de Regularidade anexada e com validade em dia.
+const REGULATED_ROLES: UserRole[] = ['Médico', 'Enfermeiro', 'Nutricionista', 'Fisioterapeuta'];
+const isRegulatedRole = (role?: UserRole | string): boolean =>
+  !!role && REGULATED_ROLES.includes(role as UserRole);
+
+type CertBadgeStatus = 'valid' | 'expiring_soon' | 'expired' | 'missing';
+
+function deriveEmployeeCertStatus(emp: Employee): CertBadgeStatus {
+  if (!emp.registrationCertificateValidUntil) return 'missing';
+  const exp = new Date(emp.registrationCertificateValidUntil + 'T00:00:00');
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const days = Math.ceil((exp.getTime() - today.getTime()) / 86400000);
+  if (days < 0) return 'expired';
+  if (days <= 30) return 'expiring_soon';
+  return 'valid';
+}
+
+const CERT_BADGE_STYLE: Record<CertBadgeStatus, { label: string; cls: string }> = {
+  valid: { label: 'Certidão OK', cls: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
+  expiring_soon: { label: 'Certidão vence em breve', cls: 'bg-amber-100 text-amber-700 border-amber-200' },
+  expired: { label: 'Certidão vencida', cls: 'bg-red-100 text-red-700 border-red-200' },
+  missing: { label: 'Certidão pendente', cls: 'bg-slate-100 text-slate-600 border-slate-200' },
+};
+
+const CertificateBadge: React.FC<{ employee: Employee }> = ({ employee }) => {
+  if (!isRegulatedRole(employee.role)) return null;
+  const { label, cls } = CERT_BADGE_STYLE[deriveEmployeeCertStatus(employee)];
+  return (
+    <span className={`text-[10px] px-1.5 py-0.5 rounded border font-bold whitespace-nowrap ${cls}`}>{label}</span>
+  );
+};
 
 interface TeamModuleProps {
   employees: Employee[];
@@ -100,6 +135,24 @@ const TeamModule: React.FC<TeamModuleProps> = ({
   const [accessProfileId, setAccessProfileId] = useState('');
   const [autoOpenUsersCreate, setAutoOpenUsersCreate] = useState(false);
   const [empToDelete, setEmpToDelete] = useState<Employee | null>(null);
+  const [certFile, setCertFile] = useState<File | null>(null);
+
+  const handleCertFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] || null;
+    setCertFile(file);
+    if (file && !newEmp.registrationCertificateValidUntil) {
+      setNewEmp(prev => ({ ...prev, registrationCertificateValidUntil: addYearsToDateString(getTodayDateString(), 1) }));
+    }
+  };
+
+  const handleViewCertificate = async (path: string) => {
+    try {
+      const url = await getEmployeeCertificateUrl(path);
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (err: any) {
+      toast.error(err.message || 'Erro ao abrir a certidão.');
+    }
+  };
 
   const handleDeleteEmployee = async () => {
     if (!empToDelete) return;
@@ -168,6 +221,7 @@ const TeamModule: React.FC<TeamModuleProps> = ({
     setLinkUserMode('none');
     setAccessPassword('');
     setAccessProfileId('');
+    setCertFile(null);
     setIsEmpModalOpen(true);
   };
 
@@ -180,6 +234,9 @@ const TeamModule: React.FC<TeamModuleProps> = ({
       email: emp.email,
       phone: emp.phone,
       registrationNumber: emp.registrationNumber || '',
+      registrationCertificateValidUntil: emp.registrationCertificateValidUntil || '',
+      registrationCertificateStoragePath: emp.registrationCertificateStoragePath,
+      registrationCertificateFileName: emp.registrationCertificateFileName,
       shift: emp.shift,
       shiftStart: emp.shiftStart || '',
       shiftEnd: emp.shiftEnd || '',
@@ -189,6 +246,7 @@ const TeamModule: React.FC<TeamModuleProps> = ({
     setLinkUserMode(emp.auth_user_id || 'none');
     setAccessPassword('');
     setAccessProfileId('');
+    setCertFile(null);
     setIsEmpModalOpen(true);
   };
 
@@ -210,7 +268,20 @@ const TeamModule: React.FC<TeamModuleProps> = ({
         return;
       }
     }
-    
+
+    const regulated = isRegulatedRole(newEmp.role);
+    const hasCertOnFile = !!certFile || !!newEmp.registrationCertificateStoragePath;
+    const missingCompliance = regulated && (
+      !newEmp.registrationNumber?.trim() || !hasCertOnFile || !newEmp.registrationCertificateValidUntil
+    );
+    if (missingCompliance) {
+      if (!editingEmpId) {
+        toast.error('Para este cargo, o Nº de Registro no Conselho e a Certidão de Regularidade (com validade) são obrigatórios.');
+        return;
+      }
+      toast.warning('Este colaborador está sem Nº de Registro e/ou Certidão de Regularidade em dia. Recomendamos completar o cadastro.');
+    }
+
     try {
       const employeeData = {
         name: newEmp.name!,
@@ -219,6 +290,9 @@ const TeamModule: React.FC<TeamModuleProps> = ({
         email: newEmp.email || '',
         phone: newEmp.phone || '',
         registrationNumber: newEmp.registrationNumber,
+        registrationCertificateValidUntil: newEmp.registrationCertificateValidUntil,
+        registrationCertificateStoragePath: newEmp.registrationCertificateStoragePath,
+        registrationCertificateFileName: newEmp.registrationCertificateFileName,
         isTechnicalLead: newEmp.isTechnicalLead || false,
         shift: newEmp.shift as any,
         shiftStart: newEmp.shiftStart,
@@ -228,14 +302,33 @@ const TeamModule: React.FC<TeamModuleProps> = ({
         auth_user_id: (linkUserMode !== 'none' && linkUserMode !== 'create') ? linkUserMode : undefined
       };
 
+      const previousCertPath = editingEmpId ? newEmp.registrationCertificateStoragePath : undefined;
+
       let savedEmp: Employee;
       if (editingEmpId) {
+        if (certFile) {
+          const path = await uploadEmployeeCertificate(certFile, editingEmpId);
+          employeeData.registrationCertificateStoragePath = path;
+          employeeData.registrationCertificateFileName = certFile.name;
+        }
         savedEmp = await onUpdateEmployee({
           id: editingEmpId,
           ...employeeData
         });
+        if (certFile && previousCertPath && previousCertPath !== employeeData.registrationCertificateStoragePath) {
+          deleteEmployeeCertificateStorageObject(previousCertPath).catch(() => {});
+        }
       } else {
         savedEmp = await onAddEmployee(employeeData);
+        if (certFile && savedEmp?.id) {
+          const path = await uploadEmployeeCertificate(certFile, savedEmp.id);
+          savedEmp = await onUpdateEmployee({
+            ...savedEmp,
+            registrationCertificateStoragePath: path,
+            registrationCertificateFileName: certFile.name,
+            registrationCertificateValidUntil: newEmp.registrationCertificateValidUntil
+          });
+        }
       }
 
       if (linkUserMode === 'create' && savedEmp && savedEmp.id) {
@@ -252,6 +345,7 @@ const TeamModule: React.FC<TeamModuleProps> = ({
       }
 
       setNewEmp({ name: '', role: 'Cuidador', cpf: '', email: '', phone: '', shift: 'Matutino', shiftStart: '07:00', shiftEnd: '13:00', isTechnicalLead: false, status: 'Ativo' });
+      setCertFile(null);
       setLinkUserMode('none');
       setAccessPassword('');
       setAccessProfileId('');
@@ -296,6 +390,49 @@ const TeamModule: React.FC<TeamModuleProps> = ({
   };
 
   const inputClass = 'w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white';
+
+  const renderCertificateSection = () => {
+    if (!isRegulatedRole(newEmp.role)) return null;
+    const existingPath = newEmp.registrationCertificateStoragePath;
+    return (
+      <div className="bg-slate-50 rounded-xl p-3 border border-slate-200 space-y-3">
+        <p className="text-xs font-semibold text-slate-600">Certidão de Regularidade (obrigatória para este cargo)</p>
+        {existingPath && !certFile && (
+          <div className="flex items-center justify-between bg-white rounded-lg border border-slate-200 px-3 py-2">
+            <span className="text-xs text-slate-600 truncate">{newEmp.registrationCertificateFileName || 'Certidão anexada'}</span>
+            <button
+              type="button"
+              onClick={() => handleViewCertificate(existingPath)}
+              className="text-xs font-semibold text-primary-600 hover:text-primary-700 shrink-0 ml-2"
+            >
+              Ver
+            </button>
+          </div>
+        )}
+        {certFile && (
+          <p className="text-xs text-slate-500 truncate">Novo arquivo selecionado: {certFile.name}</p>
+        )}
+        <div>
+          <label className="block text-xs font-semibold text-slate-600 mb-1.5">{existingPath ? 'Substituir Certidão' : 'Anexar Certidão'}</label>
+          <input
+            type="file"
+            accept="application/pdf,image/jpeg,image/png,image/webp"
+            onChange={handleCertFileChange}
+            className="w-full text-xs text-slate-600 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-primary-50 file:text-primary-700 file:text-xs file:font-semibold"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-slate-600 mb-1.5">Validade da Certidão</label>
+          <input
+            type="date"
+            value={newEmp.registrationCertificateValidUntil || ''}
+            onChange={e => setNewEmp({ ...newEmp, registrationCertificateValidUntil: e.target.value })}
+            className={inputClass}
+          />
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-6">
@@ -370,6 +507,7 @@ const TeamModule: React.FC<TeamModuleProps> = ({
                         {emp.isTechnicalLead && (
                           <span className="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded border border-indigo-200 font-bold">Resp. Técnico</span>
                         )}
+                        <CertificateBadge employee={emp} />
                       </div>
                     </div>
                     <div className="flex flex-col items-end gap-2">
@@ -443,7 +581,10 @@ const TeamModule: React.FC<TeamModuleProps> = ({
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-xs">{emp.registrationNumber || '-'}</td>
+                      <td className="px-4 py-3 text-xs">
+                        <p>{emp.registrationNumber || '-'}</p>
+                        <div className="mt-1"><CertificateBadge employee={emp} /></div>
+                      </td>
                       <td className="px-4 py-3 text-xs">
                         <p>{emp.email}</p>
                         <p className="text-slate-400">{emp.phone}</p>
@@ -823,9 +964,12 @@ const TeamModule: React.FC<TeamModuleProps> = ({
                         </div>
                       </div>
                       <div>
-                        <label className="block text-xs font-semibold text-slate-600 mb-1.5">Nº Registro (CRM/COREN)</label>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                          Nº Registro (CRM/COREN){isRegulatedRole(newEmp.role) && <span className="text-rose-500"> *</span>}
+                        </label>
                         <input type="text" value={newEmp.registrationNumber} onChange={e => setNewEmp({...newEmp, registrationNumber: e.target.value})} className={inputClass} />
                       </div>
+                      {renderCertificateSection()}
                     </>
                   )}
 
@@ -846,9 +990,12 @@ const TeamModule: React.FC<TeamModuleProps> = ({
                         <input required type="text" value={newEmp.cpf || ''} onChange={e => setNewEmp({...newEmp, cpf: e.target.value})} className={inputClass} placeholder="000.000.000-00" />
                       </div>
                       <div>
-                        <label className="block text-xs font-semibold text-slate-600 mb-1.5">Nº Registro (CRM/COREN)</label>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                          Nº Registro (CRM/COREN){isRegulatedRole(newEmp.role) && <span className="text-rose-500"> *</span>}
+                        </label>
                         <input type="text" value={newEmp.registrationNumber || ''} onChange={e => setNewEmp({...newEmp, registrationNumber: e.target.value})} className={inputClass} />
                       </div>
+                      {renderCertificateSection()}
                     </>
                   )}
 

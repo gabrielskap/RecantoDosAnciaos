@@ -166,6 +166,47 @@ export function motivoReposicao(inv: ItemReposicao, limiteDias = LIMITE_DIAS_REP
   return null;
 }
 
+/**
+ * Chave de agrupamento visual: mesmo nome + forma + concentração = mesmo
+ * medicamento, ainda que cada residente tenha seu próprio saldo/posologia.
+ * Não agrupa só pelo nome para não misturar formulações diferentes (ex.:
+ * "Dipirona 500mg comprimido" não deve juntar com "Dipirona 50mg/mL gotas").
+ */
+export function chaveAgrupamento(
+  item: Pick<MedicamentoInventarioItem, 'nome' | 'forma' | 'concentracaoValor' | 'concentracaoUnidade'>
+): string {
+  const nome = item.nome.trim().toLowerCase();
+  const conc = Math.round(item.concentracaoValor * 100) / 100;
+  const unidade = (item.concentracaoUnidade || '').trim().toLowerCase();
+  return `${nome}|${item.forma}|${conc}|${unidade}`;
+}
+
+/** Agrupa itens do inventário pelo mesmo medicamento, para exibição organizada. */
+export function agruparPorMedicamento(
+  items: MedicamentoInventarioItem[],
+  residentName?: (id?: string) => string | undefined
+): MedicamentoInventarioItem[][] {
+  const map = new Map<string, MedicamentoInventarioItem[]>();
+  for (const item of items) {
+    const key = chaveAgrupamento(item);
+    const list = map.get(key);
+    if (list) list.push(item);
+    else map.set(key, [item]);
+  }
+  const groups = Array.from(map.values()).map(group => {
+    if (group.length < 2) return group;
+    return [...group].sort((a, b) => {
+      const an = (residentName?.(a.residentId) || '').trim();
+      const bn = (residentName?.(b.residentId) || '').trim();
+      if (!an && bn) return 1;
+      if (an && !bn) return -1;
+      return an.localeCompare(bn);
+    });
+  });
+  groups.sort((a, b) => a[0].nome.localeCompare(b[0].nome));
+  return groups;
+}
+
 // ── Leitura ─────────────────────────────────────────────────────────────────
 
 export async function fetchInventario(empresaId?: string): Promise<MedicamentoInventarioItem[]> {

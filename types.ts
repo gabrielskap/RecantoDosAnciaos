@@ -424,6 +424,9 @@ export interface Employee {
   email: string;
   phone: string;
   registrationNumber?: string; // COREN, CRM, etc.
+  registrationCertificateValidUntil?: string;  // Validade da Certidão de Regularidade (YYYY-MM-DD)
+  registrationCertificateStoragePath?: string; // Caminho no bucket employee-documents
+  registrationCertificateFileName?: string;    // Nome original do arquivo anexado
   isTechnicalLead: boolean; // Responsável Técnico
   shift: 'Matutino' | 'Vespertino' | 'Noturno' | '12x36';
   shiftStart?: string; // HH:MM

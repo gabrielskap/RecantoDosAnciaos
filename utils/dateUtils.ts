@@ -24,6 +24,19 @@ export function getNowDatetimeLocal(): string {
 }
 
 /**
+ * Soma anos a uma data no formato YYYY-MM-DD e retorna o resultado no mesmo formato.
+ */
+export function addYearsToDateString(dateStr: string, years: number): string {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const d = new Date(year, month - 1, day);
+  d.setFullYear(d.getFullYear() + years);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
+}
+
+/**
  * Verifica se uma string de data/datetime representa uma data anterior ao início do dia atual (00:00:00).
  */
 export function isBeforeToday(dateStr: string): boolean {
