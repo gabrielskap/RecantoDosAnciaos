@@ -407,15 +407,19 @@ const SendTab: React.FC<{ templates: NotificationTemplate[]; responsibles: Respo
   const effectiveText = mode === 'template' ? (selectedTemplate?.messageText ?? '') : messageText;
   const isHealth = mode === 'template' && selectedTemplate && HEALTH_EVENTS.has(selectedTemplate.triggerEvent);
 
+  const addResponsible = (id: string) => {
+    const r = responsibles.find(x => x.id === id);
+    if (!r) { toast.error('Selecione um responsável.'); return; }
+    if (recipients.some(x => x.recipient_id === r.id)) { toast.error('Responsável já adicionado.'); return; }
+    setRecipients(prev => [...prev, {
+      recipient_type: 'responsible', recipient_id: r.id, recipient_name: r.name, recipient_phone: r.phone,
+      variables: { responsible_name: r.name, resident_name: r.residentName },
+    }]);
+  };
+
   const addRecipient = () => {
     if (recipMode === 'responsible') {
-      const r = responsibles.find(x => x.id === selectedRespId);
-      if (!r) { toast.error('Selecione um responsável.'); return; }
-      if (recipients.some(x => x.recipient_id === r.id)) { toast.error('Responsável já adicionado.'); return; }
-      setRecipients(prev => [...prev, {
-        recipient_type: 'responsible', recipient_id: r.id, recipient_name: r.name, recipient_phone: r.phone,
-        variables: { responsible_name: r.name, resident_name: r.residentName },
-      }]);
+      addResponsible(selectedRespId);
     } else {
       if (!manualPhone.trim()) { toast.error('Informe o telefone.'); return; }
       setRecipients(prev => [...prev, {
@@ -484,21 +488,31 @@ const SendTab: React.FC<{ templates: NotificationTemplate[]; responsibles: Respo
             <button onClick={() => setRecipMode('manual_phone')} className={`flex-1 py-1.5 rounded-lg text-xs ${recipMode === 'manual_phone' ? 'bg-blue-50 text-blue-600' : 'bg-slate-50 text-slate-500'}`}>Telefone avulso</button>
           </div>
           {recipMode === 'responsible' ? (
-            <select className={inputClass} value={selectedRespId} onChange={e => setSelectedRespId(e.target.value)}>
+            <select
+              className={inputClass}
+              value={selectedRespId}
+              onChange={e => {
+                const id = e.target.value;
+                if (id) { addResponsible(id); }
+                setSelectedRespId('');
+              }}
+            >
               <option value="">Selecione um responsável…</option>
               {responsibles.map(r => (
                 <option key={r.id} value={r.id}>{r.name} — {r.residentName}{r.isPrimary ? ' (principal)' : ''}</option>
               ))}
             </select>
           ) : (
-            <div className="grid grid-cols-2 gap-2">
-              <input className={inputClass} placeholder="Nome (opcional)" value={manualName} onChange={e => setManualName(e.target.value)} />
-              <input className={inputClass} placeholder="(31) 99999-1234" value={manualPhone} onChange={e => setManualPhone(e.target.value)} />
-            </div>
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                <input className={inputClass} placeholder="Nome (opcional)" value={manualName} onChange={e => setManualName(e.target.value)} />
+                <input className={inputClass} placeholder="(31) 99999-1234" value={manualPhone} onChange={e => setManualPhone(e.target.value)} />
+              </div>
+              <button onClick={addRecipient} className="text-xs text-blue-600 hover:bg-blue-50 px-2 py-1 rounded-lg flex items-center gap-1">
+                <Plus className="h-3.5 w-3.5" /> Adicionar
+              </button>
+            </>
           )}
-          <button onClick={addRecipient} className="text-xs text-blue-600 hover:bg-blue-50 px-2 py-1 rounded-lg flex items-center gap-1">
-            <Plus className="h-3.5 w-3.5" /> Adicionar
-          </button>
         </div>
       </div>
 
