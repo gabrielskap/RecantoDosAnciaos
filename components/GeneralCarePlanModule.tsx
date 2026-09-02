@@ -228,7 +228,7 @@ const GeneralCarePlanModule: React.FC<{ residents: Resident[] }> = ({ residents 
       const createdAt = new Date().toISOString();
       const responsible = `${currentUser.employeeRole || currentUser.profile.type || 'Profissional'}: ${currentUser.name}`;
       const serializedFrequency = JSON.stringify(frequencyObject);
-      const payload: CarePlanRow[] = Array.from(selectedIds).map(residentId => ({
+      const payload: CarePlanRow[] = Array.from(selectedIds.values() as IterableIterator<string>).map(residentId => ({
         id: newUuid(),
         group_id: groupId,
         resident_id: residentId,
