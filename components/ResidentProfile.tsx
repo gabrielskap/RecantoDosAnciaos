@@ -27,6 +27,7 @@ import { isBeforeToday, getTodayDateString, getTodayStartDatetimeLocal } from '.
 import RichTextEditor from './RichTextEditor';
 import RichTextContent from './RichTextContent';
 import { richTextHasContent, sanitizeRichText } from '../lib/richText';
+import { systemDialog } from '../services/systemDialog';
 
 const VITALS_PAGE_SIZE = 50;
 
@@ -1114,7 +1115,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, resi
     setIsVisitModalOpen(false);
   };
 
-  const handleDeleteVisit = (visitId: string) => {
+  const handleDeleteVisit = async (visitId: string) => {
     if (isInactive) {
       toast.error('Operação não permitida: residente está desativado.');
       return;
@@ -1124,7 +1125,13 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, resi
     const visit = resident.visits?.find(v => v.id === visitId);
     if (!visit) return;
 
-    if (confirm(`Tem certeza que deseja excluir o registro da visita de ${visit.visitorName}?`)) {
+    const confirmed = await systemDialog.confirm({
+      title: 'Excluir registro de visita?',
+      message: `O registro da visita de ${visit.visitorName} será excluído permanentemente.`,
+      confirmLabel: 'Excluir visita',
+      tone: 'danger',
+    });
+    if (confirmed) {
       const updatedVisits = (resident.visits || []).filter(v => v.id !== visitId);
       
       const newLog: AuditLog = {
@@ -2037,7 +2044,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, resi
     toast.success('Receita anexada com sucesso!');
   };
 
-  const handleDeleteReceita = (receitaId: string) => {
+  const handleDeleteReceita = async (receitaId: string) => {
     if (isInactive) {
       toast.error('Operação não permitida: residente está desativado.');
       return;
@@ -2045,7 +2052,13 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, resi
     if (!onUpdateResident) return;
     const receita = resident.prescriptions?.find(p => p.id === receitaId);
     if (!receita) return;
-    if (confirm('Tem certeza que deseja excluir esta receita?')) {
+    const confirmed = await systemDialog.confirm({
+      title: 'Excluir receita?',
+      message: 'A receita e o arquivo anexado deixarão de aparecer no prontuário do residente.',
+      confirmLabel: 'Excluir receita',
+      tone: 'danger',
+    });
+    if (confirmed) {
       const newLog: AuditLog = {
         id: Math.random().toString(36).substr(2, 9),
         timestamp: new Date().toISOString(),
@@ -3963,13 +3976,22 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, resi
     closePrescriptionModal();
   };
 
-  const handleDeleteMedication = (medId: string) => {
+  const handleDeleteMedication = async (medId: string) => {
     if (isInactive) {
       toast.error('Operação não permitida: residente está desativado.');
       return;
     }
     if (!onUpdateResident) return;
-    if (confirm("Tem certeza que deseja excluir esta prescrição de medicamento?")) {
+    const medication = (resident.medications || []).find(med => med.id === medId);
+    const confirmed = await systemDialog.confirm({
+      title: 'Excluir prescrição de medicamento?',
+      message: medication?.name
+        ? `A prescrição de “${medication.name}” será removida do prontuário do residente.`
+        : 'Esta prescrição será removida do prontuário do residente.',
+      confirmLabel: 'Excluir prescrição',
+      tone: 'danger',
+    });
+    if (confirmed) {
       const updatedMeds = (resident.medications || []).filter(med => med.id !== medId);
       onUpdateResident({ ...resident, medications: updatedMeds });
     }
@@ -7364,8 +7386,14 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, resi
                                   <div className="pt-2 border-t border-slate-100">
                                     <button
                                       type="button"
-                                      onClick={() => {
-                                        if (confirm("Deseja alternar para edição em texto livre? Isso perderá a formatação em botões.")) {
+                                      onClick={async () => {
+                                        const confirmed = await systemDialog.confirm({
+                                          title: 'Alternar para texto livre?',
+                                          message: 'A formatação atual em botões será removida e não poderá ser recuperada.',
+                                          confirmLabel: 'Alternar edição',
+                                          tone: 'warning',
+                                        });
+                                        if (confirmed) {
                                           handleChecklistFieldChange('medicacoesAdministradas', '');
                                         }
                                       }}

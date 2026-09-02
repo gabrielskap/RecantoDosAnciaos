@@ -6,6 +6,7 @@ import { residentAvatarSrc } from '../lib/avatar';
 import { useAuth } from '../contexts/AuthContext';
 import MedicationInventoryTab from './MedicationInventoryTab';
 import MedicationAutocomplete from './MedicationAutocomplete';
+import { systemDialog } from '../services/systemDialog';
 
 const LEGACY_STOCK_DRAFT_STORAGE_KEYS = [
   'modal_stock_item_open',
@@ -145,12 +146,17 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
   };
 
   const handleDeleteItem = async (item: StockItem) => {
-    if (window.confirm(`Tem certeza que deseja excluir "${item.name}" do estoque?`)) {
-      try {
-        await onDeleteItem(item.id);
-      } catch (error) {
-        console.error('Erro ao excluir item de estoque:', error);
-      }
+    const confirmed = await systemDialog.confirm({
+      title: 'Excluir item do estoque?',
+      message: `O item “${item.name}” será excluído do estoque. Esta ação não poderá ser desfeita.`,
+      confirmLabel: 'Excluir item',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
+    try {
+      await onDeleteItem(item.id);
+    } catch (error) {
+      console.error('Erro ao excluir item de estoque:', error);
     }
   };
 
@@ -443,7 +449,10 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
             </div>
 
             {/* Scrollable Resident List */}
-            <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1">
+            <div
+              className="space-y-2 max-h-[min(500px,calc(100vh-20rem))] overflow-y-auto overscroll-contain pr-2"
+              aria-label="Lista de residentes"
+            >
               {filteredResidents.map(resident => {
                 const isSelected = selectedResident?.id === resident.id;
                 const criticalCount = getResidentLowStockCount(resident.id);
@@ -538,7 +547,7 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
                 </div>
 
                 {/* Resident Stock List (Mobile) */}
-                <div className="block md:hidden p-4 space-y-4">
+                <div className="block md:hidden max-h-[60vh] overflow-y-auto overscroll-contain p-4 space-y-4">
                   {residentItems.map(item => {
                     const isLow = item.quantity < item.minThreshold;
                     const cat = categoryConfig[item.category] ?? categoryConfig.insumo;
@@ -610,9 +619,9 @@ const StockModule: React.FC<StockModuleProps> = ({ items, residents = [], onUpda
                 </div>
 
                 {/* Resident Stock List (Desktop) */}
-                <div className="hidden md:block">
+                <div className="hidden md:block max-h-[60vh] overflow-auto overscroll-contain">
                   <table className="w-full text-sm">
-                    <thead>
+                    <thead className="sticky top-0 z-10 bg-white shadow-[0_1px_0_0_rgb(241_245_249)]">
                       <tr className="border-b border-slate-100 bg-slate-50/50">
                         <th className="text-left px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wide">Item</th>
                         <th className="text-left px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wide">Categoria</th>

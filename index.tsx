@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import './index.css';
 import { initAnalytics } from './services/analytics';
+import SystemDialog from './components/SystemDialog';
 
 // Inicializa GA4 / Meta Pixel / Google Ads (no-op se os IDs não estiverem no .env)
 initAnalytics();
@@ -24,5 +25,6 @@ const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
     <App />
+    <SystemDialog />
   </React.StrictMode>
 );

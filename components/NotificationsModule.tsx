@@ -7,6 +7,7 @@ import {
 import { Resident, NotificationTemplate, NotificationQueueItem, NotificationChoice, NotificationMessageType, WhatsappInstance, ViewState } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { toast } from '../services/toast';
+import { systemDialog } from '../services/systemDialog';
 import * as svc from '../services/notificationService';
 import type { ResponsibleContact } from '../services/notificationService';
 
@@ -197,7 +198,13 @@ const TemplatesTab: React.FC<{ empresaId: string; templates: NotificationTemplat
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Excluir este modelo?')) return;
+    const confirmed = await systemDialog.confirm({
+      title: 'Excluir modelo de mensagem?',
+      message: 'O modelo será excluído permanentemente e não poderá mais ser usado em novos envios.',
+      confirmLabel: 'Excluir modelo',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     try { await svc.deleteTemplate(id); toast.success('Modelo excluído.'); onReload(); }
     catch (err: any) { toast.error(err.message || 'Erro ao excluir.'); }
   };
@@ -434,7 +441,13 @@ const SendTab: React.FC<{ templates: NotificationTemplate[]; responsibles: Respo
     if (recipients.length === 0) { toast.error('Adicione ao menos um destinatário.'); return; }
     if (mode === 'free' && !messageText.trim()) { toast.error('Escreva a mensagem.'); return; }
     if (mode === 'template' && !templateId) { toast.error('Selecione um modelo.'); return; }
-    if (!confirm(`Enviar para ${recipients.length} destinatário(s)?`)) return;
+    const confirmed = await systemDialog.confirm({
+      title: 'Confirmar envio?',
+      message: `A mensagem será enviada para ${recipients.length} destinatário(s).`,
+      confirmLabel: 'Enviar mensagem',
+      tone: 'info',
+    });
+    if (!confirmed) return;
     setSending(true);
     try {
       const res = await svc.enqueueManual({

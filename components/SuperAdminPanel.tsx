@@ -36,6 +36,7 @@ import type {
   IntegracaoSecret,
 } from '../services/superAdminService';
 import { excedeLimite, formatLimite } from '../utils/planLimits';
+import { systemDialog } from '../services/systemDialog';
 import {
   superadminGetConteudoSite,
   superadminUpsertConteudoSite,
@@ -524,7 +525,7 @@ const SuperAdminPanel: React.FC = () => {
       setEditingTenant(null);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Erro desconhecido';
-      alert('Erro ao atualizar status: ' + msg);
+      await systemDialog.alert({ message: 'Erro ao atualizar status: ' + msg, tone: 'error' });
     } finally {
       setEditLoading(false);
     }
@@ -568,7 +569,7 @@ const SuperAdminPanel: React.FC = () => {
       setEmpresas(prev => prev.map(e => e.empresa_id === selectedTenant.empresa_id ? updated : e));
       setDetailEditMode(false);
     } catch (err: unknown) {
-      alert('Erro ao atualizar dados: ' + (err instanceof Error ? err.message : 'Erro desconhecido'));
+      await systemDialog.alert({ message: 'Erro ao atualizar dados: ' + (err instanceof Error ? err.message : 'Erro desconhecido'), tone: 'error' });
     } finally {
       setDetailSaving(false);
     }
@@ -611,7 +612,7 @@ const SuperAdminPanel: React.FC = () => {
       setAssinaturaModal(null);
       loadActivity();
     } catch (err: unknown) {
-      alert('Erro: ' + (err instanceof Error ? err.message : 'Erro desconhecido'));
+      await systemDialog.alert({ message: 'Erro: ' + (err instanceof Error ? err.message : 'Erro desconhecido'), tone: 'error' });
     } finally {
       setAssinaturaLoading(false);
     }
@@ -677,25 +678,25 @@ const SuperAdminPanel: React.FC = () => {
     if (isNewPlano) {
       planoIdFinal = planoForm.plano_id.trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
       if (!planoIdFinal) {
-        alert('Informe um identificador para o plano (ex: essencial-plus).');
+        await systemDialog.alert({ message: 'Informe um identificador para o plano (ex: essencial-plus).', tone: 'warning' });
         return;
       }
       if (planos.some(p => p.plano_id === planoIdFinal)) {
-        alert('Já existe um plano com esse identificador. Escolha outro.');
+        await systemDialog.alert({ message: 'Já existe um plano com esse identificador. Escolha outro.', tone: 'warning' });
         return;
       }
       if (!planoForm.plano_nome.trim()) {
-        alert('Informe o nome do plano.');
+        await systemDialog.alert({ message: 'Informe o nome do plano.', tone: 'warning' });
         return;
       }
     }
 
     if (planoForm.max_residentes != null && (!Number.isInteger(planoForm.max_residentes) || planoForm.max_residentes < 1)) {
-      alert('Limite de residentes deve ser um número inteiro maior ou igual a 1 (ou vazio para ilimitado).');
+      await systemDialog.alert({ message: 'Limite de residentes deve ser um número inteiro maior ou igual a 1 (ou vazio para ilimitado).', tone: 'warning' });
       return;
     }
     if (planoForm.max_usuarios != null && (!Number.isInteger(planoForm.max_usuarios) || planoForm.max_usuarios < 1)) {
-      alert('Limite de usuários deve ser um número inteiro maior ou igual a 1 (ou vazio para ilimitado).');
+      await systemDialog.alert({ message: 'Limite de usuários deve ser um número inteiro maior ou igual a 1 (ou vazio para ilimitado).', tone: 'warning' });
       return;
     }
 
@@ -712,13 +713,16 @@ const SuperAdminPanel: React.FC = () => {
             .map(e => `• ${e.nome_instituicao} — ${e.qtd_residentes} residente(s), ${e.qtd_usuarios} usuário(s)`)
             .join('\n');
           const resto = excedentes.length > 5 ? `\n... e mais ${excedentes.length - 5}.` : '';
-          const confirmado = window.confirm(
-            `${excedentes.length} ILPI(s) já excedem os novos limites deste plano:\n\n${lista}${resto}\n\nDeseja salvar mesmo assim?`
-          );
+          const confirmado = await systemDialog.confirm({
+            title: 'Instituições acima dos novos limites',
+            message: `${excedentes.length} ILPI(s) já excedem os novos limites deste plano:\n\n${lista}${resto}\n\nDeseja salvar mesmo assim?`,
+            confirmLabel: 'Salvar mesmo assim',
+            tone: 'warning',
+          });
           if (!confirmado) return;
         }
       } catch (err: unknown) {
-        alert('Erro ao verificar ILPIs excedentes: ' + (err instanceof Error ? err.message : 'Erro desconhecido'));
+        await systemDialog.alert({ message: 'Erro ao verificar ILPIs excedentes: ' + (err instanceof Error ? err.message : 'Erro desconhecido'), tone: 'error' });
         return;
       }
     }
@@ -751,7 +755,7 @@ const SuperAdminPanel: React.FC = () => {
       setPlanoForm(null);
       setIsNewPlano(false);
     } catch (err: unknown) {
-      alert('Erro ao salvar plano: ' + (err instanceof Error ? err.message : 'Erro desconhecido'));
+      await systemDialog.alert({ message: 'Erro ao salvar plano: ' + (err instanceof Error ? err.message : 'Erro desconhecido'), tone: 'error' });
     } finally {
       setPlanoSaving(false);
     }
@@ -764,7 +768,7 @@ const SuperAdminPanel: React.FC = () => {
       await superadminUpsertConteudoSite(secao, conteudoDrafts[secao]);
       setConteudoSite(prev => ({ ...prev, [secao]: conteudoDrafts[secao] }));
     } catch (err: unknown) {
-      alert('Erro ao salvar conteúdo: ' + (err instanceof Error ? err.message : 'Erro desconhecido'));
+      await systemDialog.alert({ message: 'Erro ao salvar conteúdo: ' + (err instanceof Error ? err.message : 'Erro desconhecido'), tone: 'error' });
     } finally {
       setConteudoSaving(null);
     }
@@ -778,7 +782,7 @@ const SuperAdminPanel: React.FC = () => {
       await superadminUpsertImagemSite(chave, url, imagensSite[chave]?.alt_text ?? null);
       setImagensSite(prev => ({ ...prev, [chave]: { url, alt_text: prev[chave]?.alt_text ?? null } }));
     } catch (err: unknown) {
-      alert('Erro ao enviar imagem: ' + (err instanceof Error ? err.message : 'Erro desconhecido'));
+      await systemDialog.alert({ message: 'Erro ao enviar imagem: ' + (err instanceof Error ? err.message : 'Erro desconhecido'), tone: 'error' });
     } finally {
       setUploadingChave(null);
     }
@@ -790,7 +794,7 @@ const SuperAdminPanel: React.FC = () => {
       await removeSiteImage(chave);
       setImagensSite(prev => ({ ...prev, [chave]: { url: null, alt_text: null } }));
     } catch (err: unknown) {
-      alert('Erro ao remover imagem: ' + (err instanceof Error ? err.message : 'Erro desconhecido'));
+      await systemDialog.alert({ message: 'Erro ao remover imagem: ' + (err instanceof Error ? err.message : 'Erro desconhecido'), tone: 'error' });
     } finally {
       setUploadingChave(null);
     }
@@ -817,19 +821,25 @@ const SuperAdminPanel: React.FC = () => {
       await loadIntegracoes();
       setSecretModal(null);
     } catch (err: unknown) {
-      alert('Erro ao salvar chave: ' + (err instanceof Error ? err.message : 'Erro desconhecido'));
+      await systemDialog.alert({ message: 'Erro ao salvar chave: ' + (err instanceof Error ? err.message : 'Erro desconhecido'), tone: 'error' });
     } finally {
       setSecretSaving(false);
     }
   };
 
   const handleDeleteSecret = async (chave: string) => {
-    if (!window.confirm(`Remover a chave "${chave}"? Integrações que dependem dela deixarão de funcionar.`)) return;
+    const confirmed = await systemDialog.confirm({
+      title: 'Remover chave de integração?',
+      message: `A chave “${chave}” será removida. As integrações que dependem dela deixarão de funcionar.`,
+      confirmLabel: 'Remover chave',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     try {
       await deleteIntegracaoSecret(chave);
       setIntegracoes(prev => prev.filter(s => s.chave !== chave));
     } catch (err: unknown) {
-      alert('Erro ao remover chave: ' + (err instanceof Error ? err.message : 'Erro desconhecido'));
+      await systemDialog.alert({ message: 'Erro ao remover chave: ' + (err instanceof Error ? err.message : 'Erro desconhecido'), tone: 'error' });
     }
   };
 

@@ -7,6 +7,7 @@ import { toast } from '../services/toast';
 import { Room, Resident, RoomStatus, ViewState } from '../types';
 import CustomSelect from './CustomSelect';
 import { useAuth } from '../contexts/AuthContext';
+import { systemDialog } from '../services/systemDialog';
 
 const LEGACY_ROOMS_DRAFT_STORAGE_KEYS = [
   'modal_rooms_open',
@@ -208,7 +209,13 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
 
   // Resident unlink handler
   const handleUnlinkResident = async (resident: Resident) => {
-    if (window.confirm(`Tem certeza que deseja desvincular o residente ${resident.name} deste quarto?`)) {
+    const confirmed = await systemDialog.confirm({
+      title: 'Desvincular residente?',
+      message: `${resident.name} será removido deste quarto e ficará sem acomodação vinculada.`,
+      confirmLabel: 'Desvincular residente',
+      tone: 'warning',
+    });
+    if (confirmed) {
       const updatedResident: Resident = {
         ...resident,
         room: '', // unlink
@@ -563,7 +570,13 @@ const RoomsModule: React.FC<RoomsModuleProps> = ({
                           toast.warning('Não é possível excluir um quarto que possua residentes vinculados.');
                           return;
                         }
-                        if (window.confirm(`Tem certeza que deseja excluir o Quarto ${room.number}?`)) {
+                        const confirmed = await systemDialog.confirm({
+                          title: `Excluir Quarto ${room.number}?`,
+                          message: 'O quarto será excluído permanentemente. Esta ação não poderá ser desfeita.',
+                          confirmLabel: 'Excluir quarto',
+                          tone: 'danger',
+                        });
+                        if (confirmed) {
                           try {
                             await onDeleteRoom(room.id);
                           } catch {

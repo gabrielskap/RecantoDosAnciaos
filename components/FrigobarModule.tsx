@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { toast } from '../services/toast';
+import { systemDialog } from '../services/systemDialog';
 import { FrigobarReading, FrigobarShift, FrigobarStatus } from '../types';
 import { 
   fetchFrigobarReadings, 
@@ -205,9 +206,13 @@ const FrigobarModule: React.FC = () => {
   };
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm('Tem certeza que deseja excluir esta medição de frigobar?')) {
-      return;
-    }
+    const confirmed = await systemDialog.confirm({
+      title: 'Excluir medição do frigobar?',
+      message: 'O registro de temperatura será excluído permanentemente.',
+      confirmLabel: 'Excluir medição',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
 
     try {
       await deleteFrigobarReading(id);

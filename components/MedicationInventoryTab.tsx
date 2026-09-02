@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Pill, Plus, X, Search, AlertTriangle, CheckCircle2, CalendarClock,
   History, ArrowDownCircle, ArrowUpCircle, PackageSearch, Trash2, Minus, Users,
-  ArrowUpDown, ArrowUp, ArrowDown, ChevronDown,
+  ArrowUpDown, ArrowUp, ArrowDown, ChevronDown, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { MedicamentoInventarioItem, MedicamentoForma, Resident, ViewState } from '../types';
 import CustomSelect from './CustomSelect';
@@ -17,6 +17,7 @@ import {
   agruparPorMedicamento, chaveAgrupamento,
 } from '../services/medicationInventoryService';
 import { isBeforeToday, getTodayDateString } from '../utils/dateUtils';
+import { systemDialog } from '../services/systemDialog';
 
 interface Props {
   residents: Resident[];
@@ -37,6 +38,7 @@ const FORMA_UNIT: Record<MedicamentoForma, string> = {
 };
 
 const inputClass = 'w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white';
+const GROUPS_PER_PAGE = 6;
 
 const emptyForm = {
   residentId: '' as string,
@@ -99,6 +101,7 @@ const MedicationInventoryTab: React.FC<Props> = ({ residents = [] }) => {
   const [sortBy, setSortBy] = useState<'nome' | 'saldo' | 'cobertura' | 'status' | 'validade'>('nome');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [showSortMenu, setShowSortMenu] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
 
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [form, setForm] = useState({ ...emptyForm });
@@ -189,6 +192,20 @@ const MedicationInventoryTab: React.FC<Props> = ({ residents = [] }) => {
     });
   }, [filtered, residents, sortBy, sortOrder]);
 
+  const totalPages = Math.max(1, Math.ceil(groups.length / GROUPS_PER_PAGE));
+  const paginatedGroups = useMemo(
+    () => groups.slice((currentPage - 1) * GROUPS_PER_PAGE, currentPage * GROUPS_PER_PAGE),
+    [groups, currentPage],
+  );
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, statusFilter, vinculoFilter, sortBy, sortOrder]);
+
+  useEffect(() => {
+    setCurrentPage(page => Math.min(page, totalPages));
+  }, [totalPages]);
+
   const hasActiveFilters = !!search || !!statusFilter || !!vinculoFilter || sortBy !== 'nome' || sortOrder !== 'asc';
   const clearFilters = () => { setSearch(''); setStatusFilter(''); setVinculoFilter(''); setSortBy('nome'); setSortOrder('asc'); };
 
@@ -257,7 +274,11 @@ const MedicationInventoryTab: React.FC<Props> = ({ residents = [] }) => {
     if (!form.nome || !form.concentracaoValor) return;
 
     if (form.validade && isBeforeToday(form.validade)) {
-      alert('A data de validade não pode ser anterior à data atual.');
+      await systemDialog.alert({
+        title: 'Data de validade inválida',
+        message: 'A data de validade não pode ser anterior à data atual.',
+        tone: 'warning',
+      });
       return;
     }
 
@@ -285,7 +306,11 @@ const MedicationInventoryTab: React.FC<Props> = ({ residents = [] }) => {
       await load();
     } catch (err) {
       console.error('Erro ao cadastrar medicamento:', err);
-      alert('Não foi possível cadastrar o medicamento. Verifique os dados e tente novamente.');
+      await systemDialog.alert({
+        title: 'Não foi possível cadastrar',
+        message: 'Verifique os dados do medicamento e tente novamente.',
+        tone: 'error',
+      });
     } finally {
       setSaving(false);
     }
@@ -314,20 +339,34 @@ const MedicationInventoryTab: React.FC<Props> = ({ residents = [] }) => {
       await load();
     } catch (err) {
       console.error('Erro ao registrar movimentação:', err);
-      alert('Não foi possível registrar a movimentação.');
+      await systemDialog.alert({
+        title: 'Movimentação não registrada',
+        message: 'Não foi possível registrar a movimentação. Tente novamente.',
+        tone: 'error',
+      });
     } finally {
       setSaving(false);
     }
   };
 
   const handleDelete = async (item: MedicamentoInventarioItem) => {
-    if (!confirm(`Excluir o medicamento "${item.nome}" e todo o seu histórico?`)) return;
+    const confirmed = await systemDialog.confirm({
+      title: 'Excluir medicamento do inventário?',
+      message: `O medicamento “${item.nome}” e todo o seu histórico serão excluídos permanentemente.`,
+      confirmLabel: 'Excluir medicamento',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     try {
       await deleteInventarioItem(item.id);
       await load();
     } catch (err) {
       console.error('Erro ao excluir medicamento:', err);
-      alert('Não foi possível excluir o medicamento.');
+      await systemDialog.alert({
+        title: 'Medicamento não excluído',
+        message: 'Não foi possível excluir o medicamento. Tente novamente.',
+        tone: 'error',
+      });
     }
   };
 
@@ -622,8 +661,10 @@ const MedicationInventoryTab: React.FC<Props> = ({ residents = [] }) => {
           </button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-4">
-          {groups.map(group => {
+        <div className="space-y-4">
+          <div className="max-h-[70vh] overflow-y-auto overscroll-contain pr-1" aria-label="Lista do inventário de medicamentos">
+            <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-4">
+          {paginatedGroups.map(group => {
             // Um único residente nesse medicamento: card de sempre, sem chrome extra.
             if (group.length === 1) {
               const item = group[0];
@@ -749,6 +790,37 @@ const MedicationInventoryTab: React.FC<Props> = ({ residents = [] }) => {
               </div>
             );
           })}
+            </div>
+          </div>
+
+          {totalPages > 1 && (
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white border border-slate-100 rounded-2xl px-4 py-3 shadow-sm shadow-blue-100/40">
+              <p className="text-xs text-slate-500">
+                Exibindo {(currentPage - 1) * GROUPS_PER_PAGE + 1}–{Math.min(currentPage * GROUPS_PER_PAGE, groups.length)} de {groups.length} grupos
+              </p>
+              <div className="flex items-center justify-between sm:justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(page => Math.max(1, page - 1))}
+                  disabled={currentPage === 1}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" /> Anterior
+                </button>
+                <span className="min-w-20 text-center text-xs font-semibold text-slate-600">
+                  Página {currentPage} de {totalPages}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(page => Math.min(totalPages, page + 1))}
+                  disabled={currentPage === totalPages}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Próxima <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

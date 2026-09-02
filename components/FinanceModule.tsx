@@ -6,6 +6,7 @@ import CustomSelect from './CustomSelect';
 import { useAuth } from '../contexts/AuthContext';
 import { deleteContractDocument, getContractDocumentUrl, uploadContractDocument } from '../services/supabaseClient';
 import { toast } from '../services/toast';
+import { systemDialog } from '../services/systemDialog';
 import { residentAvatarSrc } from '../lib/avatar';
 import { isBeforeToday, getTodayDateString } from '../utils/dateUtils';
 
@@ -185,7 +186,14 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
   };
 
   const handleDeleteContractFile = async (contract: Contract) => {
-    if (!contract.fileUrl || !window.confirm('Deseja excluir o contrato anexado?')) return;
+    if (!contract.fileUrl) return;
+    const confirmed = await systemDialog.confirm({
+      title: 'Excluir contrato anexado?',
+      message: 'O arquivo será removido deste contrato. Esta ação não poderá ser desfeita.',
+      confirmLabel: 'Excluir contrato',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     setUploadingContractId(contract.id);
     try {
       const fileUrl = contract.fileUrl;
@@ -551,7 +559,15 @@ const FinanceModule: React.FC<FinanceModuleProps> = ({
                     <td className="px-6 py-4">
                       {canDelete && (
                         <button
-                          onClick={() => { if (window.confirm('Confirmar exclusão desta despesa?')) void handleDeleteRecord(rec.id); }}
+                          onClick={async () => {
+                            const confirmed = await systemDialog.confirm({
+                              title: 'Excluir despesa?',
+                              message: 'Este lançamento financeiro será excluído permanentemente.',
+                              confirmLabel: 'Excluir despesa',
+                              tone: 'danger',
+                            });
+                            if (confirmed) await handleDeleteRecord(rec.id);
+                          }}
                           className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
                           title="Excluir despesa"
                         >

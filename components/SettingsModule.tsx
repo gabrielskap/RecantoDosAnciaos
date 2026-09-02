@@ -11,6 +11,7 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../services/supabaseClient';
 import { toast } from '../services/toast';
+import { systemDialog } from '../services/systemDialog';
 import SubscriptionModal from './SubscriptionModal';
 import { BoletimModelType, BoletimSettings } from '../types';
 
@@ -283,7 +284,13 @@ const SettingsModule: React.FC = () => {
 
   const handleReset = async () => {
     if (!currentUser?.empresaId) return;
-    if (confirm('Redefinir todas as configurações para os valores padrão no banco de dados?')) {
+    const confirmed = await systemDialog.confirm({
+      title: 'Redefinir configurações?',
+      message: 'Todas as configurações da instituição voltarão aos valores padrão. Esta ação substituirá os ajustes atuais.',
+      confirmLabel: 'Redefinir configurações',
+      tone: 'warning',
+    });
+    if (confirmed) {
       try {
         setLoading(true);
         const { error } = await supabase
