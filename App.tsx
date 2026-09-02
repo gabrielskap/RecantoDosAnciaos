@@ -4,6 +4,7 @@ import Dashboard from './components/Dashboard';
 import ResidentsList from './components/ResidentsList';
 import ResidentProfile from './components/ResidentProfile';
 import GeneralEvolutionModule from './components/GeneralEvolutionModule';
+import GeneralCarePlanModule from './components/GeneralCarePlanModule';
 import FinanceModule from './components/FinanceModule';
 import StockModule from './components/StockModule';
 import TeamModule from './components/TeamModule';
@@ -125,6 +126,9 @@ const pathToView = (path: string): { view: ViewState; residentId?: string } => {
     case 'general-evolution':
     case 'evolucao-geral':
       return { view: ViewState.GENERAL_EVOLUTION };
+    case 'general-care-plan':
+    case 'plano-evolutivo-geral':
+      return { view: ViewState.GENERAL_CARE_PLAN };
     case 'agenda':
       return { view: ViewState.AGENDA };
     case 'nutrition':
@@ -163,6 +167,8 @@ const viewToPath = (view: ViewState, residentId?: string): string => {
       return '/residents';
     case ViewState.GENERAL_EVOLUTION:
       return '/evolucao-geral';
+    case ViewState.GENERAL_CARE_PLAN:
+      return '/plano-evolutivo-geral';
     case ViewState.RESIDENT_DETAIL:
       return residentId ? `/residents/${residentId}` : '/residents';
     case ViewState.AGENDA:
@@ -962,6 +968,7 @@ function AppInner() {
       [ViewState.DASHBOARD]: 'Painel Geral',
       [ViewState.RESIDENTS]: 'Residentes & Prontuário',
       [ViewState.GENERAL_EVOLUTION]: 'Evolução Geral',
+      [ViewState.GENERAL_CARE_PLAN]: 'Plano Evolutivo Geral',
       [ViewState.RESIDENT_DETAIL]: selectedResident
         ? `Prontuário – ${selectedResident.name}`
         : 'Prontuário do Residente',
@@ -2474,6 +2481,8 @@ function AppInner() {
         );
       case ViewState.GENERAL_EVOLUTION:
         return <GeneralEvolutionModule residents={residents} />;
+      case ViewState.GENERAL_CARE_PLAN:
+        return <GeneralCarePlanModule residents={residents} />;
       case ViewState.RESIDENT_DETAIL:
         if (!selectedResident) {
           // While the resident id from the URL is being resolved, never mount
@@ -2648,7 +2657,7 @@ function AppInner() {
         stockAlertCount={lowStockItems.length}
       />
 
-      <main className="flex-1 min-w-0 max-w-full lg:max-w-[calc(100vw-288px)] flex flex-col h-full overflow-hidden transition-all">
+      <main className="flex-1 min-w-0 max-w-full lg:max-w-[calc(100vw-256px)] flex flex-col h-full overflow-hidden transition-all">
         {trialInfo?.isInTrial && !trialInfo.isExpired && (
           <TrialBanner
             daysRemaining={trialInfo.daysRemaining}

@@ -801,6 +801,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (explicitPermission) return explicitPermission.actions.includes(action);
       return hasPermission(ViewState.RESIDENT_DETAIL_EVOLUTION, action);
     }
+
+    // O plano geral cria os mesmos planos consumidos pelo prontuário individual.
+    // Por padrão herda a permissão do Plano Evolutivo, com opção de sobrescrita.
+    if (module === ViewState.GENERAL_CARE_PLAN) {
+      const explicitPermission = currentUser.profile.permissions.find(
+        permission => permission.module === ViewState.GENERAL_CARE_PLAN,
+      );
+      if (explicitPermission) return explicitPermission.actions.includes(action);
+      return hasPermission(ViewState.RESIDENT_DETAIL_CARE_PLAN, action);
+    }
     
     // Fallback de permissão para novos módulos (ROOMS) caso não estejam persistidos no banco
     if (module === ViewState.ROOMS) {
