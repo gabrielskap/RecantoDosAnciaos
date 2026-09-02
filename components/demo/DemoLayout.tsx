@@ -352,6 +352,7 @@ const DemoLayoutInner: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
           onChangeView={navigateTo}
           isOpen={sidebarOpen}
           setIsOpen={setSidebarOpen}
+          hideGeneralEvolution
           stockAlertCount={lowStockItems.length}
         />
 

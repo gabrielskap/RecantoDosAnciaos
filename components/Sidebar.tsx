@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { LayoutDashboard, Users, HeartPulse, Wallet, Package, LogOut, UserCog, Utensils, PieChart, CalendarDays, X, UserCircle, BedDouble, ChevronRight, Settings, MessageSquare, Thermometer, ChevronsUpDown } from 'lucide-react';
+import { LayoutDashboard, Users, HeartPulse, Wallet, Package, LogOut, UserCog, Utensils, PieChart, CalendarDays, X, UserCircle, BedDouble, ChevronRight, Settings, MessageSquare, Thermometer, ChevronsUpDown, ClipboardPenLine } from 'lucide-react';
 import { ViewState } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -9,9 +9,10 @@ interface SidebarProps {
   isOpen: boolean;
   setIsOpen: (isOpen: boolean) => void;
   stockAlertCount?: number;
+  hideGeneralEvolution?: boolean;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, isOpen, setIsOpen, stockAlertCount = 0 }) => {
+const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, isOpen, setIsOpen, stockAlertCount = 0, hideGeneralEvolution = false }) => {
   const { currentUser, hasPermission, logout } = useAuth();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -29,6 +30,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, isOpen, se
   const navItems = [
     { id: ViewState.DASHBOARD,       label: 'Painel Geral',             icon: LayoutDashboard },
     { id: ViewState.RESIDENTS,       label: 'Residentes & Prontuário',   icon: Users },
+    ...(!hideGeneralEvolution ? [{ id: ViewState.GENERAL_EVOLUTION, label: 'Evolução Geral', icon: ClipboardPenLine }] : []),
     { id: ViewState.ROOMS,           label: 'Gerenciamento de Quartos',  icon: BedDouble },
     { id: ViewState.AGENDA,          label: 'Agenda & Atividades',       icon: CalendarDays },
     { id: ViewState.NUTRITION,       label: 'Alimentação & Nutrição',    icon: Utensils },

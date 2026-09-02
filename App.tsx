@@ -3,6 +3,7 @@ import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
 import ResidentsList from './components/ResidentsList';
 import ResidentProfile from './components/ResidentProfile';
+import GeneralEvolutionModule from './components/GeneralEvolutionModule';
 import FinanceModule from './components/FinanceModule';
 import StockModule from './components/StockModule';
 import TeamModule from './components/TeamModule';
@@ -121,6 +122,9 @@ const pathToView = (path: string): { view: ViewState; residentId?: string } => {
         return { view: ViewState.RESIDENT_DETAIL, residentId: parts[1] };
       }
       return { view: ViewState.RESIDENTS };
+    case 'general-evolution':
+    case 'evolucao-geral':
+      return { view: ViewState.GENERAL_EVOLUTION };
     case 'agenda':
       return { view: ViewState.AGENDA };
     case 'nutrition':
@@ -157,6 +161,8 @@ const viewToPath = (view: ViewState, residentId?: string): string => {
       return '/dashboard';
     case ViewState.RESIDENTS:
       return '/residents';
+    case ViewState.GENERAL_EVOLUTION:
+      return '/evolucao-geral';
     case ViewState.RESIDENT_DETAIL:
       return residentId ? `/residents/${residentId}` : '/residents';
     case ViewState.AGENDA:
@@ -955,6 +961,7 @@ function AppInner() {
     const viewTitles: Partial<Record<ViewState, string>> = {
       [ViewState.DASHBOARD]: 'Painel Geral',
       [ViewState.RESIDENTS]: 'Residentes & Prontuário',
+      [ViewState.GENERAL_EVOLUTION]: 'Evolução Geral',
       [ViewState.RESIDENT_DETAIL]: selectedResident
         ? `Prontuário – ${selectedResident.name}`
         : 'Prontuário do Residente',
@@ -1299,7 +1306,7 @@ function AppInner() {
           if (deletedMedIds.length > 0) {
             const { error: deletedMedsError } = await supabase
               .from('Recanto_Medicacoes')
-              .delete()
+              .update({ status: 'inativo' })
               .in('id', deletedMedIds);
             if (deletedMedsError) throw deletedMedsError;
           }
@@ -1318,7 +1325,8 @@ function AppInner() {
               start_date: med.startDate || null,
               end_date: med.endDate || null,
               observations: med.observations || null,
-              document_url: med.documentUrl || null
+              document_url: med.documentUrl || null,
+              status: med.status || 'ativo'
             };
           });
 
@@ -2464,6 +2472,8 @@ function AppInner() {
             onUpdateResident={handleUpdateResident}
           />
         );
+      case ViewState.GENERAL_EVOLUTION:
+        return <GeneralEvolutionModule residents={residents} />;
       case ViewState.RESIDENT_DETAIL:
         if (!selectedResident) {
           // While the resident id from the URL is being resolved, never mount

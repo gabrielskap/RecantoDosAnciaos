@@ -380,7 +380,8 @@ export async function fetchPrescricoesResidente(
   const { data, error } = await supabase
     .from('Recanto_Medicacoes')
     .select('id, name, dosage, frequency')
-    .eq('resident_id', residentId);
+    .eq('resident_id', residentId)
+    .eq('status', 'ativo');
   if (error) throw error;
   return (data || []).map((m: any) => ({ id: m.id, name: m.name, dosage: m.dosage, frequency: m.frequency }));
 }

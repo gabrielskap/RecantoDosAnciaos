@@ -789,6 +789,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     
     // Super Administrador tem acesso total a tudo por padrão
     if (currentUser.profile.type === 'Administrador') return true;
+
+    // A evolução geral é apenas uma forma de lançar a mesma evolução do
+    // prontuário para vários residentes. Ela herda exatamente a permissão da
+    // aba Evolução para não abrir um caminho de acesso clínico paralelo.
+    if (module === ViewState.GENERAL_EVOLUTION) {
+      return hasPermission(ViewState.RESIDENT_DETAIL_EVOLUTION, action);
+    }
     
     // Fallback de permissão para novos módulos (ROOMS) caso não estejam persistidos no banco
     if (module === ViewState.ROOMS) {

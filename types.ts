@@ -17,6 +17,7 @@ export interface Medication {
   endDate?: string;
   logs: MedicationLog[];
   observations?: string;
+  status?: 'ativo' | 'inativo';
   documentUrl?: string;
 }
 
@@ -478,6 +479,7 @@ export interface CalendarEvent {
 export enum ViewState {
   DASHBOARD = 'DASHBOARD',
   RESIDENTS = 'RESIDENTS',
+  GENERAL_EVOLUTION = 'GENERAL_EVOLUTION',
   RESIDENT_DETAIL = 'RESIDENT_DETAIL',
   FINANCE = 'FINANCE',
   STOCK = 'STOCK',

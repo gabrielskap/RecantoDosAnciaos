@@ -160,6 +160,7 @@ function mapResidentRow(r: any, heavy: ResidentHeavyData): Resident {
         endDate: m.end_date || undefined,
         observations: m.observations || undefined,
         documentUrl: m.document_url || undefined,
+        status: m.status || 'ativo',
         logs: (m.logs || []).map((log: any) => ({
           id: log.id,
           timestamp: log.timestamp,
@@ -613,6 +614,7 @@ const mapMedicationRow = (row: any): Medication => ({
   endDate: row.end_date || undefined,
   observations: row.observations || undefined,
   documentUrl: row.document_url || undefined,
+  status: row.status || 'ativo',
   logs: [],
 });
 
@@ -631,8 +633,9 @@ export function fetchResidentMedicationsPaginated(
     const to = from + normalizedPageSize - 1;
     const { data, count, error } = await supabase
       .from('Recanto_Medicacoes')
-      .select('id,name,dosage,route,frequency,next_dose,start_date,end_date,observations,document_url', { count: 'exact' })
+      .select('id,name,dosage,route,frequency,next_dose,start_date,end_date,observations,document_url,status', { count: 'exact' })
       .eq('resident_id', normalizedResidentId)
+      .eq('status', 'ativo')
       .order('end_date', { ascending: false, nullsFirst: true })
       .order('name', { ascending: true })
       .order('id', { ascending: true })
@@ -659,10 +662,11 @@ export function fetchCompanyMedicationsPaginated(
     const { data, count, error } = await supabase
       .from('Recanto_Medicacoes')
       .select(
-        'id,resident_id,name,dosage,route,frequency,next_dose,start_date,end_date,observations,document_url,resident:Recanto_Residentes!inner(empresa_id)',
+        'id,resident_id,name,dosage,route,frequency,next_dose,start_date,end_date,observations,document_url,status,resident:Recanto_Residentes!inner(empresa_id)',
         { count: 'exact' },
       )
       .eq('resident.empresa_id', normalizedEmpresaId)
+      .eq('status', 'ativo')
       .order('resident_id', { ascending: true })
       .order('id', { ascending: true })
       .range(from, to);
@@ -743,7 +747,7 @@ export function fetchResidentDetails(residentId: string): Promise<Resident | nul
     nutriLogsResult,
     visitsResult
   ] = await Promise.all([
-    supabase.from('Recanto_Medicacoes').select('*').eq('resident_id', normalizedResidentId),
+    supabase.from('Recanto_Medicacoes').select('*').eq('resident_id', normalizedResidentId).eq('status', 'ativo'),
     supabase.from('Recanto_Receitas').select('*').eq('resident_id', normalizedResidentId),
     supabase
       .from('Recanto_SinaisVitais')

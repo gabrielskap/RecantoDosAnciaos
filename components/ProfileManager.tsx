@@ -6,6 +6,7 @@ import { Profile, ViewState, PermissionAction } from '../types';
 const MODULE_LABELS: Record<ViewState, string> = {
   [ViewState.DASHBOARD]: 'Painel Geral',
   [ViewState.RESIDENTS]: 'Residentes',
+  [ViewState.GENERAL_EVOLUTION]: 'Evolução Geral',
   [ViewState.RESIDENT_DETAIL]: 'Prontuário',
   [ViewState.AGENDA]: 'Agenda',
   [ViewState.NUTRITION]: 'Nutrição',
@@ -36,6 +37,7 @@ const MODULE_LABELS: Record<ViewState, string> = {
 const EDITABLE_MODULES = [
   ViewState.DASHBOARD,
   ViewState.RESIDENTS,
+  ViewState.GENERAL_EVOLUTION,
   ViewState.RESIDENT_DETAIL,
   ViewState.AGENDA,
   ViewState.NUTRITION,

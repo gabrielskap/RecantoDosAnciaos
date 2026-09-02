@@ -574,6 +574,7 @@ const TrialEnvironment: React.FC = () => {
           onChangeView={navigateTo}
           isOpen={sidebarOpen}
           setIsOpen={setSidebarOpen}
+          hideGeneralEvolution
           stockAlertCount={lowStockItems.length}
         />
 
