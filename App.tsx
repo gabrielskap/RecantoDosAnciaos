@@ -2480,7 +2480,7 @@ function AppInner() {
           />
         );
       case ViewState.GENERAL_EVOLUTION:
-        return <GeneralEvolutionModule residents={residents} />;
+        return <GeneralEvolutionModule residents={residents} onSelectResident={handleSelectResident} />;
       case ViewState.GENERAL_CARE_PLAN:
         return <GeneralCarePlanModule residents={residents} />;
       case ViewState.RESIDENT_DETAIL:
@@ -2771,8 +2771,13 @@ function AppInner() {
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 md:p-8" ref={mainContentRef}>
-          <div className="w-full">
+        <div
+          className={`flex-1 p-4 md:p-8 ${
+            currentView === ViewState.RESIDENT_DETAIL ? 'min-h-0 overflow-hidden' : 'overflow-y-auto'
+          }`}
+          ref={mainContentRef}
+        >
+          <div className={`w-full ${currentView === ViewState.RESIDENT_DETAIL ? 'h-full min-h-0' : ''}`}>
             <ErrorBoundary key={currentView}>
               {renderContent()}
             </ErrorBoundary>

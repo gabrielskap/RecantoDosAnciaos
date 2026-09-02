@@ -4392,16 +4392,20 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, resi
 
 
   return (
-    <div className="space-y-6">
-      {/* Header Back Button */}
-      <button onClick={onBack} className="flex items-center text-slate-500 hover:text-[#1e40af] transition-colors p-2 md:p-0 font-medium">
-        <ArrowLeft className="h-4 w-4 mr-1" /> Voltar aos Residentes
-      </button>
-
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white rounded-2xl shadow-sm border border-slate-100">
         {/* Profile Header */}
-        <div className="p-4 md:p-6 flex flex-col md:flex-row justify-between items-start gap-4 bg-gradient-to-r from-blue-500 to-blue-600">
+        <div className="shrink-0 p-4 md:p-6 flex flex-col md:flex-row justify-between items-start gap-4 bg-gradient-to-r from-blue-500 to-blue-600">
           <div className="flex items-center w-full md:w-auto">
+            <button
+              type="button"
+              onClick={onBack}
+              aria-label="Voltar aos Residentes"
+              title="Voltar aos Residentes"
+              className="mr-3 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/25 bg-white/15 text-white transition-colors hover:bg-white/25"
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </button>
             <img
               src={residentAvatarSrc(resident.name, resident.photoUrl)}
               alt={resident.name}
@@ -4448,7 +4452,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, resi
         </div>
 
         {isInactive && (
-          <div className="mx-4 md:mx-6 mt-4 p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-center gap-3 text-rose-800 shadow-sm">
+          <div className="mx-4 md:mx-6 mt-4 shrink-0 p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-center gap-3 text-rose-800 shadow-sm">
             <UserX className="w-6 h-6 text-rose-600 shrink-0" />
             <div>
               <p className="font-bold text-sm">Residente Desativado / Desligado</p>
@@ -4460,7 +4464,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, resi
         )}
 
         {/* Tabs Navigation - Improved Scroll */}
-        <div className="border-b border-slate-200 bg-white sticky top-0 z-10">
+        <div className="shrink-0 border-b border-slate-200 bg-white z-10">
           <div className="flex overflow-x-auto px-2 md:px-6 no-scrollbar">
             {visibleTabs.map((tab) => (
               <button
@@ -4480,7 +4484,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, resi
         </div>
 
         {/* Tab Content */}
-        <div className="p-4 md:p-6 min-h-[400px]">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 md:p-6">
           
           {activeTab === 'info' && (
             <div className="space-y-6">

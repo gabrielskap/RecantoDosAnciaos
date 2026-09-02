@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   Check,
   CheckCircle2,
+  Clock3,
   ChevronLeft,
   ChevronRight,
   ClipboardPenLine,
@@ -17,6 +18,7 @@ import { toast } from '../services/toast';
 import RichTextEditor from './RichTextEditor';
 import RichTextContent from './RichTextContent';
 import { richTextHasContent, richTextToPlainText, sanitizeRichText } from '../lib/richText';
+import { residentAvatarSrc } from '../lib/avatar';
 
 type EvolutionArea =
   | 'enfermagem'
@@ -91,7 +93,22 @@ const newUuid = (): string => {
 const normalizeSearch = (value: string) =>
   value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 
-const GeneralEvolutionModule: React.FC<{ residents: Resident[] }> = ({ residents }) => {
+const formatInsertionDate = (value: string): string => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Data não informada';
+
+  return `${date.toLocaleDateString('pt-BR')} às ${date.toLocaleTimeString('pt-BR', {
+    hour: '2-digit',
+    minute: '2-digit',
+  })}`;
+};
+
+interface GeneralEvolutionModuleProps {
+  residents: Resident[];
+  onSelectResident: (resident: Resident) => void;
+}
+
+const GeneralEvolutionModule: React.FC<GeneralEvolutionModuleProps> = ({ residents, onSelectResident }) => {
   const { currentUser, hasPermission } = useAuth();
   const initialArea = initialAreaForRole(currentUser?.employeeRole || currentUser?.profile.type);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -408,37 +425,63 @@ const GeneralEvolutionModule: React.FC<{ residents: Resident[] }> = ({ residents
           ) : visibleGroups.length > 0 ? (
             <div className="space-y-3">
               {visibleGroups.map(group => {
-                const residentNames = group.residentIds
-                  .map(id => residentById.get(id)?.name || 'Residente não encontrado')
-                  .sort((a, b) => a.localeCompare(b, 'pt-BR'));
+                const groupResidents = group.residentIds
+                  .map(id => ({ id, resident: residentById.get(id) }))
+                  .sort((a, b) => (a.resident?.name || '').localeCompare(b.resident?.name || '', 'pt-BR'));
                 const areaLabel = EVOLUTION_AREAS.find(option => option.id === group.area)?.label || group.area;
                 return (
                   <article key={group.id} className="rounded-xl border border-slate-200 p-4 transition-shadow hover:shadow-sm">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-bold text-slate-800">{group.userName}</span>
-                          <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700">{areaLabel}</span>
-                          {residentNames.length > 1 && (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
-                              <Users className="h-3 w-3" /> Evolução geral
+                      <div className="min-w-0 flex-1">
+                        <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-400">
+                          {groupResidents.length === 1 ? 'Paciente' : 'Pacientes'}
+                        </p>
+                        <div className="flex flex-wrap gap-x-2 gap-y-1">
+                          {groupResidents.map(({ id, resident }) => resident ? (
+                            <a
+                              key={id}
+                              href={`/residents/${resident.id}`}
+                              onClick={event => {
+                                event.preventDefault();
+                                onSelectResident(resident);
+                              }}
+                              className="group/resident inline-flex items-center gap-2 rounded-xl bg-blue-50 py-1.5 pl-1.5 pr-3 text-base font-bold text-slate-900 ring-1 ring-inset ring-blue-100 transition-colors hover:bg-blue-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                              title={`Abrir prontuário de ${resident.name}`}
+                            >
+                              <img
+                                src={residentAvatarSrc(resident.name, resident.photoUrl)}
+                                alt={`Foto de ${resident.name}`}
+                                className="h-9 w-9 rounded-lg border border-white object-cover shadow-sm"
+                              />
+                              <span className="group-hover/resident:underline">{resident.name}</span>
+                            </a>
+                          ) : (
+                            <span key={id} className="rounded-lg bg-slate-100 px-2.5 py-1 text-sm font-semibold text-slate-500">
+                              Residente não encontrado
                             </span>
-                          )}
+                          ))}
                         </div>
-                        <time className="mt-1 block text-xs text-slate-400">
-                          {new Date(group.createdAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}
-                        </time>
                       </div>
                       <span className="shrink-0 text-xs font-semibold text-slate-500">
-                        {residentNames.length} residente{residentNames.length === 1 ? '' : 's'}
+                        {groupResidents.length} residente{groupResidents.length === 1 ? '' : 's'}
                       </span>
                     </div>
-                    <RichTextContent value={group.details} className="mt-3 text-sm leading-relaxed text-slate-600" />
-                    <div className="mt-3 flex flex-wrap gap-1.5 border-t border-slate-100 pt-3">
-                      {residentNames.map(name => (
-                        <span key={name} className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">{name}</span>
-                      ))}
+
+                    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-slate-400">
+                      <span>
+                        Profissional: <span className="font-medium text-slate-500">{group.userName}</span>
+                      </span>
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500">{areaLabel}</span>
+                      {groupResidents.length > 1 && (
+                        <span className="inline-flex items-center gap-1 text-emerald-600">
+                          <Users className="h-3 w-3" /> Evolução geral
+                        </span>
+                      )}
+                      <time dateTime={group.createdAt} className="inline-flex items-center gap-1">
+                        <Clock3 className="h-3.5 w-3.5" /> Inserido em {formatInsertionDate(group.createdAt)}
+                      </time>
                     </div>
+                    <RichTextContent value={group.details} className="mt-3 text-sm leading-relaxed text-slate-600" />
                   </article>
                 );
               })}

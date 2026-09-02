@@ -439,8 +439,12 @@ const DemoLayoutInner: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
           </div>
 
           {/* Main content */}
-          <main className="flex-1 overflow-y-auto p-4 md:p-8 w-full">
-            <div className="w-full">
+          <main
+            className={`flex-1 p-4 md:p-8 w-full ${
+              currentView === ViewState.RESIDENT_DETAIL ? 'min-h-0 overflow-hidden' : 'overflow-y-auto'
+            }`}
+          >
+            <div className={`w-full ${currentView === ViewState.RESIDENT_DETAIL ? 'h-full min-h-0' : ''}`}>
               {renderContent()}
             </div>
           </main>
