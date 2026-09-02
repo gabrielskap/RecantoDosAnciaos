@@ -39,6 +39,7 @@ const FORMA_UNIT: Record<MedicamentoForma, string> = {
 
 const inputClass = 'w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white';
 const GROUPS_PER_PAGE = 6;
+const ALERT_GROUPS_PER_PAGE = 10;
 
 const emptyForm = {
   residentId: '' as string,
@@ -102,6 +103,7 @@ const MedicationInventoryTab: React.FC<Props> = ({ residents = [] }) => {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [showSortMenu, setShowSortMenu] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [alertPage, setAlertPage] = useState(1);
 
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [form, setForm] = useState({ ...emptyForm });
@@ -231,6 +233,16 @@ const MedicationInventoryTab: React.FC<Props> = ({ residents = [] }) => {
       .map(group => group.slice().sort(cmp))
       .sort((a, b) => cmp(a[0], b[0]));
   }, [items]);
+
+  const alertTotalPages = Math.max(1, Math.ceil(alertGroups.length / ALERT_GROUPS_PER_PAGE));
+  const paginatedAlertGroups = useMemo(
+    () => alertGroups.slice((alertPage - 1) * ALERT_GROUPS_PER_PAGE, alertPage * ALERT_GROUPS_PER_PAGE),
+    [alertGroups, alertPage],
+  );
+
+  useEffect(() => {
+    setAlertPage(page => Math.min(page, alertTotalPages));
+  }, [alertTotalPages]);
 
   const openForm = () => { setForm({ ...emptyForm }); setPrescricoes([]); setIsFormOpen(true); };
 
@@ -440,7 +452,7 @@ const MedicationInventoryTab: React.FC<Props> = ({ residents = [] }) => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-6">
       {/* Sub Header */}
       <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -560,7 +572,7 @@ const MedicationInventoryTab: React.FC<Props> = ({ residents = [] }) => {
 
       {/* Card de alerta: medicamentos próximos de acabar */}
       {!loading && !alertDismissed && alertGroups.length > 0 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 sm:p-5">
+        <div className="order-2 bg-amber-50 border border-amber-200 rounded-2xl p-4 sm:p-5">
           <div className="flex items-start justify-between gap-3 mb-3">
             <div className="flex items-center gap-2.5 min-w-0">
               <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
@@ -586,8 +598,9 @@ const MedicationInventoryTab: React.FC<Props> = ({ residents = [] }) => {
               <X className="h-4 w-4 text-amber-700" />
             </button>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            {alertGroups.map(group => {
+          <div className="max-h-[280px] overflow-y-auto overscroll-contain pr-1" aria-label="Medicamentos próximos de acabar">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {paginatedAlertGroups.map(group => {
               const { item, motivo } = group[0];
               const key = chaveAgrupamento(item);
               if (group.length === 1) {
@@ -633,15 +646,45 @@ const MedicationInventoryTab: React.FC<Props> = ({ residents = [] }) => {
                 </div>
               );
             })}
+            </div>
           </div>
+
+          {alertTotalPages > 1 && (
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mt-4 pt-4 border-t border-amber-200">
+              <p className="text-[11px] text-amber-800">
+                Exibindo grupos {(alertPage - 1) * ALERT_GROUPS_PER_PAGE + 1}–{Math.min(alertPage * ALERT_GROUPS_PER_PAGE, alertGroups.length)} de {alertGroups.length}
+              </p>
+              <div className="flex items-center justify-between sm:justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setAlertPage(page => Math.max(1, page - 1))}
+                  disabled={alertPage === 1}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-amber-200 bg-white text-xs font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" /> Anterior
+                </button>
+                <span className="min-w-20 text-center text-xs font-semibold text-amber-900">
+                  Página {alertPage} de {alertTotalPages}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setAlertPage(page => Math.min(alertTotalPages, page + 1))}
+                  disabled={alertPage === alertTotalPages}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-amber-200 bg-white text-xs font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Próxima <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
       {/* Lista */}
       {loading ? (
-        <div className="py-16 text-center text-sm text-slate-400">Carregando inventário...</div>
+        <div className="order-1 py-16 text-center text-sm text-slate-400">Carregando inventário...</div>
       ) : groups.length === 0 && items.length === 0 ? (
-        <div className="bg-white rounded-2xl shadow-sm shadow-blue-100/40 border border-slate-100 py-16 flex flex-col items-center gap-3 text-center px-6">
+        <div className="order-1 bg-white rounded-2xl shadow-sm shadow-blue-100/40 border border-slate-100 py-16 flex flex-col items-center gap-3 text-center px-6">
           <div className="w-14 h-14 rounded-2xl bg-blue-50 flex items-center justify-center">
             <PackageSearch className="h-7 w-7 text-blue-200" />
           </div>
@@ -651,7 +694,7 @@ const MedicationInventoryTab: React.FC<Props> = ({ residents = [] }) => {
           </p>
         </div>
       ) : groups.length === 0 ? (
-        <div className="bg-white rounded-2xl shadow-sm shadow-blue-100/40 border border-slate-100 py-16 flex flex-col items-center gap-3 text-center px-6">
+        <div className="order-1 bg-white rounded-2xl shadow-sm shadow-blue-100/40 border border-slate-100 py-16 flex flex-col items-center gap-3 text-center px-6">
           <div className="w-14 h-14 rounded-2xl bg-slate-50 flex items-center justify-center">
             <PackageSearch className="h-7 w-7 text-slate-300" />
           </div>
@@ -661,7 +704,7 @@ const MedicationInventoryTab: React.FC<Props> = ({ residents = [] }) => {
           </button>
         </div>
       ) : (
-        <div className="space-y-4">
+        <div className="order-1 space-y-4">
           <div className="max-h-[70vh] overflow-y-auto overscroll-contain pr-1" aria-label="Lista do inventário de medicamentos">
             <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-4">
           {paginatedGroups.map(group => {
