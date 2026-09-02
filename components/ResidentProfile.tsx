@@ -24,6 +24,9 @@ import {
 } from '../services/checklistDraftService';
 import { fetchResidentAuditLogsPaginated, fetchResidentVitalsPaginated } from '../services/dataService';
 import { isBeforeToday, getTodayDateString, getTodayStartDatetimeLocal } from '../utils/dateUtils';
+import RichTextEditor from './RichTextEditor';
+import RichTextContent from './RichTextContent';
+import { richTextHasContent, sanitizeRichText } from '../lib/richText';
 
 const VITALS_PAGE_SIZE = 50;
 
@@ -4205,7 +4208,9 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, resi
       toast.error('Operação não permitida: residente está desativado.');
       return;
     }
-    if (!newNoteText.trim() || !onUpdateResident) return;
+    if (!richTextHasContent(newNoteText) || !onUpdateResident) return;
+
+    const sanitizedNote = sanitizeRichText(newNoteText);
 
     const creatorRole = currentUser?.employeeRole || currentUser?.profile.type || 'Profissional';
     const creatorName = currentUser?.name || 'Usuário Atual';
@@ -4230,7 +4235,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, resi
       userId: currentUser?.id || 'current-user',
       userName: formattedSignature,
       action: 'Evolução',
-      details: newNoteText.trim(),
+      details: sanitizedNote,
       data: { evolutionArea: newNoteArea }
     };
 
@@ -8221,16 +8226,15 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, resi
                         </select>
                       </div>
                       <div className="flex flex-col gap-2 sm:flex-row">
-                        <textarea
+                        <RichTextEditor
                           value={newNoteText}
-                          onChange={(e) => setNewNoteText(e.target.value)}
-                          className="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-sm resize-none"
-                          rows={3}
+                          onChange={setNewNoteText}
+                          minHeightClassName="min-h-24"
                           placeholder={`Nova anotação de ${EVOLUTION_AREAS.find(a => a.id === newNoteArea)?.noteLabel || 'evolução'}...`}
                         />
                       <button 
                         onClick={handleSaveEvolutionNote}
-                        disabled={!newNoteText.trim()}
+                        disabled={!richTextHasContent(newNoteText)}
                         className="bg-primary-600 text-white px-5 py-2 rounded-lg font-medium hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all cursor-pointer sm:self-stretch"
                       >
                         Salvar
@@ -8260,7 +8264,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, resi
                                         {new Date(log.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
                                       </time>
                                   </div>
-                                  <div className="text-slate-600 text-sm whitespace-pre-wrap break-words">{log.details}</div>
+                                  <RichTextContent value={log.details} className="text-sm text-slate-600" />
                               </div>
                           </div>
                         ))}
@@ -8539,7 +8543,7 @@ const ResidentProfile: React.FC<ResidentProfileProps> = ({ resident, rooms, resi
                                       <p className="text-sm text-slate-500">
                                         <span className="font-medium text-slate-900">{log.action}</span> por <span className="font-medium text-slate-900">{log.userName}</span>
                                       </p>
-                                      <p className="text-sm text-slate-600 mt-1">{log.details}</p>
+                                      <RichTextContent value={log.details} className="mt-1 text-sm text-slate-600" />
                                     </div>
                                     <div className="whitespace-nowrap text-right text-xs text-slate-400">
                                       <time dateTime={log.timestamp}>{new Date(log.timestamp).toLocaleString()}</time>

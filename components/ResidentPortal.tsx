@@ -8,6 +8,7 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { Resident, CalendarEvent } from '../types';
 import { getShiftLabel } from './ResidentProfile';
+import RichTextContent from './RichTextContent';
 
 interface ResidentPortalProps {
   resident: Resident | undefined;
@@ -406,7 +407,7 @@ const ResidentPortal: React.FC<ResidentPortalProps> = ({ resident, events }) => 
                         </div>
                         <div className="flex-1 min-w-0 bg-slate-50/80 rounded-xl p-3.5">
                           <p className="text-sm font-semibold text-slate-800 leading-snug">{log.action}</p>
-                          <p className="text-xs text-slate-500 mt-1 leading-relaxed">{log.details}</p>
+                          <RichTextContent value={log.details} className="mt-1 text-xs leading-relaxed text-slate-500" />
                           <p className="text-[11px] text-slate-400 mt-2 flex items-center gap-1">
                             <Clock className="h-3 w-3" />
                             {new Date(log.timestamp).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}

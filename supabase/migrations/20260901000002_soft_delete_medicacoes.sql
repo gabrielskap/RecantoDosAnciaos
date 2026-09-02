@@ -9,7 +9,11 @@
 DO $$
 BEGIN
   IF NOT EXISTS (
-    SELECT 1 FROM pg_type WHERE typname = 'recanto_status_prescricao_medicacao'
+    SELECT 1
+    FROM pg_type t
+    JOIN pg_namespace n ON n.oid = t.typnamespace
+    WHERE n.nspname = 'public'
+      AND t.typname = 'recanto_status_prescricao_medicacao'
   ) THEN
     CREATE TYPE public.recanto_status_prescricao_medicacao AS ENUM ('ativo', 'inativo');
   END IF;

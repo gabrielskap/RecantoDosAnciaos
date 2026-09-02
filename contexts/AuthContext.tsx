@@ -792,8 +792,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // A evolução geral é apenas uma forma de lançar a mesma evolução do
     // prontuário para vários residentes. Ela herda exatamente a permissão da
-    // aba Evolução para não abrir um caminho de acesso clínico paralelo.
+    // aba Evolução por padrão, mas aceita uma configuração explícita criada
+    // posteriormente pelo administrador.
     if (module === ViewState.GENERAL_EVOLUTION) {
+      const explicitPermission = currentUser.profile.permissions.find(
+        permission => permission.module === ViewState.GENERAL_EVOLUTION,
+      );
+      if (explicitPermission) return explicitPermission.actions.includes(action);
       return hasPermission(ViewState.RESIDENT_DETAIL_EVOLUTION, action);
     }
     
